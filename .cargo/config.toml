@@ -1,0 +1,3 @@
+[build]
+# Limit parallel jobs to prevent compiler crashes on Windows
+jobs = 4
