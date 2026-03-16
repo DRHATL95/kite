@@ -61,6 +61,9 @@ pub struct StreamConfig {
     /// Game streaming token for authentication
     #[serde(rename = "gsToken")]
     pub gs_token: String,
+    /// Keepalive interval from Xbox session config (seconds)
+    #[serde(rename = "keepAlivePulseSeconds", skip_serializing_if = "Option::is_none")]
+    pub keep_alive_pulse_seconds: Option<u32>,
 }
 
 fn default_streaming_mode() -> String {
@@ -451,13 +454,26 @@ impl XHomeClient {
 
         // If session is provisioning, we need to poll until it's ready
         let session_path = session_response.session_path.clone();
-        let (exchange_response, server_details) = if session_response.state.as_deref() == Some("Provisioning") {
+        let (exchange_response, server_details, keepalive_seconds) = if session_response.state.as_deref() == Some("Provisioning") {
             info!("Session is provisioning, waiting for it to be ready...");
             self.wait_for_session_ready(&session_path).await?
         } else if let Some(exchange) = session_response.exchange_response {
             // The exchange response might be the SDP directly or might need extraction
             let sdp = self.extract_sdp_from_response(&exchange).ok();
-            (sdp, session_response.server_details)
+            // Still fetch config to get keepalive interval
+            let keepalive = match self.get_session_configuration(&session_path).await {
+                Ok(config) => {
+                    if let Some(secs) = config.keep_alive_pulse_in_seconds {
+                        info!("Xbox keepAlivePulseInSeconds: {}s", secs);
+                    }
+                    config.keep_alive_pulse_in_seconds
+                }
+                Err(e) => {
+                    warn!("Failed to get session configuration: {}", e);
+                    None
+                }
+            };
+            (sdp, session_response.server_details, keepalive)
         } else {
             // Try to get session state/configuration
             self.wait_for_session_ready(&session_path).await?
@@ -486,6 +502,7 @@ impl XHomeClient {
             server_port,
             streaming_mode,
             gs_token: gs_token.to_string(),
+            keep_alive_pulse_seconds: keepalive_seconds,
         })
     }
     
@@ -525,7 +542,7 @@ impl XHomeClient {
     }
 
     /// Wait for session to be ready and return the exchange response and server details
-    async fn wait_for_session_ready(&self, session_path: &str) -> Result<(Option<String>, Option<ServerDetails>)> {
+    async fn wait_for_session_ready(&self, session_path: &str) -> Result<(Option<String>, Option<ServerDetails>, Option<u32>)> {
         let gs_token = self.gs_token.as_ref()
             .ok_or_else(|| XboxError::AuthError("Not logged in to xHome".to_string()))?;
         let api_base = self.api_base.as_ref()
@@ -565,19 +582,33 @@ impl XHomeClient {
             match state_response.state.as_str() {
                 "Provisioned" | "ReadyToConnect" => {
                     info!("Session is ready!");
-                    
+
+                    // Always fetch session configuration for keepalive interval
+                    let keepalive_seconds = match self.get_session_configuration(session_path).await {
+                        Ok(config) => {
+                            if let Some(secs) = config.keep_alive_pulse_in_seconds {
+                                info!("Xbox keepAlivePulseInSeconds: {}s", secs);
+                            }
+                            config.keep_alive_pulse_in_seconds
+                        }
+                        Err(e) => {
+                            warn!("Failed to get session configuration: {}", e);
+                            None
+                        }
+                    };
+
                     // Try to get SDP from state response first
                     if let Some(sdp) = state_response.sdp {
                         if sdp.trim().starts_with("v=") {
                             info!("Got SDP from state response");
-                            return Ok((Some(sdp), state_response.server_details));
+                            return Ok((Some(sdp), state_response.server_details, keepalive_seconds));
                         }
                     }
                     if let Some(exchange) = state_response.exchange_response {
                         if let Ok(extracted) = self.extract_sdp_from_response(&exchange) {
                             if extracted.trim().starts_with("v=") {
                                 info!("Got SDP from exchangeResponse in state");
-                                return Ok((Some(extracted), state_response.server_details));
+                                return Ok((Some(extracted), state_response.server_details, keepalive_seconds));
                             }
                         }
                     }
@@ -585,19 +616,13 @@ impl XHomeClient {
                         if let Some(ref sdp) = server_details.sdp {
                             if sdp.trim().starts_with("v=") {
                                 info!("Got SDP from serverDetails");
-                                return Ok((Some(sdp.clone()), state_response.server_details));
+                                return Ok((Some(sdp.clone()), state_response.server_details, keepalive_seconds));
                             }
                         }
                     }
-                    
-                    // Try to get configuration with server details
-                    if let Ok(config) = self.get_session_configuration(session_path).await {
-                        info!("Got server configuration: {:?}", config.server_details);
-                        return Ok((None, config.server_details));
-                    }
-                    
+
                     // Return what we have from state
-                    return Ok((None, state_response.server_details));
+                    return Ok((None, state_response.server_details, keepalive_seconds));
                 }
                 "Provisioning" | "WaitingForResources" => {
                     debug!("Session still provisioning...");
@@ -1282,7 +1307,8 @@ impl XHomeClient {
     }
 
     /// Keep session alive with heartbeat
-    pub async fn send_keepalive(&self, session_path: &str) -> Result<()> {
+    /// Returns the HTTP status code as a string so JS can log it
+    pub async fn send_keepalive(&self, session_path: &str) -> Result<String> {
         debug!("Sending session keepalive");
 
         let gs_token = self.gs_token.as_ref()
@@ -1290,21 +1316,26 @@ impl XHomeClient {
         let api_base = self.api_base.as_ref()
             .ok_or_else(|| XboxError::AuthError("No API base URL".to_string()))?;
 
-        let url = format!("{}{}/keepalive", api_base, session_path);
+        let url = format!("{}/{}/keepalive", api_base.trim_end_matches('/'), session_path.trim_start_matches('/'));
 
         let response = self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", gs_token))
+            .header("Content-Type", "application/json")
             .header("x-gssv-client", "XboxComBrowser")
             .send()
             .await
             .map_err(|e| XboxError::NetworkError(e))?;
 
-        if !response.status().is_success() {
-            warn!("Keepalive failed: {}", response.status());
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            warn!("Keepalive failed: {} - {}", status, body);
+            return Err(XboxError::ConnectionError(format!("Keepalive HTTP {}: {}", status, body)));
         }
 
-        Ok(())
+        Ok(format!("{}", status))
     }
 }

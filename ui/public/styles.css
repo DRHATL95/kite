@@ -74,6 +74,10 @@ main {
     animation: fadeIn 0.3s ease-in;
 }
 
+.hidden {
+    display: none !important;
+}
+
 .section.hidden {
     display: none;
 }
@@ -496,6 +500,169 @@ footer {
     opacity: 0.7;
 }
 
+/* Focus Mode - fills window with video, controls on hover */
+body.focus-mode {
+    overflow: hidden;
+}
+
+body.focus-mode .container {
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+body.focus-mode header,
+body.focus-mode footer,
+body.focus-mode .stream-stats,
+body.focus-mode #debug-panel,
+body.focus-mode #stream-section > h2 {
+    display: none !important;
+}
+
+body.focus-mode #stream-section {
+    padding: 0;
+    border-radius: 0;
+    background: #000;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+}
+
+body.focus-mode .stream-container {
+    flex: 1;
+    border-radius: 0;
+    margin: 0;
+    aspect-ratio: auto;
+}
+
+body.focus-mode .stream-controls {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.6));
+    padding: 30px 20px 20px;
+    margin: 0;
+    justify-content: center;
+    z-index: 110;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+body.focus-mode .stream-controls.show-controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Glass buttons in focus mode and fullscreen */
+body.focus-mode .stream-controls .btn,
+#stream-section:fullscreen .stream-controls .btn {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+body.focus-mode .stream-controls .btn:hover,
+#stream-section:fullscreen .stream-controls .btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+body.focus-mode .stream-controls .btn:active,
+#stream-section:fullscreen .stream-controls .btn:active {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(0);
+}
+
+/* Stop button stays red-tinted glass */
+body.focus-mode .stream-controls .btn-warning,
+#stream-section:fullscreen .stream-controls .btn-warning {
+    background: rgba(244, 67, 54, 0.25);
+    border-color: rgba(244, 67, 54, 0.4);
+}
+
+body.focus-mode .stream-controls .btn-warning:hover,
+#stream-section:fullscreen .stream-controls .btn-warning:hover {
+    background: rgba(244, 67, 54, 0.4);
+    border-color: rgba(244, 67, 54, 0.6);
+}
+
+/* Primary action button stays purple-tinted glass */
+body.focus-mode .stream-controls .btn-primary,
+#stream-section:fullscreen .stream-controls .btn-primary {
+    background: rgba(145, 71, 255, 0.3);
+    border-color: rgba(145, 71, 255, 0.4);
+}
+
+body.focus-mode .stream-controls .btn-primary:hover,
+#stream-section:fullscreen .stream-controls .btn-primary:hover {
+    background: rgba(145, 71, 255, 0.45);
+    border-color: rgba(145, 71, 255, 0.6);
+}
+
+/* Glass volume slider */
+body.focus-mode .volume-slider,
+#stream-section:fullscreen .volume-slider {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+body.focus-mode .volume-slider::-webkit-slider-thumb,
+#stream-section:fullscreen .volume-slider::-webkit-slider-thumb {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Fullscreen mode — stream-section is the fullscreen element */
+#stream-section:fullscreen {
+    background: #000;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+#stream-section:fullscreen > h2 {
+    display: none;
+}
+
+#stream-section:fullscreen .stream-container {
+    flex: 1;
+    border-radius: 0;
+    margin: 0;
+    aspect-ratio: auto;
+}
+
+#stream-section:fullscreen .stream-controls {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.6));
+    padding: 30px 20px 20px;
+    margin: 0;
+    justify-content: center;
+    z-index: 110;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+#stream-section:fullscreen .stream-controls:hover {
+    opacity: 1;
+}
+
+#stream-section:fullscreen .stream-stats,
+#stream-section:fullscreen #debug-panel {
+    display: none;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     header h1 {
@@ -520,4 +687,62 @@ footer {
     .stream-controls {
         flex-direction: column;
     }
+}
+
+/* Keyboard Help Panel */
+.keyboard-help {
+    margin-top: 15px;
+    padding: 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+.keyboard-help h4 {
+    color: var(--primary);
+    margin-bottom: 15px;
+    font-size: 1rem;
+}
+
+.keyboard-help .key-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.keyboard-help .key-group h5 {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+
+.keyboard-help .key-group span {
+    display: block;
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.keyboard-help kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #fff;
+    background: rgba(145, 71, 255, 0.25);
+    border: 1px solid rgba(145, 71, 255, 0.4);
+    border-radius: 4px;
+    margin: 0 2px;
+}
+
+.keyboard-help .key-note {
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+body.focus-mode .keyboard-help {
+    display: none !important;
 }

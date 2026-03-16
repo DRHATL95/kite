@@ -1,3 +1,6 @@
+// Hide the console window on Windows when running as a Tauri GUI app
+#![cfg_attr(feature = "tauri", windows_subsystem = "windows")]
+
 mod auth;
 mod discovery;
 mod error;
@@ -100,6 +103,7 @@ fn main() {
             tauri_commands::discover_local_xbox,
             tauri_commands::get_stream_status,
             tauri_commands::set_stream_status,
+            tauri_commands::send_session_keepalive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -380,5 +384,22 @@ mod tauri_commands {
         status.streaming = connection_state == "connected";
         status.state = connection_state;
         Ok(())
+    }
+
+    /// Send keepalive to xHome API to prevent session timeout
+    #[tauri::command]
+    pub async fn send_session_keepalive(
+        session_path: String,
+        state: State<'_, AppState>,
+    ) -> Result<String, String> {
+        let xhome = state.xhome.lock().await;
+        if let Some(client) = xhome.as_ref() {
+            client
+                .send_keepalive(&session_path)
+                .await
+                .map_err(|e| format!("Keepalive failed: {}", e))
+        } else {
+            Err("xHome client not initialized".to_string())
+        }
     }
 }
