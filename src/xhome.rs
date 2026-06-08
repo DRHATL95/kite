@@ -46,28 +46,15 @@ pub struct StreamConfig {
     pub session_id: String,
     #[serde(rename = "sessionPath")]
     pub session_path: String,
-    /// SDP offer for WebRTC mode (may be empty for Nano mode)
+    /// SDP offer from the WebRTC session exchange; empty until received.
     #[serde(rename = "exchangeResponse", default)]
     pub exchange_response: String,
-    /// Server IP for Nano protocol streaming
-    #[serde(rename = "serverIp", skip_serializing_if = "Option::is_none")]
-    pub server_ip: Option<String>,
-    /// Server port for Nano protocol streaming
-    #[serde(rename = "serverPort", skip_serializing_if = "Option::is_none")]
-    pub server_port: Option<u16>,
-    /// Streaming mode: "webrtc" or "nano"
-    #[serde(rename = "streamingMode", default = "default_streaming_mode")]
-    pub streaming_mode: String,
     /// Game streaming token for authentication
     #[serde(rename = "gsToken")]
     pub gs_token: String,
     /// Keepalive interval from Xbox session config (seconds)
     #[serde(rename = "keepAlivePulseSeconds", skip_serializing_if = "Option::is_none")]
     pub keep_alive_pulse_seconds: Option<u32>,
-}
-
-fn default_streaming_mode() -> String {
-    "nano".to_string()
 }
 
 /// xHome streaming API client
@@ -225,6 +212,10 @@ struct SdpExchangeResponse {
     #[serde(rename = "exchangeResponse")]
     exchange_response: Option<String>,
 }
+
+/// Transport descriptor the xHome session API expects. Despite the legacy
+/// "nano" name, this value configures the WebRTC transport — it never varies.
+const NANO_VERSION: &str = "V3;WebrtcTransport.dll";
 
 impl XHomeClient {
     pub fn new(auth: XboxAuth) -> Self {
@@ -399,7 +390,7 @@ impl XHomeClient {
             system_update_group: "".to_string(),
             server_id: server_id.to_string(),
             settings: SessionSettings {
-                nano_version: "V3;WebrtcTransport.dll".to_string(),
+                nano_version: NANO_VERSION.to_string(),
                 audio_configuration: "Stereo".to_string(),
                 video_configuration: VideoConfiguration {
                     min_version: 1,
@@ -479,10 +470,6 @@ impl XHomeClient {
             self.wait_for_session_ready(&session_path).await?
         };
 
-        // Determine streaming mode based on what we got
-        // We only support WebRTC now
-        let streaming_mode = "webrtc".to_string();
-        
         // Log if we got an exchange response (SDP offer)
         if let Some(ref sdp) = exchange_response {
             info!("Got SDP offer from session creation ({} bytes)", sdp.len());
@@ -490,17 +477,10 @@ impl XHomeClient {
             warn!("No SDP offer in session creation response");
         }
 
-        // We don't need server IP/port for WebRTC via xHome (it's proxied or handled via ICE)
-        let server_ip = None;
-        let server_port = None;
-
         Ok(StreamConfig {
             session_id: session_response.session_id,
             session_path,
             exchange_response: exchange_response.unwrap_or_default(),
-            server_ip,
-            server_port,
-            streaming_mode,
             gs_token: gs_token.to_string(),
             keep_alive_pulse_seconds: keepalive_seconds,
         })
@@ -681,112 +661,6 @@ impl XHomeClient {
             .map_err(|e| XboxError::StreamError(format!("Failed to parse configuration: {} - {}", e, response_text)))?;
         
         Ok(config)
-    }
-
-    /// Get the SDP offer for WebRTC connection
-    async fn get_sdp_offer(&self, session_path: &str) -> Result<String> {
-        let gs_token = self.gs_token.as_ref()
-            .ok_or_else(|| XboxError::AuthError("Not logged in to xHome".to_string()))?;
-        let api_base = self.api_base.as_ref()
-            .ok_or_else(|| XboxError::AuthError("No API base URL".to_string()))?;
-
-        // Try multiple endpoints/methods to get the SDP offer
-        // Method 1: GET the session configuration which may include SDP
-        let config_url = format!("{}/{}/configuration", api_base, session_path);
-        debug!("Trying to get SDP from configuration: {}", config_url);
-        
-        if let Ok(response) = self.client
-            .get(&config_url)
-            .header("Authorization", format!("Bearer {}", gs_token))
-            .header("x-gssv-client", "XboxComBrowser")
-            .send()
-            .await
-        {
-            if response.status().is_success() {
-                if let Ok(text) = response.text().await {
-                    debug!("Configuration response: {}", text);
-                    if let Ok(sdp) = self.extract_sdp_from_response(&text) {
-                        if sdp.trim().starts_with("v=") {
-                            info!("Got SDP from configuration endpoint");
-                            return Ok(sdp);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Method 2: POST to initiate SDP exchange (WHEP/WHIP style)
-        let sdp_url = format!("{}/{}/sdp", api_base, session_path);
-        debug!("Trying POST to initiate SDP exchange: {}", sdp_url);
-        
-        // Create a basic SDP offer request - some APIs need this to trigger the offer
-        let sdp_request = serde_json::json!({
-            "messageType": "offer",
-            "sdp": "",
-            "configuration": {
-                "containerType": "webrtc"
-            }
-        });
-        
-        if let Ok(response) = self.client
-            .post(&sdp_url)
-            .header("Authorization", format!("Bearer {}", gs_token))
-            .header("x-gssv-client", "XboxComBrowser")
-            .header("Content-Type", "application/json")
-            .json(&sdp_request)
-            .send()
-            .await
-        {
-            let status = response.status();
-            if let Ok(text) = response.text().await {
-                debug!("SDP POST response ({}): {}", status, text);
-                if status.is_success() || status.as_u16() == 201 {
-                    if let Ok(sdp) = self.extract_sdp_from_response(&text) {
-                        if sdp.trim().starts_with("v=") {
-                            info!("Got SDP from POST exchange");
-                            return Ok(sdp);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Method 3: GET /sdp endpoint (original attempt)
-        debug!("Trying GET on SDP endpoint: {}", sdp_url);
-        
-        let response = self.client
-            .get(&sdp_url)
-            .header("Authorization", format!("Bearer {}", gs_token))
-            .header("x-gssv-client", "XboxComBrowser")
-            .send()
-            .await
-            .map_err(|e| XboxError::NetworkError(e))?;
-
-        let status = response.status();
-        let response_text = response.text().await
-            .map_err(|e| XboxError::StreamError(format!("Failed to read SDP response: {}", e)))?;
-        
-        debug!("SDP GET response ({}): {}", status, response_text);
-
-        if response_text.trim().is_empty() {
-            return Err(XboxError::StreamError(
-                "SDP endpoint returned empty response. The Xbox may not support WebRTC streaming, or the session format is different.".to_string()
-            ));
-        }
-        
-        // Try to extract SDP from the response
-        let sdp = self.extract_sdp_from_response(&response_text)?;
-
-        // Validate that we have a valid SDP
-        if !sdp.trim().starts_with("v=") {
-            return Err(XboxError::StreamError(format!(
-                "Invalid SDP format - expected 'v=0' at start, got: {}",
-                &sdp.chars().take(100).collect::<String>()
-            )));
-        }
-        
-        debug!("Extracted SDP offer ({} bytes)", sdp.len());
-        Ok(sdp)
     }
 
     /// Send ICE candidate to server
@@ -1060,49 +934,6 @@ impl XHomeClient {
         
         info!("Returning {} ICE server configs", servers.len());
         Ok(servers)
-    }
-
-    /// Send SDP answer to server
-    pub async fn send_sdp_answer(&self, session_path: &str, sdp: &str) -> Result<()> {
-        info!("Sending SDP answer");
-
-        let gs_token = self.gs_token.as_ref()
-            .ok_or_else(|| XboxError::AuthError("Not logged in to xHome".to_string()))?;
-        let api_base = self.api_base.as_ref()
-            .ok_or_else(|| XboxError::AuthError("No API base URL".to_string()))?;
-
-        let url = format!("{}{}/sdp", api_base, session_path);
-
-        let body = serde_json::json!({
-            "messageType": "answer",
-            "sdp": sdp,
-            "configuration": {
-                "chatConfiguration": "None",
-                "audioConfiguration": "Stereo"
-            }
-        });
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", gs_token))
-            .header("x-gssv-client", "XboxComBrowser")
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| XboxError::NetworkError(e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(XboxError::StreamError(format!(
-                "Failed to send SDP answer: HTTP {} - {}",
-                status, error_text
-            )));
-        }
-
-        Ok(())
     }
 
     /// Exchange SDP offer for answer - send our offer, get server's answer

@@ -42,9 +42,7 @@ fn main() {
             tauri_commands::send_ice_candidate,
             tauri_commands::poll_ice_candidates,
             tauri_commands::get_ice_servers,
-            tauri_commands::send_sdp_answer,
             tauri_commands::exchange_sdp,
-            tauri_commands::get_stream_status,
             tauri_commands::set_stream_status,
             tauri_commands::send_session_keepalive,
         ])
@@ -214,23 +212,6 @@ mod tauri_commands {
             .map_err(|e| format!("Failed to get ICE servers: {}", e))
     }
 
-    #[tauri::command]
-    pub async fn send_sdp_answer(
-        session_path: String,
-        sdp: String,
-        state: State<'_, AppState>,
-    ) -> Result<(), String> {
-        let xhome = state.xhome.lock().await;
-        let client = xhome
-            .as_ref()
-            .ok_or_else(|| "Not authenticated. Please login first.".to_string())?;
-
-        client
-            .send_sdp_answer(&session_path, &sdp)
-            .await
-            .map_err(|e| format!("Failed to send SDP answer: {}", e))
-    }
-
     /// Exchange our SDP offer for the server's SDP answer
     #[tauri::command]
     pub async fn exchange_sdp(
@@ -247,22 +228,6 @@ mod tauri_commands {
             .exchange_sdp_offer(&session_path, &sdp_offer)
             .await
             .map_err(|e| format!("SDP exchange failed: {}", e))
-    }
-
-    /// Get current streaming status
-    #[tauri::command]
-    pub async fn get_stream_status(state: State<'_, AppState>) -> Result<String, String> {
-        let xhome = state.xhome.lock().await;
-        let authenticated = xhome.is_some();
-        let status = state.stream_status.lock().await;
-
-        Ok(serde_json::json!({
-            "authenticated": authenticated,
-            "streaming": status.streaming,
-            "connected": status.connected,
-            "state": status.state,
-        })
-        .to_string())
     }
 
     /// Update stream status from frontend
