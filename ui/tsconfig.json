@@ -1,0 +1,9 @@
+{
+  "extends": "@tsconfig/svelte",
+  "compilerOptions": {
+    "strict": true,
+    "moduleResolution": "bundler",
+    "types": ["svelte", "vite/client"]
+  },
+  "include": ["src"]
+}
