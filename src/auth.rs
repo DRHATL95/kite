@@ -1,4 +1,5 @@
 use crate::error::{Result, XboxError};
+use crate::token_store::{KeyringBackend, TokenStore};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -92,30 +93,22 @@ impl XboxAuth {
         }
     }
 
-    /// Get the token cache file path
-    fn get_cache_path() -> Option<PathBuf> {
+    /// Path to the pre-keychain plaintext token file (used only for one-time migration).
+    fn legacy_cache_path() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("xbox-remote").join(TOKEN_CACHE_FILE))
     }
 
-    /// Load cached tokens from disk
+    fn token_store() -> Result<TokenStore<KeyringBackend>> {
+        Ok(TokenStore::new(KeyringBackend::new()?, Self::legacy_cache_path()))
+    }
+
+    /// Load cached tokens from the OS keychain (with one-time migration from legacy file).
     pub async fn load_cached_tokens(&self) -> Result<bool> {
-        let cache_path = match Self::get_cache_path() {
-            Some(p) => p,
+        let store = Self::token_store()?;
+        let tokens = match store.load()? {
+            Some(t) => t,
             None => return Ok(false),
         };
-
-        if !cache_path.exists() {
-            return Ok(false);
-        }
-
-        info!("Loading cached tokens from {:?}", cache_path);
-
-        let contents = tokio::fs::read_to_string(&cache_path)
-            .await
-            .map_err(|e| XboxError::AuthError(format!("Failed to read token cache: {}", e)))?;
-
-        let tokens: XboxTokens = serde_json::from_str(&contents)
-            .map_err(|e| XboxError::AuthError(format!("Failed to parse token cache: {}", e)))?;
 
         // Check if tokens are still valid (with 5 min buffer)
         if tokens.expires_at > Utc::now() + chrono::Duration::minutes(5) {
@@ -128,14 +121,12 @@ impl XboxAuth {
         if let Some(ref refresh_token) = tokens.refresh_token {
             info!("Cached tokens expired, attempting refresh...");
             match self.refresh_tokens(refresh_token).await {
-                Ok(()) => {
-                    info!("Successfully refreshed tokens");
-                    return Ok(true);
-                }
+                Ok(()) => return Ok(true),
                 Err(e) => {
                     warn!("Failed to refresh tokens: {}", e);
-                    // Delete invalid cache
-                    let _ = tokio::fs::remove_file(&cache_path).await;
+                    if let Err(clear_err) = store.clear() {
+                        warn!("Failed to clear expired tokens from keychain: {}", clear_err);
+                    }
                 }
             }
         }
@@ -143,32 +134,13 @@ impl XboxAuth {
         Ok(false)
     }
 
-    /// Save tokens to cache
+    /// Save tokens to the OS keychain.
     async fn save_tokens_to_cache(&self) -> Result<()> {
-        let cache_path = match Self::get_cache_path() {
-            Some(p) => p,
-            None => return Ok(()),
-        };
-
-        // Create directory if it doesn't exist
-        if let Some(parent) = cache_path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| XboxError::AuthError(format!("Failed to create cache dir: {}", e)))?;
-        }
-
         let tokens = self.tokens.lock().await;
         if let Some(ref tokens) = *tokens {
-            let json = serde_json::to_string_pretty(tokens)
-                .map_err(|e| XboxError::AuthError(format!("Failed to serialize tokens: {}", e)))?;
-            
-            tokio::fs::write(&cache_path, json)
-                .await
-                .map_err(|e| XboxError::AuthError(format!("Failed to write token cache: {}", e)))?;
-            
-            info!("Saved tokens to cache: {:?}", cache_path);
+            Self::token_store()?.save(tokens)?;
+            info!("Saved tokens to OS keychain");
         }
-
         Ok(())
     }
 

@@ -4,6 +4,7 @@
 
 mod auth;
 mod error;
+mod token_store;
 mod xhome;
 
 // Tauri UI main function
