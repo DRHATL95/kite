@@ -8,10 +8,22 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-/// Azure AD app client ID for Xbox Live authentication
-/// Register at: https://portal.azure.com -> App registrations
-/// Make sure to enable "Allow public client flows" in Authentication settings
-const CLIENT_ID: &str = "6f40db01-bee0-49fc-8f48-fa29e949426e";
+/// Default Azure AD app client ID for Xbox Live authentication.
+/// Override at runtime with the XBOX_CLIENT_ID environment variable.
+/// Register at https://portal.azure.com -> App registrations (enable
+/// "Allow public client flows" in Authentication settings).
+const DEFAULT_CLIENT_ID: &str = "6f40db01-bee0-49fc-8f48-fa29e949426e";
+
+/// Pure resolver (testable): env value if present and non-empty, else the default.
+fn resolve_client_id_from(env: Option<String>) -> String {
+    env.filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string())
+}
+
+/// Resolve the client ID, honoring the XBOX_CLIENT_ID env override.
+fn resolve_client_id() -> String {
+    resolve_client_id_from(std::env::var("XBOX_CLIENT_ID").ok())
+}
 
 /// Token cache filename
 const TOKEN_CACHE_FILE: &str = "xbox_tokens.json";
@@ -148,8 +160,9 @@ impl XboxAuth {
     async fn refresh_tokens(&self, refresh_token: &str) -> Result<()> {
         info!("Refreshing access token...");
 
+        let client_id = resolve_client_id();
         let params = [
-            ("client_id", CLIENT_ID),
+            ("client_id", client_id.as_str()),
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
             ("scope", "XboxLive.signin XboxLive.offline_access"),
@@ -199,8 +212,9 @@ impl XboxAuth {
     pub async fn start_device_code_auth(&self) -> Result<DeviceCodeInfo> {
         info!("Starting Xbox Live OAuth device code flow");
 
+        let client_id = resolve_client_id();
         let params = [
-            ("client_id", CLIENT_ID),
+            ("client_id", client_id.as_str()),
             ("scope", "XboxLive.signin XboxLive.offline_access"),
         ];
 
@@ -256,8 +270,9 @@ impl XboxAuth {
         for attempt in 1..=max_attempts {
             tokio::time::sleep(poll_interval).await;
 
+            let client_id = resolve_client_id();
             let params = [
-                ("client_id", CLIENT_ID),
+                ("client_id", client_id.as_str()),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", device_code.as_str()),
             ];
@@ -435,5 +450,20 @@ impl XboxAuth {
 impl Default for XboxAuth {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uses_env_value_when_present() {
+        assert_eq!(resolve_client_id_from(Some("custom-id".to_string())), "custom-id");
+    }
+
+    #[test]
+    fn falls_back_to_default_when_absent() {
+        assert_eq!(resolve_client_id_from(None), DEFAULT_CLIENT_ID);
     }
 }
