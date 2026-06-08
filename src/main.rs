@@ -1,5 +1,6 @@
-// Hide the console window on Windows when running as a Tauri GUI app
-#![cfg_attr(feature = "tauri", windows_subsystem = "windows")]
+// Hide the console window on Windows in release builds (keep it in debug so
+// tracing logs are visible during development).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
 mod discovery;
@@ -8,58 +9,7 @@ mod xhome;
 
 use discovery::XboxDiscovery;
 
-// CLI-only main function
-#[cfg(not(feature = "tauri"))]
-#[tokio::main]
-async fn main() -> error::Result<()> {
-    use tracing::{info, Level};
-    use tracing_subscriber;
-
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
-
-    info!("Xbox Remote starting...");
-
-    // Create discovery instance
-    let mut discovery = XboxDiscovery::new()?;
-
-    // Discover Xbox consoles
-    info!("Scanning for Xbox consoles on the network...");
-    let consoles = discovery.discover().await?;
-
-    if consoles.is_empty() {
-        println!("No Xbox consoles found on the network.");
-        println!("\nTroubleshooting:");
-        println!("1. Make sure your Xbox is turned on");
-        println!("2. Ensure your Xbox and PC are on the same network");
-        println!("3. Check that Xbox Remote Play is enabled in Xbox settings");
-        println!("4. Verify firewall settings are not blocking discovery (UDP port 1900)");
-        return Ok(());
-    }
-
-    println!("\nFound {} Xbox console(s):", consoles.len());
-    for (i, console) in consoles.iter().enumerate() {
-        println!(
-            "  {}. {} ({:?}) at {}",
-            i + 1,
-            console.name,
-            console.console_type,
-            console.address
-        );
-    }
-
-    // For now, just demonstrate discovery
-    // The Tauri UI will handle the actual connection and streaming
-
-    info!("Xbox Remote ready. Start the UI to connect and stream.");
-
-    Ok(())
-}
-
 // Tauri UI main function
-#[cfg(feature = "tauri")]
 fn main() {
     use tokio::sync::Mutex;
     use tauri::Manager;
@@ -110,7 +60,6 @@ fn main() {
 }
 
 // This will be used by Tauri commands
-#[cfg(feature = "tauri")]
 mod tauri_commands {
     use super::*;
     use auth::XboxAuth;
