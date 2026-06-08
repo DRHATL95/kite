@@ -1,12 +1,12 @@
 [package]
 name = "xbox-remote"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 # Tauri framework
-tauri = { version = "2.0", features = ["devtools"] }
-tauri-plugin-shell = "2.0"
+tauri = { version = "2.11", features = ["devtools"] }
+tauri-plugin-shell = "2.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
@@ -14,29 +14,31 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 
 # HTTP client for Xbox API
+# pinned at 0.12: reqwest 0.13 removed RequestBuilder::form() used in auth.rs
 reqwest = { version = "0.12", features = ["json"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
 # Directory paths
-dirs = "5.0"
+dirs = "6.0"
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
 # OS keychain for token storage
+# pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [dev-dependencies]
 tempfile = "3"
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2.6", features = [] }
 
 [profile.release]
 lto = false
