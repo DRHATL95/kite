@@ -3,11 +3,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
-mod discovery;
 mod error;
 mod xhome;
-
-use discovery::XboxDiscovery;
 
 // Tauri UI main function
 fn main() {
@@ -26,11 +23,9 @@ fn main() {
                 .init();
 
             // Initialize app state
-            let discovery = XboxDiscovery::new().expect("Failed to initialize discovery");
             let auth = auth::XboxAuth::new();
 
             app.manage(tauri_commands::AppState {
-                discovery: Mutex::new(discovery),
                 auth: Mutex::new(auth),
                 xhome: Mutex::new(None),
                 stream_status: Mutex::new(tauri_commands::StreamStatus::default()),
@@ -49,8 +44,6 @@ fn main() {
             tauri_commands::get_ice_servers,
             tauri_commands::send_sdp_answer,
             tauri_commands::exchange_sdp,
-            tauri_commands::discover_consoles,
-            tauri_commands::discover_local_xbox,
             tauri_commands::get_stream_status,
             tauri_commands::set_stream_status,
             tauri_commands::send_session_keepalive,
@@ -68,7 +61,6 @@ mod tauri_commands {
     use xhome::XHomeClient;
 
     pub struct AppState {
-        pub discovery: Mutex<XboxDiscovery>,
         pub auth: Mutex<XboxAuth>,
         pub xhome: Mutex<Option<XHomeClient>>,
         pub stream_status: Mutex<StreamStatus>,
@@ -255,55 +247,6 @@ mod tauri_commands {
             .exchange_sdp_offer(&session_path, &sdp_offer)
             .await
             .map_err(|e| format!("SDP exchange failed: {}", e))
-    }
-
-    #[tauri::command]
-    pub async fn discover_consoles(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-        let mut discovery = state.discovery.lock().await;
-
-        match discovery.discover().await {
-            Ok(consoles) => {
-                let console_list: Vec<String> = consoles
-                    .iter()
-                    .map(|c| c.to_json_safe().unwrap_or_default())
-                    .collect();
-                Ok(console_list)
-            }
-            Err(e) => Err(format!("Discovery failed: {}", e)),
-        }
-    }
-
-    /// Discover Xbox consoles on local network using SmartGlass protocol
-    #[tauri::command]
-    pub async fn discover_local_xbox(
-        state: State<'_, AppState>,
-    ) -> Result<Vec<String>, String> {
-        let mut discovery = state.discovery.lock().await;
-
-        // Try SmartGlass discovery first (native Xbox discovery)
-        match discovery.discover_smartglass().await {
-            Ok(consoles) if !consoles.is_empty() => {
-                return Ok(consoles
-                    .iter()
-                    .map(|c| c.to_json_safe().unwrap_or_default())
-                    .collect());
-            }
-            Ok(_) => {
-                tracing::info!("SmartGlass discovery found no consoles, trying SSDP...");
-            }
-            Err(e) => {
-                tracing::warn!("SmartGlass discovery failed: {}, trying SSDP...", e);
-            }
-        }
-
-        // Fall back to SSDP discovery
-        match discovery.discover().await {
-            Ok(consoles) => Ok(consoles
-                .iter()
-                .map(|c| c.to_json_safe().unwrap_or_default())
-                .collect()),
-            Err(e) => Err(format!("Discovery failed: {}", e)),
-        }
     }
 
     /// Get current streaming status

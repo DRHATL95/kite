@@ -2,9 +2,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum XboxError {
-    #[error("Discovery failed: {0}")]
-    DiscoveryError(String),
-
     #[error("Connection failed: {0}")]
     ConnectionError(String),
 
