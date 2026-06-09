@@ -160,4 +160,14 @@ test workflow job succeeds on each; the full release workflow completes end-to-e
 - **`.deb` is not auto-updatable** via the Tauri updater — AppImage is the update channel for Linux.
 - **Secret management:** the signing private key lives only in Gitea Actions secrets; losing it
   means future updates can't be verified by already-installed apps (keep a backup of the key).
-- **Nightly noise:** the app follows **stable** by default so users aren't churned every commit.
+  The key was generated for sub-project 1 at `~/.tauri/xbox-remote-updater.key` (empty password);
+  its contents → `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = empty.
+- **Nightly noise:** the app follows **nightly** by default (per §1/§2) — intentional for a
+  personal daily-driver, so every push to `master` prompts an update on next launch. If per-push
+  prompting ever feels excessive, switch the configured endpoint to the stable channel.
+- **Network reachability (verified 2026-06-09):** Gitea (`gitea.howlab.co`) is reachable only on
+  LAN/Tailscale, and the repo is **public**. Confirmed: anonymous release-asset download returns
+  HTTP 200 (no token needed) and the host serves a **publicly-trusted TLS cert**
+  (`ssl_verify_result=0`), so the Tauri updater's strict-HTTPS download succeeds when on-network.
+  Off-network, `checkForUpdate()` swallows the failure to `null` → the banner simply doesn't show
+  (no error, no nag). CI runners + the publish job are on the same network, so they reach Gitea fine.
