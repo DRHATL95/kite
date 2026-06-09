@@ -28,3 +28,6 @@ Thumbs.db
 
 # Windows reserved-name artifact
 nul
+
+# Brainstorming visual companion
+.superpowers/
