@@ -43,12 +43,22 @@
   });
 </script>
 
-{#if activeScreen() === "stream"}
-  <Stream onDisconnect={() => connectionStore.disconnect()} />
-{:else if activeScreen() === "deviceCode"}
-  <DeviceCode />
-{:else if activeScreen() === "consoleList"}
-  <ConsoleList onConnect={(c) => connectionStore.connect(c)} />
-{:else}
-  <Login />
-{/if}
+<div class="app-root">
+  {#if activeScreen() === "stream"}
+    <Stream onDisconnect={() => connectionStore.disconnect()} />
+  {:else if activeScreen() === "deviceCode"}
+    <DeviceCode />
+  {:else if activeScreen() === "consoleList"}
+    <ConsoleList onConnect={(c) => connectionStore.connect(c)} />
+  {:else}
+    <Login />
+  {/if}
+</div>
+
+<style>
+  .app-root {
+    height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+  }
+</style>
