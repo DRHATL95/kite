@@ -54,7 +54,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
     font-family: var(--font-sans);
     font-size: var(--text-sm);
@@ -63,16 +63,11 @@
     border: 1px solid transparent;
     cursor: pointer;
     transition:
-      background var(--transition-fast),
-      border-color var(--transition-fast),
-      opacity var(--transition-fast);
+      background 150ms ease,
+      border-color 150ms ease,
+      opacity 150ms ease;
     user-select: none;
     white-space: nowrap;
-  }
-
-  .btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
   }
 
   .btn:disabled,
@@ -82,38 +77,43 @@
     pointer-events: none;
   }
 
-  /* Primary — Xbox green fill */
+  /* Primary — Carbon+Green accent fill */
   .btn--primary {
-    background: var(--color-accent);
-    color: #ffffff;
-    border-color: var(--color-accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: var(--accent);
   }
 
   .btn--primary:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-    border-color: var(--color-accent-hover);
+    filter: brightness(1.15);
   }
 
-  /* Ghost — outline only */
+  .btn--primary:active:not(:disabled) {
+    background: var(--accent-press);
+    border-color: var(--accent-press);
+  }
+
+  /* Ghost — transparent with border */
   .btn--ghost {
     background: transparent;
-    color: var(--color-text);
-    border-color: var(--color-border);
+    color: var(--text-dim);
+    border-color: var(--border);
   }
 
   .btn--ghost:hover:not(:disabled) {
-    background: var(--color-surface-2);
-    border-color: var(--color-text-dim);
+    color: var(--text);
+    background: var(--surface-2);
+    border-color: var(--border);
   }
 
-  /* Danger — red fill */
+  /* Danger — transparent with bad-tone border + text */
   .btn--danger {
-    background: var(--color-danger);
-    color: #ffffff;
-    border-color: var(--color-danger);
+    background: transparent;
+    color: var(--bad);
+    border-color: var(--bad);
   }
 
   .btn--danger:hover:not(:disabled) {
-    filter: brightness(1.1);
+    background: color-mix(in srgb, var(--bad) 12%, transparent);
   }
 </style>

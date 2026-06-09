@@ -50,9 +50,9 @@
 
 <style>
   .panel {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
   }
@@ -61,20 +61,19 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface-2);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
     gap: var(--space-3);
   }
 
   .panel__title {
     margin: 0;
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-dim);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.1em;
   }
 
   .panel__header-right {

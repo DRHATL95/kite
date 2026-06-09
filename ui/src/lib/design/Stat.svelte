@@ -6,10 +6,10 @@
    *   <Stat label="FPS" value={30} />
    *   <Stat label="RTT" value={45} unit="ms" />
    *   <Stat label="Loss" value="2.1%" tone="warn" />
-   *   <Stat label="State" value="streaming" tone="success" />
+   *   <Stat label="State" value="streaming" tone="good" />
    */
 
-  type Tone = "default" | "success" | "warn" | "danger";
+  type Tone = "good" | "warn" | "bad" | "neutral" | "default" | "success" | "danger";
 
   interface Props {
     /** The metric's label (e.g. "FPS", "RTT"). */
@@ -20,12 +20,12 @@
     unit?: string;
     /**
      * Colour tone applied to the value text.
-     * 'default' uses the primary text colour.
+     * 'good' → accent green; 'warn' → amber; 'bad' → red; 'neutral'/'default' → primary text.
      */
     tone?: Tone;
   }
 
-  let { label, value, unit, tone = "default" }: Props = $props();
+  let { label, value, unit, tone = "neutral" }: Props = $props();
 
   const displayValue = $derived(
     value === null || value === undefined ? "—" : String(value)
@@ -47,10 +47,10 @@
   }
 
   .stat__label {
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 500;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     line-height: 1;
@@ -61,19 +61,23 @@
     font-size: var(--text-lg);
     font-weight: 600;
     line-height: 1.2;
-    color: var(--color-text);
+    color: var(--text);
   }
 
   .stat__unit {
     font-size: var(--text-xs);
     font-weight: 400;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     margin-left: 2px;
   }
 
   /* Tones */
-  .stat__value--success { color: var(--color-success); }
-  .stat__value--warn    { color: var(--color-warn); }
-  .stat__value--danger  { color: var(--color-danger); }
-  .stat__value--default { color: var(--color-text); }
+  .stat__value--good    { color: var(--accent); }
+  .stat__value--warn    { color: var(--warn); }
+  .stat__value--bad     { color: var(--bad); }
+  .stat__value--neutral { color: var(--text); }
+  .stat__value--default { color: var(--text); }
+  /* Legacy aliases kept for backward compatibility */
+  .stat__value--success { color: var(--accent); }
+  .stat__value--danger  { color: var(--bad); }
 </style>

@@ -56,7 +56,7 @@
     user-select: none;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
-    color: var(--color-text);
+    color: var(--text);
   }
 
   .toggle--disabled {
@@ -79,25 +79,24 @@
 
   /* Focus ring on the track when the hidden input is focused */
   .toggle__input:focus-visible + .toggle__track {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
   }
 
-  /* Track */
+  /* Track — off state */
   .toggle__track {
     position: relative;
     display: inline-block;
     width: 36px;
     height: 20px;
     border-radius: 10px;
-    background: var(--color-border);
-    transition: background var(--transition-fast);
+    background: var(--border);
+    transition: background 150ms ease;
     flex-shrink: 0;
   }
 
-  /* Checked: accent background */
+  /* Track — on state: accent */
   .toggle__input:checked + .toggle__track {
-    background: var(--color-accent);
+    background: var(--accent);
   }
 
   /* Thumb */
@@ -108,9 +107,9 @@
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #ffffff;
+    background: var(--text);
     box-shadow: var(--shadow-sm);
-    transition: transform var(--transition-fast);
+    transition: transform 150ms ease;
   }
 
   .toggle__input:checked + .toggle__track .toggle__thumb {

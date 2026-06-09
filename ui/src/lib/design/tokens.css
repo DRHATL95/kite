@@ -7,6 +7,7 @@
   --text-dim: #7e857e;
   --text: #e8ece8;
   --accent: #43c463;        /* good / active / healthy ONLY */
+  --on-accent: #06120a;     /* text on accent fill (dark-on-green for contrast) */
   --accent-press: #2f8f47;  /* pressed accent */
   --warn: #e0b341;          /* trouble */
   --bad: #d4685f;           /* trouble */

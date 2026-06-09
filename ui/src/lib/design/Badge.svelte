@@ -38,41 +38,41 @@
     align-items: center;
     gap: var(--space-1);
     padding: 2px var(--space-2);
-    border-radius: var(--radius-lg);
-    font-family: var(--font-sans);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     line-height: 1.4;
     white-space: nowrap;
   }
 
-  /* Neutral */
+  /* Neutral — dimmed, outlined */
   .badge--neutral {
-    background: var(--color-surface-2);
-    color: var(--color-text-dim);
-    border: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+    color: var(--text-dim);
+    border: 1px solid var(--text-dim);
   }
 
-  /* Success */
+  /* Success → accent (good/active) */
   .badge--success {
-    background: color-mix(in srgb, var(--color-success) 15%, transparent);
-    color: var(--color-success);
-    border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    border: 1px solid var(--accent);
   }
 
-  /* Warn */
+  /* Warn → warn token */
   .badge--warn {
-    background: color-mix(in srgb, var(--color-warn) 15%, transparent);
-    color: var(--color-warn);
-    border: 1px solid color-mix(in srgb, var(--color-warn) 30%, transparent);
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    color: var(--warn);
+    border: 1px solid var(--warn);
   }
 
-  /* Danger */
+  /* Danger → bad token */
   .badge--danger {
-    background: color-mix(in srgb, var(--color-danger) 15%, transparent);
-    color: var(--color-danger);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+    background: color-mix(in srgb, var(--bad) 12%, transparent);
+    color: var(--bad);
+    border: 1px solid var(--bad);
   }
 </style>
