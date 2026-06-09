@@ -1,0 +1,281 @@
+<script lang="ts">
+  /**
+   * ConsoleList.svelte — Xbox console discovery and selection screen.
+   *
+   * On mount, calls authStore.loadConsoles() to fetch the console list from
+   * the xHome API.  Renders each console as a card showing deviceName,
+   * consoleType, powerState (as a Badge), and isDevKit flag.
+   *
+   * Each card has a "Connect" button that calls the onConnect prop with the
+   * chosen XHomeConsole.  The parent App wires this to the connection store
+   * (Task 12); this component stays purely presentational.
+   *
+   * Props:
+   *   onConnect — required callback invoked with the selected XHomeConsole.
+   *
+   * Handles: empty list, loading, and error states.
+   */
+
+  import { onMount } from "svelte";
+  import { authStore } from "$lib/stores/auth.svelte.js";
+  import type { XHomeConsole } from "$lib/ipc/types.js";
+  import Button from "$lib/design/Button.svelte";
+  import Badge from "$lib/design/Badge.svelte";
+  import Panel from "$lib/design/Panel.svelte";
+
+  // ── Props ─────────────────────────────────────────────────────────────────────
+
+  interface Props {
+    /** Called with the chosen console when the user clicks Connect. */
+    onConnect: (console: XHomeConsole) => void;
+  }
+
+  let { onConnect }: Props = $props();
+
+  // ── Local state ───────────────────────────────────────────────────────────────
+
+  let loading = $state(false);
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+  onMount(async () => {
+    loading = true;
+    await authStore.loadConsoles();
+    loading = false;
+  });
+
+  async function handleRefresh() {
+    loading = true;
+    await authStore.loadConsoles();
+    loading = false;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+
+  type BadgeTone = "success" | "warn" | "danger" | "neutral";
+
+  /** Map Xbox powerState strings to Badge tone. */
+  function powerStateTone(powerState: string): BadgeTone {
+    const s = powerState.toLowerCase();
+    if (s === "on") return "success";
+    if (s === "standby" || s === "connectedstandby") return "warn";
+    if (s === "off") return "neutral";
+    return "neutral";
+  }
+
+  /** Human-friendly power state label. */
+  function powerStateLabel(powerState: string): string {
+    const s = powerState.toLowerCase();
+    if (s === "on") return "On";
+    if (s === "standby" || s === "connectedstandby") return "Standby";
+    if (s === "off") return "Off";
+    return powerState;
+  }
+
+  /** Friendly console type label. */
+  function consoleTypeLabel(consoleType: string): string {
+    const map: Record<string, string> = {
+      XboxSeriesX: "Xbox Series X",
+      XboxSeriesS: "Xbox Series S",
+      XboxOne: "Xbox One",
+      XboxOneS: "Xbox One S",
+      XboxOneX: "Xbox One X",
+    };
+    return map[consoleType] ?? consoleType;
+  }
+</script>
+
+<div class="console-list-screen">
+  <Panel title="Your Xbox Consoles">
+    {#snippet headerRight()}
+      <Button variant="ghost" onclick={handleRefresh} disabled={loading}>
+        Refresh
+      </Button>
+    {/snippet}
+
+    <div class="console-list-body">
+      {#if loading}
+        <div class="center-state">
+          <div class="spinner" role="status" aria-label="Loading consoles"></div>
+          <p class="state-text">Looking for consoles…</p>
+        </div>
+
+      {:else if authStore.error}
+        <div class="center-state">
+          <p class="error-message" role="alert">{authStore.error}</p>
+          <Button onclick={handleRefresh}>Try again</Button>
+        </div>
+
+      {:else if authStore.consoles.length === 0}
+        <div class="center-state">
+          <p class="state-text">No consoles found on your account.</p>
+          <p class="state-subtext">
+            Make sure Remote Play is enabled on your Xbox and you're signed in
+            with the same Microsoft account.
+          </p>
+          <Button onclick={handleRefresh}>Refresh</Button>
+        </div>
+
+      {:else}
+        <ul class="console-cards" role="list">
+          {#each authStore.consoles as console (console.serverId)}
+            <li class="console-card">
+              <div class="console-card__info">
+                <div class="console-card__header">
+                  <span class="console-card__name">{console.deviceName}</span>
+                  {#if console.isDevKit}
+                    <Badge tone="warn">Dev Kit</Badge>
+                  {/if}
+                </div>
+                <div class="console-card__meta">
+                  <span class="console-card__type">{consoleTypeLabel(console.consoleType)}</span>
+                  <Badge tone={powerStateTone(console.powerState)}>
+                    {powerStateLabel(console.powerState)}
+                  </Badge>
+                </div>
+              </div>
+              <Button onclick={() => onConnect(console)}>
+                Connect
+              </Button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  </Panel>
+</div>
+
+<style>
+  .console-list-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: var(--space-5);
+    background: var(--color-bg);
+  }
+
+  .console-list-body {
+    min-width: 320px;
+    max-width: 560px;
+  }
+
+  /* ── Center states (loading / empty / error) ──────────────────────────────── */
+
+  .center-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-5) 0;
+    text-align: center;
+  }
+
+  .state-text {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    color: var(--color-text-dim);
+  }
+
+  .state-subtext {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--color-text-dim);
+    max-width: 360px;
+    line-height: 1.6;
+  }
+
+  .error-message {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Console cards ────────────────────────────────────────────────────────── */
+
+  .console-cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .console-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+  }
+
+  .console-card:hover {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface-2));
+  }
+
+  .console-card__info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .console-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .console-card__name {
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .console-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .console-card__type {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--color-text-dim);
+  }
+</style>

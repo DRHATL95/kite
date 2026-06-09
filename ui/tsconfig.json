@@ -3,7 +3,11 @@
   "compilerOptions": {
     "strict": true,
     "moduleResolution": "bundler",
-    "types": ["svelte", "vite/client"]
+    "types": ["svelte", "vite/client"],
+    "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"]
+    }
   },
   "include": ["src"]
 }
