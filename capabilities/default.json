@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability: core, shell, updater, process",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}
