@@ -21,7 +21,6 @@
   import type { XHomeConsole } from "$lib/ipc/types.js";
   import Button from "$lib/design/Button.svelte";
   import Badge from "$lib/design/Badge.svelte";
-  import Panel from "$lib/design/Panel.svelte";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -54,22 +53,23 @@
 
   type BadgeTone = "success" | "warn" | "danger" | "neutral";
 
-  /** Map Xbox powerState strings to Badge tone. */
-  function powerStateTone(powerState: string): BadgeTone {
-    const s = powerState.toLowerCase();
-    if (s === "on") return "success";
-    if (s === "standby" || s === "connectedstandby") return "warn";
-    if (s === "off") return "neutral";
-    return "neutral";
+  /**
+   * True when Xbox reports the console as powered on and available.
+   * Xbox powerState values: "On", "ConnectedStandby", "Off".
+   * Treat exactly "On" (case-insensitive) as ON; everything else as STANDBY.
+   */
+  function isOn(powerState: string): boolean {
+    return powerState.toLowerCase() === "on";
   }
 
-  /** Human-friendly power state label. */
+  /** Map Xbox powerState strings to Badge tone. */
+  function powerStateTone(powerState: string): BadgeTone {
+    return isOn(powerState) ? "success" : "neutral";
+  }
+
+  /** Human-friendly power state label for the Badge. */
   function powerStateLabel(powerState: string): string {
-    const s = powerState.toLowerCase();
-    if (s === "on") return "On";
-    if (s === "standby" || s === "connectedstandby") return "Standby";
-    if (s === "off") return "Off";
-    return powerState;
+    return isOn(powerState) ? "ON" : "STANDBY";
   }
 
   /** Friendly console type label. */
@@ -86,18 +86,30 @@
 </script>
 
 <div class="console-list-screen">
-  <Panel title="Your Xbox Consoles">
-    {#snippet headerRight()}
+  <!-- ── Header row ── -->
+  <header class="screen-header">
+    <div class="header-identity">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span class="signed-in-label">signed in</span>
+    </div>
+    <span class="wordmark">XBOX REMOTE</span>
+  </header>
+
+  <!-- ── Console list panel ── -->
+  <div class="console-panel">
+    <!-- Section label + refresh -->
+    <div class="section-row">
+      <span class="section-label">YOUR CONSOLES</span>
       <Button variant="ghost" onclick={handleRefresh} disabled={loading}>
         Refresh
       </Button>
-    {/snippet}
+    </div>
 
     <div class="console-list-body">
       {#if loading}
         <div class="center-state">
           <div class="spinner" role="status" aria-label="Loading consoles"></div>
-          <p class="state-text">Looking for consoles…</p>
+          <p class="state-text">Loading consoles…</p>
         </div>
 
       {:else if authStore.error}
@@ -108,7 +120,7 @@
 
       {:else if authStore.consoles.length === 0}
         <div class="center-state">
-          <p class="state-text">No consoles found on your account.</p>
+          <p class="state-text">No consoles found.</p>
           <p class="state-subtext">
             Make sure Remote Play is enabled on your Xbox and you're signed in
             with the same Microsoft account.
@@ -119,7 +131,10 @@
       {:else}
         <ul class="console-cards" role="list">
           {#each authStore.consoles as console (console.serverId)}
-            <li class="console-card">
+            <li
+              class="console-card"
+              class:console-card--standby={!isOn(console.powerState)}
+            >
               <div class="console-card__info">
                 <div class="console-card__header">
                   <span class="console-card__name">{console.deviceName}</span>
@@ -128,37 +143,112 @@
                   {/if}
                 </div>
                 <div class="console-card__meta">
-                  <span class="console-card__type">{consoleTypeLabel(console.consoleType)}</span>
+                  <span class="console-card__type">
+                    {consoleTypeLabel(console.consoleType)}
+                  </span>
                   <Badge tone={powerStateTone(console.powerState)}>
                     {powerStateLabel(console.powerState)}
                   </Badge>
                 </div>
               </div>
-              <Button onclick={() => onConnect(console)}>
-                Connect
-              </Button>
+              <Button onclick={() => onConnect(console)}>Connect →</Button>
             </li>
           {/each}
         </ul>
       {/if}
     </div>
-  </Panel>
+  </div>
 </div>
 
 <style>
+  /* ── Screen shell ─────────────────────────────────────────────────────────── */
+
   .console-list-screen {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     min-height: 100vh;
     padding: var(--space-5);
-    background: var(--color-bg);
+    background: var(--bg);
+    gap: var(--space-4);
   }
 
-  .console-list-body {
-    min-width: 320px;
+  /* ── Header row ───────────────────────────────────────────────────────────── */
+
+  .screen-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
     max-width: 560px;
+    padding: var(--space-2) 0;
+  }
+
+  .header-identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* Pulsing green dot — signals "signed in / live" */
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .signed-in-label {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+  }
+
+  .wordmark {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  /* ── Console panel ────────────────────────────────────────────────────────── */
+
+  .console-panel {
+    width: 100%;
+    max-width: 560px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  /* ── Section header row ───────────────────────────────────────────────────── */
+
+  .section-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ── Body ─────────────────────────────────────────────────────────────────── */
+
+  .console-list-body {
+    padding: var(--space-4);
   }
 
   /* ── Center states (loading / empty / error) ──────────────────────────────── */
@@ -176,14 +266,14 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-base);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 
   .state-subtext {
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     max-width: 360px;
     line-height: 1.6;
   }
@@ -192,9 +282,9 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+    color: var(--bad);
+    background: color-mix(in srgb, var(--bad) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bad) 25%, transparent);
     border-radius: var(--radius-sm);
     padding: var(--space-2) var(--space-3);
     width: 100%;
@@ -204,8 +294,8 @@
   .spinner {
     width: 24px;
     height: 24px;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-accent);
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
@@ -230,16 +320,21 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
+    padding: var(--space-3);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    transition: border-color var(--transition-fast), background var(--transition-fast);
+    transition: border-color 150ms ease, background 150ms ease;
   }
 
   .console-card:hover {
-    border-color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface-2));
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface-2));
+  }
+
+  /* Dim standby rows — still legible but visually de-emphasised */
+  .console-card--standby {
+    opacity: 0.6;
   }
 
   .console-card__info {
@@ -260,7 +355,7 @@
     font-family: var(--font-sans);
     font-size: var(--text-base);
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -274,8 +369,8 @@
   }
 
   .console-card__type {
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
   }
 </style>
