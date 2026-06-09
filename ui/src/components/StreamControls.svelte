@@ -16,6 +16,9 @@
    *   fullscreenEl   — element to call requestFullscreen() on (usually the
    *                    stream container div).
    *   focusMode      — bindable boolean; parent reads it to apply focus-mode class.
+   *   floating       — when true (Stage mode), renders as a floating translucent
+   *                    pill at the bottom of the viewport with auto-hide.
+   *                    when false (Player mode), renders as a docked bottom bar.
    *   onDisconnect   — called when the user clicks Disconnect.
    */
 
@@ -28,6 +31,7 @@
     video: HTMLVideoElement | null;
     fullscreenEl?: HTMLElement | null;
     focusMode?: boolean;
+    floating?: boolean;
     onDisconnect: () => void;
   }
 
@@ -35,6 +39,7 @@
     video = null,
     fullscreenEl = null,
     focusMode = $bindable(false),
+    floating = false,
     onDisconnect,
   }: Props = $props();
 
@@ -148,6 +153,7 @@
 <div
   class="stream-controls"
   class:stream-controls--focus={focusMode}
+  class:stream-controls--floating={floating}
   class:stream-controls--visible={!focusMode || controlsVisible}
   aria-label="Stream controls"
 >
@@ -225,7 +231,7 @@
 </div>
 
 <style>
-  /* ── Controls bar ───────────────────────────────────────────────────────── */
+  /* ── Controls bar — base (Player/docked mode) ──────────────────────────── */
 
   .stream-controls {
     display: flex;
@@ -239,13 +245,48 @@
     transition: opacity 200ms ease;
   }
 
-  /* In focus mode, hide the bar when not hovered / mouse moving. */
-  .stream-controls--focus {
+  /* In focus mode (docked variant), hide the bar when not hovered / mouse moving. */
+  .stream-controls--focus:not(.stream-controls--floating) {
     opacity: 0;
     pointer-events: none;
   }
 
-  .stream-controls--focus.stream-controls--visible {
+  .stream-controls--focus:not(.stream-controls--floating).stream-controls--visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* ── Floating variant (Stage/focus mode) ────────────────────────────────── */
+
+  .stream-controls--floating {
+    /* Override docked styles */
+    position: absolute;
+    bottom: var(--space-4);
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100vw - var(--space-6));
+    flex-wrap: nowrap;
+
+    /* Translucent surface */
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    border: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+
+    z-index: 30;
+    transition: opacity 200ms ease;
+  }
+
+  /* Auto-hide: fade out when focus + not visible */
+  .stream-controls--floating.stream-controls--focus {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .stream-controls--floating.stream-controls--focus.stream-controls--visible {
     opacity: 1;
     pointer-events: auto;
   }

@@ -10,7 +10,11 @@
    *      - If the browser muted the video due to autoplay policy, surfaces
    *        an "Unmute" button that unmutes + replays on user click.
    *   3. Composes StreamControls and StreamStatus.
-   *   4. Leaves a placeholder slot for the diagnostics HUD (Task 11).
+   *   4. Focus/"Stage" mode (focusMode=true): video goes full-bleed (position:fixed
+   *      inset:0), status strip and controls bar replaced by floating overlays:
+   *      a status pill top-left, a HUD hint top-right, and a floating auto-hiding
+   *      controls bar at the bottom. Player mode (focusMode=false) keeps the
+   *      normal flex-column layout (status strip / stage / controls bar).
    *
    * Props:
    *   onDisconnect — required; called when the user clicks Disconnect.
@@ -121,6 +125,29 @@
     }
   }
 
+  // ── Stage: dot colour helper (mirrors StreamStatus logic for the pill) ─────────
+
+  function dotColor(state: string): string {
+    switch (state) {
+      case "streaming":    return "var(--accent)";
+      case "connecting":
+      case "reconnecting": return "var(--warn)";
+      case "failed":       return "var(--bad)";
+      default:             return "var(--text-dim)";
+    }
+  }
+
+  function stateLabel(state: string): string {
+    switch (state) {
+      case "idle":         return "Idle";
+      case "connecting":   return "Connecting";
+      case "streaming":    return "Streaming";
+      case "reconnecting": return "Reconnecting";
+      case "failed":       return "Failed";
+      default:             return state;
+    }
+  }
+
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
   onDestroy(() => {
@@ -138,41 +165,94 @@
   role="region"
   aria-label="Xbox stream"
 >
-  <!-- ── Status strip (top) ────────────────────────────────────────────────── -->
-  <StreamStatus />
+  {#if !focusMode}
+    <!-- ── PLAYER MODE: flex-column layout (status strip / stage / controls bar) ── -->
 
-  <!-- ── Video stage (middle, flex: 1) ─────────────────────────────────────── -->
-  <div class="video-stage">
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      class="stream-video"
-      autoplay
-      playsinline
-      bind:this={videoEl}
-      aria-label="Xbox console stream"
-    ></video>
+    <!-- ── Status strip (top) ──────────────────────────────────────────────── -->
+    <StreamStatus />
 
-    <!-- ── Unmute affordance (autoplay policy fallback) ──────────────────── -->
-    {#if needsUnmute}
-      <div class="unmute-overlay" aria-live="assertive">
-        <button class="unmute-btn" onclick={handleUnmute}>
-          Unmute &amp; Play
-        </button>
-        <p class="unmute-hint">Click to enable audio (browser autoplay policy)</p>
+    <!-- ── Video stage (middle, flex: 1) ───────────────────────────────────── -->
+    <div class="video-stage">
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        class="stream-video"
+        autoplay
+        playsinline
+        bind:this={videoEl}
+        aria-label="Xbox console stream"
+      ></video>
+
+      <!-- ── Unmute affordance (autoplay policy fallback) ────────────────── -->
+      {#if needsUnmute}
+        <div class="unmute-overlay" aria-live="assertive">
+          <button class="unmute-btn" onclick={handleUnmute}>
+            Unmute &amp; Play
+          </button>
+          <p class="unmute-hint">Click to enable audio (browser autoplay policy)</p>
+        </div>
+      {/if}
+
+      <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────── -->
+      <DiagnosticsHud />
+    </div>
+
+    <!-- ── Controls bar (bottom) ───────────────────────────────────────────── -->
+    <StreamControls
+      video={videoEl}
+      fullscreenEl={containerEl}
+      bind:focusMode
+      {onDisconnect}
+    />
+  {:else}
+    <!-- ── STAGE MODE: full-bleed video + floating overlays ─────────────────── -->
+
+    <!-- Full-bleed video stage (position:fixed inset:0) -->
+    <div class="stage-fullbleed">
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        class="stage-video"
+        autoplay
+        playsinline
+        bind:this={videoEl}
+        aria-label="Xbox console stream"
+      ></video>
+
+      <!-- ── Unmute affordance (autoplay policy fallback) ────────────────── -->
+      {#if needsUnmute}
+        <div class="unmute-overlay" aria-live="assertive">
+          <button class="unmute-btn" onclick={handleUnmute}>
+            Unmute &amp; Play
+          </button>
+          <p class="unmute-hint">Click to enable audio (browser autoplay policy)</p>
+        </div>
+      {/if}
+
+      <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────── -->
+      <DiagnosticsHud />
+
+      <!-- ── Floating status pill — top-left ─────────────────────────────── -->
+      <div class="stage-pill" role="status" aria-live="polite" aria-atomic="true">
+        <span
+          class="stage-pill__dot"
+          style="background: {dotColor(connectionStore.state)};"
+          aria-hidden="true"
+        ></span>
+        <span class="stage-pill__label">{stateLabel(connectionStore.state)}</span>
       </div>
-    {/if}
 
-    <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────────── -->
-    <DiagnosticsHud />
-  </div>
+      <!-- ── HUD hint — top-right ─────────────────────────────────────────── -->
+      <span class="stage-hud-hint" aria-label="Press backtick to toggle diagnostics HUD">` HUD</span>
 
-  <!-- ── Controls bar (bottom) ─────────────────────────────────────────────── -->
-  <StreamControls
-    video={videoEl}
-    fullscreenEl={containerEl}
-    bind:focusMode
-    {onDisconnect}
-  />
+      <!-- ── Floating controls bar — bottom-centre ─────────────────────────── -->
+      <StreamControls
+        video={videoEl}
+        fullscreenEl={containerEl}
+        bind:focusMode
+        floating={true}
+        {onDisconnect}
+      />
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -187,7 +267,7 @@
     overflow: hidden;
   }
 
-  /* In focus mode, hide the native window cursor after the controls fade */
+  /* In focus/Stage mode, hide the native window cursor after the controls fade */
   .stream-screen--focus {
     cursor: none;
   }
@@ -204,7 +284,7 @@
     overflow: hidden;
   }
 
-  /* ── Video element fills the stage ──────────────────────────────────────── */
+  /* ── Video element fills the Player stage ──────────────────────────────── */
 
   .stream-video {
     width: 100%;
@@ -214,7 +294,77 @@
     background: var(--video-bg);
   }
 
-  /* ── Unmute overlay ─────────────────────────────────────────────────────── */
+  /* ── Stage (full-bleed) ─────────────────────────────────────────────────── */
+
+  .stage-fullbleed {
+    position: fixed;
+    inset: 0;
+    background: var(--video-bg);
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  /* Stage video fills wall-to-wall */
+  .stage-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: var(--video-bg);
+  }
+
+  /* ── Floating status pill — top-left ────────────────────────────────────── */
+
+  .stage-pill {
+    position: absolute;
+    top: var(--space-3);
+    left: var(--space-3);
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+
+  .stage-pill__dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background 300ms ease;
+  }
+
+  .stage-pill__label {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  /* ── HUD hint — top-right ───────────────────────────────────────────────── */
+
+  .stage-hud-hint {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    z-index: 20;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: color-mix(in srgb, var(--text-dim) 70%, transparent);
+    white-space: nowrap;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  /* ── Unmute overlay (shared between Player and Stage) ───────────────────── */
 
   .unmute-overlay {
     position: absolute;
@@ -225,7 +375,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-3);
-    background: rgba(0, 0, 0, 0.65);
+    background: color-mix(in srgb, var(--bg) 65%, transparent);
     backdrop-filter: blur(4px);
   }
 
