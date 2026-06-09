@@ -139,7 +139,7 @@ cargo tauri build
 The installer is written to:
 
 ```text
-target\x86_64-pc-windows-msvc\release\bundle\nsis\
+target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 ```
 
 Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.

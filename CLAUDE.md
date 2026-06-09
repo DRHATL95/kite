@@ -62,10 +62,10 @@ npm --prefix ui run build
 cargo tauri build
 ```
 
-The installer output is under:
+The installer output is under (default host target):
 
 ```text
-target\x86_64-pc-windows-msvc\release\bundle\nsis\
+target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 ```
 
 Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
