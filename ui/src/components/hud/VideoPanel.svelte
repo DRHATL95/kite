@@ -3,13 +3,23 @@
    * VideoPanel.svelte — Video quality metrics from DiagnosticsSnapshot.
    *
    * Shows: fps, resolution (w×h), framesDecoded, framesDropped, freezeCount
-   * (highlighted with warn/danger tone), totalFreezesDuration, inboundVideoKbps,
+   * (highlighted with warn tone), totalFreezesDuration, inboundVideoKbps,
    * and availableIncomingBitrate.
+   *
+   * Semantic colour rule:
+   *   - freezeCount === 0 → good (accent green)
+   *   - freezeCount > 0   → warn (amber)
+   *   - framesDropped > 0 → warn
+   *   - fps / resolution  → neutral text
    */
 
   import Panel from "$lib/design/Panel.svelte";
   import Stat from "$lib/design/Stat.svelte";
   import type { DiagnosticsSnapshot } from "$lib/connection/types.js";
+
+  // ── Thresholds ───────────────────────────────────────────────────────────────
+  const FREEZE_WARN = 1;          // any freeze at all is a warning
+  const FRAMES_DROPPED_WARN = 0;  // any dropped frame → warn
 
   interface Props {
     snapshot: DiagnosticsSnapshot | null;
@@ -31,12 +41,22 @@
       : null,
   );
 
-  /** Freeze severity tone: warn for 1–2 freezes, danger for 3+. */
-  const freezeTone = $derived((): "default" | "warn" | "danger" => {
+  /**
+   * Freeze tone: good (green) when healthy (no freezes), warn when any freeze occurred.
+   * healthy = 0 freezes → good; any freeze → warn.
+   */
+  const freezeTone = $derived((): "good" | "warn" | "neutral" => {
     const c = snapshot?.freezeCount;
-    if (c == null || c === 0) return "default";
-    if (c <= 2) return "warn";
-    return "danger";
+    if (c == null) return "neutral";
+    if (c === 0) return "good";
+    return "warn";
+  });
+
+  /** framesDropped tone: warn if any frames dropped. */
+  const droppedTone = $derived((): "warn" | "neutral" => {
+    const d = snapshot?.framesDropped;
+    if (d == null || d <= FRAMES_DROPPED_WARN) return "neutral";
+    return "warn";
   });
 
   /** Total freeze duration in seconds, rounded to 2 decimal places. */
@@ -52,7 +72,7 @@
     <Stat label="FPS"        value={snapshot?.fps ?? null} />
     <Stat label="Resolution" value={resolution} />
     <Stat label="Decoded"    value={snapshot?.framesDecoded ?? null} />
-    <Stat label="Dropped"    value={snapshot?.framesDropped ?? null} />
+    <Stat label="Dropped"    value={snapshot?.framesDropped ?? null} tone={droppedTone()} />
     <Stat label="Freezes"    value={snapshot?.freezeCount ?? null} tone={freezeTone()} />
     <Stat label="Freeze dur" value={freezeDurSec} unit="s" tone={freezeTone()} />
     <Stat label="Inbound"    value={snapshot?.inboundVideoKbps ?? null} unit="kbps" />

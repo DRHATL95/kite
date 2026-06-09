@@ -7,12 +7,20 @@
    *   - handshakeMs
    *   - Track arrival skew (videoArrivedAt / audioArrivedAt / skewMs)
    *   - Input telemetry: outboundPacketHz / lastSequence
+   *
+   * Semantic colour rule:
+   *   - channel open → good; closing/connecting → warn; closed → bad
+   *   - A/V skew ≥ 500ms → bad; ≥ 100ms → warn; < 100ms → neutral
    */
 
   import Panel from "$lib/design/Panel.svelte";
   import Stat from "$lib/design/Stat.svelte";
   import Badge from "$lib/design/Badge.svelte";
   import type { DiagnosticsSnapshot, ChannelStats } from "$lib/connection/types.js";
+
+  // ── Thresholds ───────────────────────────────────────────────────────────────
+  const SKEW_WARN_MS = 100;
+  const SKEW_BAD_MS  = 500;
 
   interface Props {
     snapshot: DiagnosticsSnapshot | null;
@@ -34,15 +42,15 @@
     });
   });
 
-  type BadgeTone = "success" | "warn" | "danger" | "neutral";
+  type BadgeTone = "good" | "success" | "warn" | "bad" | "danger" | "neutral";
 
   function channelTone(state: RTCDataChannelState | undefined): BadgeTone {
     switch (state) {
-      case "open":     return "success";
-      case "closing":  return "warn";
-      case "closed":   return "danger";
+      case "open":       return "good";
+      case "closing":    return "warn";
+      case "closed":     return "bad";
       case "connecting": return "warn";
-      default:         return "neutral";
+      default:           return "neutral";
     }
   }
 
@@ -57,12 +65,12 @@
 
   // ── Track skew tone ──────────────────────────────────────────────────────────
 
-  const skewTone = $derived((): "default" | "warn" | "danger" => {
+  const skewTone = $derived((): "bad" | "warn" | "neutral" => {
     const ms = snapshot?.skewMs;
-    if (ms == null) return "default";
-    if (ms < 100) return "default";
-    if (ms < 500) return "warn";
-    return "danger";
+    if (ms == null) return "neutral";
+    if (ms >= SKEW_BAD_MS)  return "bad";
+    if (ms >= SKEW_WARN_MS) return "warn";
+    return "neutral";
   });
 </script>
 
@@ -124,14 +132,14 @@
   .channel-label {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     min-width: 52px;
   }
 
   .channel-time {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     margin-left: auto;
   }
 
@@ -142,17 +150,17 @@
   }
 
   .section {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--border);
     padding-top: var(--space-3);
     margin-top: var(--space-3);
   }
 
   .section-label {
     display: block;
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 600;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-bottom: var(--space-2);

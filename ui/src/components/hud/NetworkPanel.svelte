@@ -3,15 +3,27 @@
    * NetworkPanel.svelte — Network / ICE diagnostics from DiagnosticsSnapshot.
    *
    * Shows: rttMs, localCandidateType / remoteCandidateType as Badges (relay
-   * is highlighted warn since it is the key Spec-3 signal), candidatePairState,
-   * iceConnectionState / iceGatheringState / connectionState, and ICE provenance
-   * (source + stunCount/turnCount + remoteCandidatesAdded + icePollAttemptsUsed).
+   * is highlighted good/accent since it is the key Spec-3 signal — relay means
+   * TURN is working), candidatePairState, iceConnectionState / iceGatheringState /
+   * connectionState, and ICE provenance (source + stunCount/turnCount +
+   * remoteCandidatesAdded + icePollAttemptsUsed).
+   *
+   * Semantic colour rule:
+   *   - relay candidate type → good (accent: relay = TURN path is working)
+   *   - srflx → neutral
+   *   - RTT > 80ms → warn; RTT > 150ms → bad
+   *   - source === 'xbox-provided' → good; 'fallback-only' → bad
+   *   - connected/completed → good; checking/gathering/new → warn; disconnected/failed/closed → bad
    */
 
   import Panel from "$lib/design/Panel.svelte";
   import Stat from "$lib/design/Stat.svelte";
   import Badge from "$lib/design/Badge.svelte";
   import type { DiagnosticsSnapshot, CandidateType } from "$lib/connection/types.js";
+
+  // ── Thresholds ───────────────────────────────────────────────────────────────
+  const RTT_WARN_MS = 80;
+  const RTT_BAD_MS  = 150;
 
   interface Props {
     snapshot: DiagnosticsSnapshot | null;
@@ -21,30 +33,40 @@
 
   // ── Candidate-type badge tone ────────────────────────────────────────────────
 
-  type BadgeTone = "success" | "warn" | "danger" | "neutral";
+  type BadgeTone = "good" | "success" | "warn" | "bad" | "danger" | "neutral";
 
   function candidateTone(type: CandidateType | null | undefined): BadgeTone {
     switch (type) {
-      case "relay":  return "warn";    // relay = TURN; key Spec-3 signal
-      case "srflx":  return "success";
+      case "relay":  return "good";    // relay = TURN; key Spec-3 signal — accent
+      case "srflx":  return "neutral";
       case "host":   return "neutral";
       case "prflx":  return "neutral";
       default:       return "neutral";
     }
   }
 
+  // ── RTT tone ─────────────────────────────────────────────────────────────────
+
+  const rttTone = $derived((): "good" | "warn" | "bad" | "neutral" => {
+    const rtt = snapshot?.rttMs;
+    if (rtt == null) return "neutral";
+    if (rtt > RTT_BAD_MS)  return "bad";
+    if (rtt > RTT_WARN_MS) return "warn";
+    return "good";
+  });
+
   // ── Connection state badge tone ──────────────────────────────────────────────
 
   function connTone(state: string | null | undefined): BadgeTone {
     switch (state) {
       case "connected":
-      case "completed":   return "success";
+      case "completed":   return "good";
       case "checking":
       case "gathering":
       case "new":         return "warn";
       case "disconnected":
       case "failed":
-      case "closed":      return "danger";
+      case "closed":      return "bad";
       default:            return "neutral";
     }
   }
@@ -53,8 +75,8 @@
 
   const provenanceTone = $derived((): BadgeTone => {
     switch (snapshot?.source) {
-      case "xbox-provided": return "success";
-      case "fallback-only": return "danger";
+      case "xbox-provided": return "good";
+      case "fallback-only": return "bad";
       default:              return "neutral";
     }
   });
@@ -71,7 +93,7 @@
 <Panel title="Network / ICE">
   <!-- RTT + candidate pair state -->
   <div class="grid">
-    <Stat label="RTT" value={snapshot?.rttMs ?? null} unit="ms" />
+    <Stat label="RTT" value={snapshot?.rttMs ?? null} unit="ms" tone={rttTone()} />
     <Stat label="Pair state" value={snapshot?.candidatePairState ?? "—"} />
   </div>
 
@@ -152,10 +174,10 @@
   }
 
   .cand-label {
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 500;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
@@ -168,16 +190,16 @@
   }
 
   .provenance {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--border);
     padding-top: var(--space-3);
   }
 
   .section-label {
     display: block;
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 600;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-bottom: var(--space-2);
@@ -193,12 +215,12 @@
   .prov-counts {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 
   .placeholder {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 </style>

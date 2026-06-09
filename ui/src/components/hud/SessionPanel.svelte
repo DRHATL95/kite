@@ -5,6 +5,10 @@
    * Shows: state, activeKeepalive, msSinceLastKeepalive,
    * lastIdleWarningSecondsUntilKick; reconnect info: currentAttempt /
    * maxAttempts, lastTriggerReason, backoffMs.
+   *
+   * Semantic colour rule:
+   *   - state: streaming → good; connecting/reconnecting → warn; failed → bad
+   *   - keepalive: api → good; idle → warn; none → neutral
    */
 
   import Panel from "$lib/design/Panel.svelte";
@@ -20,14 +24,14 @@
 
   // ── Session state badge tone ─────────────────────────────────────────────────
 
-  type BadgeTone = "success" | "warn" | "danger" | "neutral";
+  type BadgeTone = "good" | "success" | "warn" | "bad" | "danger" | "neutral";
 
   function stateTone(s: string | undefined): BadgeTone {
     switch (s) {
-      case "streaming":    return "success";
+      case "streaming":    return "good";
       case "connecting":   return "warn";
       case "reconnecting": return "warn";
-      case "failed":       return "danger";
+      case "failed":       return "bad";
       default:             return "neutral";
     }
   }
@@ -36,7 +40,7 @@
 
   function keepaliveTone(mode: string | undefined): BadgeTone {
     switch (mode) {
-      case "api":  return "success";
+      case "api":  return "good";
       case "idle": return "warn";
       case "none": return "neutral";
       default:     return "neutral";
@@ -109,13 +113,13 @@
   .kick-warn {
     margin-bottom: var(--space-3);
     padding: var(--space-2) var(--space-3);
-    background: color-mix(in srgb, var(--color-warn) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-warn) 30%, transparent);
+    background: color-mix(in srgb, var(--warn) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
     border-radius: var(--radius-sm);
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: var(--text-sm);
     font-weight: 600;
-    color: var(--color-warn);
+    color: var(--warn);
   }
 
   .grid {
@@ -125,7 +129,7 @@
   }
 
   .reconnect {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--border);
     padding-top: var(--space-3);
     margin-top: var(--space-3);
   }
@@ -137,10 +141,10 @@
 
   .section-label {
     display: block;
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 600;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-bottom: var(--space-1);
@@ -153,13 +157,13 @@
   .reason-text {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     word-break: break-word;
   }
 
   .placeholder {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 </style>

@@ -14,10 +14,11 @@
 
   import type { Snippet } from "svelte";
 
-  type Tone = "success" | "warn" | "danger" | "neutral";
+  type Tone = "good" | "success" | "warn" | "bad" | "danger" | "neutral";
 
   interface Props {
-    /** Colour tone of the badge. Defaults to 'neutral'. */
+    /** Colour tone of the badge. Defaults to 'neutral'.
+   * 'good'/'success' → accent green; 'warn' → amber; 'bad'/'danger' → red. */
     tone?: Tone;
     /** Badge text content. */
     children: Snippet;
@@ -55,8 +56,9 @@
     border: 1px solid var(--text-dim);
   }
 
-  /* Success → accent (good/active) */
-  .badge--success {
+  /* Success / good → accent (healthy/active) */
+  .badge--success,
+  .badge--good {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent);
     border: 1px solid var(--accent);
@@ -69,8 +71,9 @@
     border: 1px solid var(--warn);
   }
 
-  /* Danger → bad token */
-  .badge--danger {
+  /* Danger / bad → bad token */
+  .badge--danger,
+  .badge--bad {
     background: color-mix(in srgb, var(--bad) 12%, transparent);
     color: var(--bad);
     border: 1px solid var(--bad);

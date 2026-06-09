@@ -94,12 +94,13 @@
     aria-label="Diagnostics HUD"
   >
     <header class="hud__header">
-      <span class="hud__title">Diagnostics</span>
+      <span class="hud__title">DIAGNOSTICS</span>
       {#if activeSnapshot == null}
         <span class="hud__status">awaiting connection</span>
       {:else}
         <span class="hud__status hud__status--live">live</span>
       {/if}
+      <span class="hud__hint">` close</span>
       <button class="hud__close" onclick={toggle} aria-label="Close HUD">✕</button>
     </header>
 
@@ -127,36 +128,32 @@
     padding: 3px var(--space-2);
     background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(4px);
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 600;
     letter-spacing: 0.04em;
     cursor: pointer;
-    transition:
-      background var(--transition-fast),
-      color var(--transition-fast),
-      border-color var(--transition-fast);
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
     user-select: none;
   }
 
   .hud-toggle:hover {
     background: rgba(0, 0, 0, 0.75);
-    color: var(--color-text);
-    border-color: var(--color-text-dim);
+    color: var(--text);
+    border-color: var(--text-dim);
   }
 
   .hud-toggle--active {
-    background: color-mix(in srgb, var(--color-accent) 20%, transparent);
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .hud-toggle:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
   }
 
   /* ── HUD overlay ───────────────────────────────────────────────────────────── */
@@ -166,14 +163,13 @@
     top: var(--space-4);
     right: var(--space-4);
     z-index: 910;
-    width: min(580px, calc(100vw - var(--space-8, 32px)));
-    max-height: calc(100vh - var(--space-8, 32px));
+    width: min(580px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
     overflow-y: auto;
-    background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.4));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
     display: flex;
     flex-direction: column;
     gap: 0;
@@ -186,52 +182,58 @@
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-4);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface-2);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
     position: sticky;
     top: 0;
     z-index: 1;
   }
 
   .hud__title {
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    font-weight: 700;
-    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-dim);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
     flex: 1;
+  }
+
+  .hud__hint {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    opacity: 0.6;
   }
 
   .hud__status {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 
   .hud__status--live {
-    color: var(--color-success);
+    color: var(--accent);
   }
 
   .hud__close {
     background: none;
     border: none;
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     font-size: var(--text-sm);
     line-height: 1;
     cursor: pointer;
     padding: 2px var(--space-1);
     border-radius: var(--radius-sm);
-    transition: color var(--transition-fast);
+    transition: color 0.15s;
   }
 
   .hud__close:hover {
-    color: var(--color-text);
+    color: var(--text);
   }
 
   .hud__close:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
   }
 
   /* ── Panel grid ────────────────────────────────────────────────────────────── */
