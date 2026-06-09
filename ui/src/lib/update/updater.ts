@@ -22,7 +22,11 @@ export async function applyUpdate(update: Update, onProgress?: (pct: number) => 
       total = e.data.contentLength ?? 0;
     } else if (e.event === "Progress") {
       got += e.data.chunkLength;
-      if (total) onProgress?.(Math.round((got / total) * 100));
+      // Clamp to 100 in case the server's contentLength under-reports actual bytes.
+      if (total) onProgress?.(Math.min(100, Math.round((got / total) * 100)));
+    } else if (e.event === "Finished") {
+      // Pin to 100% so the bar completes rather than freezing at ~99%.
+      onProgress?.(100);
     }
   });
   await relaunch();
