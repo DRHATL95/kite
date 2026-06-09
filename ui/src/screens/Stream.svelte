@@ -20,6 +20,7 @@
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import StreamControls from "../components/StreamControls.svelte";
   import StreamStatus from "../components/StreamStatus.svelte";
+  import DiagnosticsHud from "../components/DiagnosticsHud.svelte";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -162,7 +163,8 @@
     <StreamStatus />
   </div>
 
-  <!-- HUD mounts here (Task 11) -->
+  <!-- ── Diagnostics HUD ───────────────────────────────────────────────────── -->
+  <DiagnosticsHud />
 
   <!-- ── Controls bar (bottom) ─────────────────────────────────────────────── -->
   <div class="overlay overlay--bottom">
