@@ -126,6 +126,24 @@ $env:XBOX_CLIENT_ID = "your-client-id"
 cargo run
 ```
 
+## Building a Windows Installer
+
+Xbox Remote uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
+
+```powershell
+npm --prefix ui install
+npm --prefix ui run build
+cargo tauri build
+```
+
+The installer is written to:
+
+```text
+target\x86_64-pc-windows-msvc\release\bundle\nsis\
+```
+
+Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.
+
 ## How It Works
 
 The streaming protocol follows the same approach as Greenlight:

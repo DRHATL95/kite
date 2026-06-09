@@ -25,6 +25,10 @@ cargo run
 # Release build
 cargo build --release
 
+# Windows NSIS installer (.exe)
+npm --prefix ui run build
+cargo tauri build
+
 # Run Rust tests
 cargo test
 
@@ -47,6 +51,24 @@ npm --prefix ui run test
 ```
 
 There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
+
+### Windows Installer
+
+`tauri.conf.json` enables Tauri's NSIS bundler. To produce a setup `.exe`, build the frontend first and then run the Tauri build from the repository root:
+
+```powershell
+npm --prefix ui install
+npm --prefix ui run build
+cargo tauri build
+```
+
+The installer output is under:
+
+```text
+target\x86_64-pc-windows-msvc\release\bundle\nsis\
+```
+
+Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
