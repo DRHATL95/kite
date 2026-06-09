@@ -138,57 +138,53 @@
   role="region"
   aria-label="Xbox stream"
 >
-  <!-- ── Video ─────────────────────────────────────────────────────────────── -->
-  <!-- svelte-ignore a11y_media_has_caption -->
-  <video
-    class="stream-video"
-    autoplay
-    playsinline
-    bind:this={videoEl}
-    aria-label="Xbox console stream"
-  ></video>
+  <!-- ── Status strip (top) ────────────────────────────────────────────────── -->
+  <StreamStatus />
 
-  <!-- ── Unmute affordance (autoplay policy fallback) ──────────────────────── -->
-  {#if needsUnmute}
-    <div class="unmute-overlay" aria-live="assertive">
-      <button class="unmute-btn" onclick={handleUnmute}>
-        Unmute &amp; Play
-      </button>
-      <p class="unmute-hint">Click to enable audio (browser autoplay policy)</p>
-    </div>
-  {/if}
+  <!-- ── Video stage (middle, flex: 1) ─────────────────────────────────────── -->
+  <div class="video-stage">
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video
+      class="stream-video"
+      autoplay
+      playsinline
+      bind:this={videoEl}
+      aria-label="Xbox console stream"
+    ></video>
 
-  <!-- ── Status overlay (top-left) ─────────────────────────────────────────── -->
-  <div class="overlay overlay--top-left">
-    <StreamStatus />
+    <!-- ── Unmute affordance (autoplay policy fallback) ──────────────────── -->
+    {#if needsUnmute}
+      <div class="unmute-overlay" aria-live="assertive">
+        <button class="unmute-btn" onclick={handleUnmute}>
+          Unmute &amp; Play
+        </button>
+        <p class="unmute-hint">Click to enable audio (browser autoplay policy)</p>
+      </div>
+    {/if}
+
+    <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────────── -->
+    <DiagnosticsHud />
   </div>
-
-  <!-- ── Diagnostics HUD ───────────────────────────────────────────────────── -->
-  <DiagnosticsHud />
 
   <!-- ── Controls bar (bottom) ─────────────────────────────────────────────── -->
-  <div class="overlay overlay--bottom">
-    <StreamControls
-      video={videoEl}
-      fullscreenEl={containerEl}
-      bind:focusMode
-      {onDisconnect}
-    />
-  </div>
+  <StreamControls
+    video={videoEl}
+    fullscreenEl={containerEl}
+    bind:focusMode
+    {onDisconnect}
+  />
 </div>
 
 <style>
-  /* ── Root container — fills the whole viewport ─────────────────────────── */
+  /* ── Root container — flex column filling the whole viewport ───────────── */
 
   .stream-screen {
-    position: relative;
     width: 100%;
     height: 100vh;
-    background: #000;
-    overflow: hidden;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    background: var(--bg);
+    overflow: hidden;
   }
 
   /* In focus mode, hide the native window cursor after the controls fade */
@@ -196,35 +192,26 @@
     cursor: none;
   }
 
-  /* ── Video element ──────────────────────────────────────────────────────── */
+  /* ── Video stage — bordered area that grows to fill available space ─────── */
+
+  .video-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0; /* allow flex shrink below intrinsic height */
+    background: var(--video-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  /* ── Video element fills the stage ──────────────────────────────────────── */
 
   .stream-video {
     width: 100%;
     height: 100%;
     object-fit: contain;
     display: block;
-    background: #000;
-  }
-
-  /* ── Overlay positioning helpers ────────────────────────────────────────── */
-
-  .overlay {
-    position: absolute;
-    z-index: 10;
-    pointer-events: none; /* children opt-in via pointer-events: auto */
-  }
-
-  .overlay--top-left {
-    top: var(--space-3);
-    left: var(--space-3);
-    pointer-events: auto;
-  }
-
-  .overlay--bottom {
-    bottom: var(--space-4);
-    left: 50%;
-    transform: translateX(-50%);
-    pointer-events: auto;
+    background: var(--video-bg);
   }
 
   /* ── Unmute overlay ─────────────────────────────────────────────────────── */
@@ -244,30 +231,29 @@
 
   .unmute-btn {
     padding: var(--space-3) var(--space-5);
-    background: var(--color-accent);
-    color: #fff;
+    background: var(--accent);
+    color: var(--on-accent);
     border: none;
     border-radius: var(--radius-md);
     font-family: var(--font-sans);
     font-size: var(--text-lg);
     font-weight: 700;
     cursor: pointer;
-    transition: background var(--transition-fast);
+    transition: background 120ms ease;
   }
 
   .unmute-btn:hover {
-    background: var(--color-accent-hover);
+    background: var(--accent-press);
   }
 
   .unmute-btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
   }
 
   .unmute-hint {
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 </style>

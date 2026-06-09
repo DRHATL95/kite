@@ -21,7 +21,6 @@
 
   import { onDestroy } from "svelte";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
-  import Button from "$lib/design/Button.svelte";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -152,7 +151,38 @@
   class:stream-controls--visible={!focusMode || controlsVisible}
   aria-label="Stream controls"
 >
-  <!-- Focus mode toggle -->
+  <!-- Volume: speaker glyph (accent) + slider + value -->
+  <div class="ctrl-volume" title="Volume">
+    <!-- Speaker glyph -->
+    <span class="ctrl-volume__icon" aria-hidden="true" style="color: var(--accent);">
+      {#if volumePct === 0}
+        🔇
+      {:else if volumePct < 50}
+        🔉
+      {:else}
+        🔊
+      {/if}
+    </span>
+
+    <!-- Slider — CSS custom property drives the accent fill via background gradient -->
+    <input
+      type="range"
+      class="ctrl-volume__slider"
+      min="0"
+      max="100"
+      value={volumePct}
+      style="--fill: {volumePct}%;"
+      oninput={handleVolumeInput}
+      aria-label="Volume"
+    />
+
+    <span class="ctrl-volume__value">{volumePct}%</span>
+  </div>
+
+  <!-- Separator -->
+  <span class="ctrl-sep" aria-hidden="true"></span>
+
+  <!-- Focus mode toggle (ghost button) -->
   <button
     class="ctrl-btn"
     onclick={toggleFocusMode}
@@ -162,7 +192,7 @@
     {focusMode ? "Exit Focus" : "Focus"}
   </button>
 
-  <!-- Fullscreen toggle -->
+  <!-- Fullscreen toggle (ghost button) -->
   <button
     class="ctrl-btn"
     onclick={toggleFullscreen}
@@ -172,7 +202,7 @@
     {isFullscreen ? "Exit FS" : "Fullscreen"}
   </button>
 
-  <!-- Keyframe request -->
+  <!-- Keyframe request (ghost button) -->
   <button
     class="ctrl-btn"
     onclick={requestKeyframe}
@@ -181,46 +211,32 @@
     Keyframe
   </button>
 
-  <!-- Volume slider -->
-  <div class="ctrl-volume" title="Volume">
-    <span class="ctrl-volume__icon" aria-hidden="true">
-      {#if volumePct === 0}
-        Muted
-      {:else if volumePct < 50}
-        Vol-
-      {:else}
-        Vol
-      {/if}
-    </span>
-    <input
-      type="range"
-      class="ctrl-volume__slider"
-      min="0"
-      max="100"
-      value={volumePct}
-      oninput={handleVolumeInput}
-      aria-label="Volume"
-    />
-    <span class="ctrl-volume__value">{volumePct}%</span>
-  </div>
+  <!-- Separator -->
+  <span class="ctrl-sep" aria-hidden="true"></span>
 
-  <!-- Disconnect -->
-  <Button variant="danger" onclick={onDisconnect}>
+  <!-- Disconnect (bad/danger tone) -->
+  <button
+    class="ctrl-btn ctrl-btn--disconnect"
+    onclick={onDisconnect}
+    title="Disconnect from Xbox"
+  >
     Disconnect
-  </Button>
+  </button>
 </div>
 
 <style>
+  /* ── Controls bar ───────────────────────────────────────────────────────── */
+
   .stream-controls {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
-    background: rgba(0, 0, 0, 0.70);
-    backdrop-filter: blur(6px);
-    border-radius: var(--radius-md);
-    transition: opacity var(--transition-base);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
     flex-wrap: wrap;
+    transition: opacity 200ms ease;
   }
 
   /* In focus mode, hide the bar when not hovered / mouse moving. */
@@ -234,38 +250,60 @@
     pointer-events: auto;
   }
 
-  /* Shared control button style (lightweight, no design component overhead). */
+  /* ── Separator ──────────────────────────────────────────────────────────── */
+
+  .ctrl-sep {
+    display: inline-block;
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  /* ── Ghost buttons (focus / fullscreen / keyframe) ──────────────────────── */
+
   .ctrl-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: var(--space-1) var(--space-3);
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
+    background: transparent;
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    color: var(--color-text);
+    color: var(--text);
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
     transition:
-      background var(--transition-fast),
-      border-color var(--transition-fast);
+      background 120ms ease,
+      border-color 120ms ease;
     user-select: none;
   }
 
   .ctrl-btn:hover {
-    background: var(--color-border);
-    border-color: var(--color-text-dim);
+    background: var(--surface-2);
+    border-color: var(--text-dim);
   }
 
   .ctrl-btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
   }
 
-  /* Volume section */
+  /* Disconnect — bad/danger tone */
+  .ctrl-btn--disconnect {
+    border-color: var(--bad);
+    color: var(--bad);
+  }
+
+  .ctrl-btn--disconnect:hover {
+    background: color-mix(in srgb, var(--bad) 12%, transparent);
+    border-color: var(--bad);
+  }
+
+  /* ── Volume section ─────────────────────────────────────────────────────── */
+
   .ctrl-volume {
     display: inline-flex;
     align-items: center;
@@ -273,23 +311,62 @@
   }
 
   .ctrl-volume__icon {
-    font-family: var(--font-sans);
-    font-size: var(--text-xs);
-    color: var(--color-text-dim);
-    min-width: 28px;
-    text-align: right;
+    font-size: var(--text-base);
+    line-height: 1;
+    min-width: 20px;
+    text-align: center;
   }
 
+  /* Volume slider — custom accent fill via CSS gradient trick */
   .ctrl-volume__slider {
-    width: 80px;
-    accent-color: var(--color-accent);
+    width: 88px;
+    height: 4px;
     cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    border-radius: 2px;
+    /* fill up to --fill, then dim for the rest */
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      var(--accent) var(--fill, 80%),
+      var(--surface-2) var(--fill, 80%),
+      var(--surface-2) 100%
+    );
+    outline: none;
+    border: none;
+  }
+
+  .ctrl-volume__slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .ctrl-volume__slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .ctrl-volume__slider:focus-visible {
+    box-shadow: var(--focus-ring);
   }
 
   .ctrl-volume__value {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     min-width: 32px;
   }
 </style>

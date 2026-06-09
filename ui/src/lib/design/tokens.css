@@ -12,6 +12,8 @@
   --warn: #e0b341;          /* trouble */
   --bad: #d4685f;           /* trouble */
 
+  --video-bg: #000;             /* pure black behind video; intentional */
+
   --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "Cascadia Mono", Menlo, Consolas, monospace;
 
