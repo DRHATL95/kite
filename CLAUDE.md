@@ -9,13 +9,16 @@ Xbox Remote is a desktop application for streaming Xbox consoles via Microsoft's
 ## Build & Run
 
 ```powershell
-# Run the app (launches Tauri window)
+# Install frontend dependencies (first time / after package.json changes)
+npm --prefix ui install
+
+# Run the app (launches Tauri window — tauri CLI auto-runs the frontend build)
 cargo run
 
 # Release build
 cargo build --release
 
-# Run tests
+# Run Rust tests
 cargo test
 
 # Override the default Azure app client ID
@@ -23,7 +26,25 @@ $env:XBOX_CLIENT_ID = "your-client-id-here"
 cargo run
 ```
 
+### Frontend Commands
+
+```powershell
+# Vite dev server (for iterating on UI outside of Tauri)
+npm --prefix ui run dev
+
+# Production build → ui/dist (embedded by Tauri)
+npm --prefix ui run build
+
+# TypeScript + Svelte type-check
+npm --prefix ui run check
+
+# Vitest unit tests
+npm --prefix ui run test
+```
+
 There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
+
+> **Note**: For a plain `cargo build` (without the tauri CLI), you must run `npm --prefix ui run build` first so `ui/dist` exists. The `cargo run` / `tauri dev` path runs the frontend build automatically.
 
 ### System Dependencies
 
@@ -50,11 +71,13 @@ sudo apt-get install -y \
 
 4. **Session creation** (`src/xhome.rs`): `POST /v5/sessions/home/{serverId}/play` creates a streaming session. The response includes an SDP offer from Xbox and `keepAlivePulseInSeconds`.
 
-5. **WebRTC in the browser** (`ui/public/app.js`): The frontend creates an `RTCPeerConnection`, sets the remote SDP offer, generates an SDP answer, and sends it back via `POST /{sessionPath}/sdp`. ICE candidates are exchanged via `POST /{sessionPath}/ice`. Four data channels are opened: `chat`, `control`, `message`, `input`. Video and audio flow as WebRTC media tracks.
+5. **WebRTC in the browser** (`ui/src/lib/connection/`): The frontend creates an `RTCPeerConnection`, sets the remote SDP offer, generates an SDP answer, and sends it back via `POST /{sessionPath}/sdp`. ICE candidates are exchanged via `POST /{sessionPath}/ice`. Four data channels are opened: `chat`, `control`, `message`, `input`. Video and audio flow as WebRTC media tracks. The `ConnectionManager` class orchestrates the full session lifecycle.
 
-6. **Keepalive** (`ui/public/app.js`): The session stays alive by sending a keepalive both on the WebRTC data channel and to the xHome API at the interval specified by `keepAlivePulseInSeconds` (with a 2-second safety margin, minimum 5 seconds).
+6. **Keepalive** (`ui/src/lib/connection/ConnectionManager.ts`): The session stays alive by sending a keepalive both on the WebRTC data channel and to the xHome API at the interval specified by `keepAlivePulseInSeconds` (with a 2-second safety margin, minimum 5 seconds).
 
 ### Module Structure
+
+### Rust Backend (`src/`)
 
 | File | Purpose |
 |------|---------|
@@ -63,9 +86,24 @@ sudo apt-get install -y \
 | `src/xhome.rs` | xHome REST API client: login, list consoles, create session, SDP/ICE exchange, keepalive |
 | `src/token_store.rs` | OS keychain read/write for XSTS and refresh tokens |
 | `src/error.rs` | `XboxError` enum with `thiserror` |
-| `ui/public/app.js` | All frontend logic: auth UI, WebRTC peer connection, media display, gamepad/keyboard input forwarding |
-| `ui/public/index.html` | Single-page shell; section divs for login/discovery/streaming/error |
-| `ui/public/styles.css` | Dark theme styles |
+
+### Frontend (`ui/src/`) — Svelte 5 + TypeScript + Vite
+
+The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/dist/`, which Tauri embeds. `ui/vite.config.ts` sets `publicDir: false` so the old `ui/public/` directory is not served.
+
+| Path | Purpose |
+|------|---------|
+| `ui/src/lib/ipc/` | Typed wrappers around every Tauri command (`invoke`) |
+| `ui/src/lib/connection/ConnectionManager.ts` | Orchestrates the full WebRTC session lifecycle |
+| `ui/src/lib/connection/dataChannels.ts` | Data channel setup and protocol helpers |
+| `ui/src/lib/connection/input.ts` | Gamepad/keyboard input encoder (38-byte packet format) |
+| `ui/src/lib/connection/stats.ts` | WebRTC stats collection and bitrate calculation |
+| `ui/src/lib/connection/constants.ts` | Protocol constants (channel names, timeouts, packet offsets) |
+| `ui/src/lib/connection/messages.ts` | Structured message builders for data channels |
+| `ui/src/lib/stores/` | Svelte 5 rune-based stores (app state, session, diagnostics) |
+| `ui/src/lib/design/` | Design-system foundation (tokens, typography, spacing) |
+| `ui/src/screens/` | Top-level screens: Login, DeviceCode, ConsoleList, Stream |
+| `ui/src/components/` | Shared components: StreamControls, StreamStatus, DiagnosticsHud + HUD panels |
 
 ### Tauri Commands (src/main.rs)
 
@@ -102,7 +140,7 @@ sudo apt-get install -y \
 2. **XSTS audience** — must use `gssv` audience (`https://gssv.xboxlive.com/`) for the streaming XSTS token; the default Xbox Live audience will be rejected by the xHome API.
 3. **Keepalive drift** — use `keepAlivePulseInSeconds` from the session config response, not a hardcoded interval; Xbox disconnects after ~56 seconds if the interval is wrong.
 4. **Token expiry** — XSTS tokens expire in ~1 hour; call `check_auth_status()` before API calls and prompt re-auth if expired.
-5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/public/`, run `cargo clean -p xbox-remote` then `cargo build` to pick up changes.
+5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `cargo clean -p xbox-remote` then `cargo build` (or just `cargo run`) to pick up changes. The tauri CLI automatically runs the Vite build before compiling Rust.
 6. **Edition 2024** — requires Rust 1.85+. Run `rustup update stable` if the build fails with edition errors.
 
 ## Error Handling
