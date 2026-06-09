@@ -8,11 +8,18 @@ Xbox Remote is a desktop application for streaming Xbox consoles via Microsoft's
 
 ## Build & Run
 
+This project does NOT use the Tauri CLI (the layout has `Cargo.toml` + `tauri.conf.json`
+at the repo root, not under `src-tauri/`). Tauri embeds the pre-built frontend from
+`ui/dist` at compile time, so the workflow is **build the frontend, then `cargo run`**:
+
 ```powershell
 # Install frontend dependencies (first time / after package.json changes)
 npm --prefix ui install
 
-# Run the app (launches Tauri window — tauri CLI auto-runs the frontend build)
+# 1) Build the frontend (Svelte → ui/dist, which Tauri embeds)
+npm --prefix ui run build
+
+# 2) Run the app (embeds ui/dist and launches the Tauri window)
 cargo run
 
 # Release build
@@ -29,10 +36,7 @@ cargo run
 ### Frontend Commands
 
 ```powershell
-# Vite dev server (for iterating on UI outside of Tauri)
-npm --prefix ui run dev
-
-# Production build → ui/dist (embedded by Tauri)
+# Production build → ui/dist (embedded by Tauri; REQUIRED before cargo run)
 npm --prefix ui run build
 
 # TypeScript + Svelte type-check
@@ -44,7 +48,12 @@ npm --prefix ui run test
 
 There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
 
-> **Note**: For a plain `cargo build` (without the tauri CLI), you must run `npm --prefix ui run build` first so `ui/dist` exists. The `cargo run` / `tauri dev` path runs the frontend build automatically.
+> **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
+> here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
+> `npm --prefix ui run build`, then `cargo clean -p xbox-remote && cargo run` so the new
+> assets are re-embedded. Skipping the rebuild ships stale UI; skipping `cargo clean -p`
+> can serve a cached copy. (A previous misconfiguration set `devUrl` without installing the
+> Tauri CLI, which made `cargo run` show "localhost refused to connect" — removed.)
 
 ### System Dependencies
 
@@ -140,7 +149,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 2. **XSTS audience** — must use `gssv` audience (`https://gssv.xboxlive.com/`) for the streaming XSTS token; the default Xbox Live audience will be rejected by the xHome API.
 3. **Keepalive drift** — use `keepAlivePulseInSeconds` from the session config response, not a hardcoded interval; Xbox disconnects after ~56 seconds if the interval is wrong.
 4. **Token expiry** — XSTS tokens expire in ~1 hour; call `check_auth_status()` before API calls and prompt re-auth if expired.
-5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `cargo clean -p xbox-remote` then `cargo build` (or just `cargo run`) to pick up changes. The tauri CLI automatically runs the Vite build before compiling Rust.
+5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `npm --prefix ui run build` (regenerates `ui/dist`), then `cargo clean -p xbox-remote && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
 6. **Edition 2024** — requires Rust 1.85+. Run `rustup update stable` if the build fails with edition errors.
 
 ## Error Handling
