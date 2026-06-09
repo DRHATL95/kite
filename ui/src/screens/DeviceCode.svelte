@@ -73,18 +73,15 @@
 
       <!-- ── Code display ─────────────────────────────────────────────────── -->
       <div class="code-block">
-        <button
-          class="code-display"
-          onclick={copyCode}
-          title="Click to copy code"
-          aria-label="Device code: {userCode}. Click to copy."
-        >
-          {userCode || "Loading…"}
-        </button>
-        <p class="code-hint">Click the code to copy it</p>
-        {#if codeCopied}
-          <p class="copy-feedback" role="status">Copied!</p>
-        {/if}
+        <div class="code-row">
+          <span class="code-display" aria-label="Device code: {userCode}">
+            {userCode || "Loading…"}
+          </span>
+          <Button variant="ghost" onclick={copyCode} disabled={!userCode}>
+            {codeCopied ? "Copied!" : "Copy"}
+          </Button>
+        </div>
+        <p class="code-hint">Enter this code at the sign-in page</p>
       </div>
 
       <!-- ── URL section ──────────────────────────────────────────────────── -->
@@ -103,7 +100,7 @@
 
       <!-- ── Waiting indicator ─────────────────────────────────────────────── -->
       <div class="waiting-indicator">
-        <div class="spinner" role="status" aria-label="Waiting for sign-in"></div>
+        <span class="live-dot" role="status" aria-label="Waiting for sign-in"></span>
         <p class="waiting-text">Waiting for you to sign in…</p>
       </div>
 
@@ -117,12 +114,11 @@
 <style>
   .device-code-screen {
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     padding: var(--space-5);
-    background: var(--color-bg);
+    background: var(--bg);
   }
 
   .device-code-body {
@@ -139,7 +135,7 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-base);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 
   /* ── Code display ─────────────────────────────────────────────────────────── */
@@ -152,48 +148,32 @@
     width: 100%;
   }
 
-  .code-display {
-    /* Styled as a large, clickable display — not a typical button shape */
-    display: block;
+  .code-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
     width: 100%;
-    padding: var(--space-5) var(--space-4);
-    background: var(--color-surface-2);
-    border: 2px solid var(--color-accent);
+    padding: var(--space-4) var(--space-4);
+    background: var(--surface-2);
+    border: 2px solid var(--border);
     border-radius: var(--radius-md);
+  }
+
+  .code-display {
     font-family: var(--font-mono);
-    font-size: 2.4rem;
+    font-size: var(--text-xl);
     font-weight: 800;
     letter-spacing: 0.18em;
-    color: var(--color-accent);
-    text-align: center;
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
+    color: var(--text);
     user-select: all;
-  }
-
-  .code-display:hover {
-    background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface-2));
-    border-color: var(--color-accent-hover);
-  }
-
-  .code-display:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
   }
 
   .code-hint {
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
-  }
-
-  .copy-feedback {
-    margin: 0;
-    font-family: var(--font-sans);
-    font-size: var(--text-xs);
-    color: var(--color-success);
-    font-weight: 600;
+    color: var(--text-dim);
   }
 
   /* ── URL section ──────────────────────────────────────────────────────────── */
@@ -211,8 +191,8 @@
     align-items: center;
     gap: var(--space-2);
     width: 100%;
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: var(--space-2) var(--space-3);
   }
@@ -221,7 +201,7 @@
     flex: 1;
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -232,29 +212,30 @@
 
   .waiting-indicator {
     display: flex;
-    flex-direction: column;
     align-items: center;
     gap: var(--space-2);
   }
 
-  .spinner {
-    width: 24px;
-    height: 24px;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-accent);
+  .live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    background: var(--accent);
+    animation: pulse 1.8s ease-in-out infinite;
+    flex-shrink: 0;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
   }
 
   .waiting-text {
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
-    color: var(--color-text-dim);
+    color: var(--text-dim);
   }
 
   /* ── Error ────────────────────────────────────────────────────────────────── */
@@ -263,9 +244,9 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+    color: var(--bad);
+    background: color-mix(in srgb, var(--bad) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bad) 25%, transparent);
     border-radius: var(--radius-sm);
     padding: var(--space-2) var(--space-3);
     width: 100%;
