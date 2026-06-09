@@ -151,8 +151,9 @@ export const updateStore = new UpdateStore();
 
 ## Task 5: Full build verification (installer + updater artifacts)
 
-- [ ] **Step 1: Build the installer + updater artifacts** — `npm --prefix ui run build` then `cargo tauri build`. Expected: the NSIS installer in `target/release/bundle/nsis/`, AND the **updater artifacts** (`*.nsis.zip` + a `*.nsis.zip.sig` signature file) in the bundle dir (because `createUpdaterArtifacts: true`). Confirm the `.sig` file exists (proves signing works).
-- [ ] **Step 2: Confirm signing** — `find target/release/bundle -name "*.sig"` returns the signature file(s). (Linux/AppImage artifacts build in CI; here we verify the Windows updater artifact + signature.)
+- [ ] **Step 1: Build the installer + updater artifacts** — `npm --prefix ui run build` then `cargo tauri build --bundles nsis` (override `bundle.targets` to nsis only; **AppImage builds on Linux in CI**, not on Windows). Provide the signing env so the `.sig` is emitted: `TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/xbox-remote-updater.key)"` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""`. Expected: the NSIS installer in `target/release/bundle/nsis/`, AND — because `createUpdaterArtifacts: true` — a signed updater artifact. **NOTE (verified):** in Tauri 2 the Windows NSIS updater artifact is the **`-setup.exe` itself**, signed as **`...-setup.exe.sig`** (NOT the older `.nsis.zip`). Confirm the `.sig` exists.
+  - *Gotcha (verified):* if a stale `xbox-remote.exe` from a prior run is still open, the bundler fails with `failed to remove ...xbox-remote.exe: Access is denied (os error 5)`. Kill any running instance first (`Get-Process xbox-remote | Stop-Process -Force`). The Windows CI runner needs the same guard.
+- [ ] **Step 2: Confirm signing** — `find target/release/bundle -name "*.sig"` returns the signature file (`Xbox Remote_<ver>_x64-setup.exe.sig`). Its decoded body reads `signature from tauri secret key` and its key ID matches the configured pubkey. (Linux/AppImage artifacts build in CI; here we verify the Windows updater artifact + signature.)
 - [ ] **Step 3: Verify no secret leaked** — `git grep -i "untrusted comment\|PRIVATE KEY\|minisign" -- . ':!docs'` returns nothing in tracked files; the private key lives only at `~/.tauri/`.
 - [ ] **Step 4: Final checks** — `npm --prefix ui run check` (0 errors), `npm --prefix ui run test` (pass), `cargo build` (Finished).
 - [ ] **Step 5: Commit any remaining + summarize** (no code change expected here; this task is verification).
@@ -160,7 +161,7 @@ export const updateStore = new UpdateStore();
 ---
 
 ## Final verification (sub-project 1)
-- [ ] `cargo tauri build` produces the NSIS installer **and** signed updater artifacts (`.nsis.zip` + `.sig`).
+- [ ] `cargo tauri build --bundles nsis` produces the NSIS installer **and** a signed updater artifact (the `-setup.exe` + its `-setup.exe.sig`).
 - [ ] Updater + process plugins registered; `capabilities/default.json` grants `updater:default` + `process:allow-restart`; app still launches + streams.
 - [ ] `tauri.conf.json` has the updater endpoint (nightly `latest.json`) + the **public** key; bundle targets `nsis` + `appimage`; `createUpdaterArtifacts: true`.
 - [ ] The Svelte update banner renders (mock) in Carbon+Green; `checkOnLaunch()` is wired into `App.svelte` `onMount`.
