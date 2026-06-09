@@ -1,0 +1,79 @@
+/**
+ * tokens.css — Design-system CSS custom properties for Xbox Remote.
+ *
+ * Imported once in ui/src/main.ts.  All design components reference these
+ * tokens directly so the palette, spacing, and type scale can be updated
+ * from a single source of truth.
+ *
+ * Dark theme — matches the existing app.js / styles.css aesthetic.
+ */
+
+:root {
+  /* ── Palette ─────────────────────────────────────────────────────────────── */
+
+  /** Page / window background */
+  --color-bg:         #0e0e0e;
+  /** Card / panel surface */
+  --color-surface:    #1a1a1a;
+  /** Elevated / nested surface */
+  --color-surface-2:  #252525;
+  /** Subtle border between surfaces */
+  --color-border:     #333333;
+
+  /** Primary body text */
+  --color-text:       #f0f0f0;
+  /** Muted / secondary text */
+  --color-text-dim:   #888888;
+
+  /** Xbox green — primary action colour */
+  --color-accent:     #52b043;
+  /** Hover / focused accent (slightly lighter) */
+  --color-accent-hover: #5ec94e;
+
+  /* Status tones */
+  --color-success:    #52b043;
+  --color-warn:       #e6a817;
+  --color-danger:     #d94f4f;
+
+  /* Focus ring (keyboard nav) */
+  --color-focus-ring: #52b04399;
+
+  /* ── Spacing scale (4 px base) ───────────────────────────────────────────── */
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 40px;
+
+  /* ── Border radius ───────────────────────────────────────────────────────── */
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ── Typography scale ────────────────────────────────────────────────────── */
+
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-lg:   18px;
+  --text-xl:   24px;
+
+  /** Primary font stack — matches existing Segoe UI usage in the app */
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  /** Monospace stack for diagnostics / log output */
+  --font-mono: "Cascadia Code", "Fira Code", Consolas, monospace;
+
+  /* ── Elevation / shadows ─────────────────────────────────────────────────── */
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
+
+  /* ── Transitions ─────────────────────────────────────────────────────────── */
+
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+}
