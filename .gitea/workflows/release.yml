@@ -35,15 +35,17 @@ jobs:
               echo "prerelease=true"; echo "channel=nightly"; } >> "$GITHUB_OUTPUT"
           fi
 
+  # Cross-compiles the Windows NSIS installer ON the Linux runner via
+  # cargo-xwin (validated 2026-06-10: exe + updater .sig build and run fine).
+  # Runner prerequisites (baked into CT 106): clang/lld/llvm, nsis,
+  # rust target x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache.
   build-windows:
     needs: setup
-    runs-on: windows
-    defaults:
-      run:
-        shell: powershell
+    runs-on: linux
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      XWIN_ACCEPT_LICENSE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -52,30 +54,24 @@ jobs:
           npm --prefix ui ci
           npm --prefix ui run build
 
-      # A still-running app instance locks the exe and fails the bundler
-      # with "Access is denied (os error 5)".
-      - name: Kill stale app instance
-        run: |
-          Get-Process xbox-remote -ErrorAction SilentlyContinue | Stop-Process -Force
-          exit 0
-
       # Inject the CI version via Tauri's --config merge-patch (RFC 7396);
       # the committed version stays 0.1.0 and the tree stays clean.
-      - name: Write version override
+      - name: Tauri cross-build (signed NSIS for Windows x64)
+        shell: bash
         run: |
-          '{"version":"${{ needs.setup.outputs.version }}"}' | Out-File -Encoding ascii ci-version.json
-
-      - name: Tauri build (signed NSIS)
-        run: cargo tauri build --bundles nsis --config ci-version.json
+          printf '{"version":"%s"}' "${{ needs.setup.outputs.version }}" > ci-version.json
+          cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
+            --bundles nsis --config ci-version.json
 
       # Space-free asset names so release URLs need no %20 escaping.
       # The .sig signs file BYTES, so renaming does not invalidate it.
       - name: Stage artifacts
+        shell: bash
         run: |
-          $v = '${{ needs.setup.outputs.version }}'
-          New-Item -ItemType Directory -Force out | Out-Null
-          Copy-Item "target/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "out/xbox-remote_${v}_x64-setup.exe"
-          Copy-Item "target/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "out/xbox-remote_${v}_x64-setup.exe.sig"
+          v='${{ needs.setup.outputs.version }}'
+          mkdir -p out
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "out/xbox-remote_${v}_x64-setup.exe"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "out/xbox-remote_${v}_x64-setup.exe.sig"
 
       - uses: actions/upload-artifact@v4
         with:
