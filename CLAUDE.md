@@ -70,6 +70,27 @@ target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 
 Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
 
+### Releases & Auto-Update (CI/CD)
+
+Releases are built by **Gitea Actions** (`.gitea/workflows/release.yml`) on a self-hosted
+Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
+
+- **Nightly**: every push to `master` cross-compiles the **Windows** NSIS installer on Linux
+  (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`),
+  signs the updater artifact, and force-updates the rolling `nightly` release with
+  `xbox-remote_<v>_x64-setup.exe` + `.sig` + `latest.json`. Version = `0.1.<run_number>`,
+  injected via `--config` (the committed version stays `0.1.0`).
+- **Stable**: pushing a `vX.Y.Z` tag cuts a permanent release.
+- **In-app updates**: the app checks `releases/download/nightly/latest.json` on launch
+  (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`) and prompts to
+  install. Offline / off-LAN the check silently no-ops.
+- **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` lives in Gitea Actions secrets (private key file at
+  `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
+  The public key is embedded in `tauri.conf.json`.
+- **Gotchas**: `actions/upload-artifact@v4` refuses non-GitHub hosts (build+publish are one job
+  on purpose); Linux is build-from-source for now (no AppImage job); every master push — even
+  docs-only — produces a new nightly and an update prompt.
+
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
 > `npm --prefix ui run build`, then `cargo clean -p xbox-remote && cargo run` so the new

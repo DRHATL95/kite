@@ -9,7 +9,8 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 - **WebRTC streaming**: Video and audio delivered via browser WebRTC data channels
 - **Gamepad and keyboard input**: Forward controller and keyboard input back to the Xbox
 - **Token persistence**: Stays logged in across sessions using the OS keychain
-- **Modern UI**: Clean, responsive dark-theme interface built with vanilla HTML/CSS/JS
+- **Modern UI**: Svelte 5 + TypeScript interface with a Carbon+Green design system and diagnostics HUD
+- **Auto-update**: Checks for new releases on launch and updates itself in-app (signed updates via the Tauri updater)
 
 ## Prerequisites
 
