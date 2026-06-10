@@ -1,5 +1,11 @@
 # Gitea Actions Release Workflow (Sub-project 2) — Implementation Plan
 
+> **DESCOPED 2026-06-10 (owner decision):** releases ship the **Windows exe only** for now;
+> Linux users clone + build from source. The `build-linux` job (Task 5) is NOT implemented and
+> `make-latest-json.sh` emits only a `windows-x86_64` platform entry. The Linux runner still
+> executes the `setup` and `publish` jobs. To add Linux later: implement Task 5 and add the
+> linux entry back to the manifest script.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (or executing-plans) to implement task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** A `.gitea/workflows/release.yml` that, on every push to `master`, builds signed Windows + Linux installers and publishes them (plus a Tauri `latest.json` updater manifest) to a rolling **nightly** Gitea release — and on a `v*` tag, cuts a permanent **stable** release.
