@@ -14,6 +14,7 @@
    */
 
   import { onMount } from "svelte";
+  import { getVersion } from "@tauri-apps/api/app";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import { updateStore } from "$lib/update/updateStore.svelte.js";
@@ -40,9 +41,15 @@
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
+  /** Runtime app version (CI-injected for nightlies); empty until resolved. */
+  let appVersion = $state("");
+
   onMount(() => {
     authStore.loadCached();
     updateStore.checkOnLaunch();
+    getVersion()
+      .then((v) => (appVersion = v))
+      .catch(() => {});
   });
 </script>
 
@@ -57,6 +64,10 @@
   {:else}
     <Login />
   {/if}
+
+  {#if appVersion && activeScreen() !== "stream"}
+    <span class="app-version">v{appVersion}</span>
+  {/if}
 </div>
 
 <style>
@@ -64,5 +75,18 @@
     height: 100vh;
     background: var(--bg);
     color: var(--text);
+  }
+
+  /* Quiet version label; hidden during streaming so it never overlays video. */
+  .app-version {
+    position: fixed;
+    right: var(--space-3);
+    bottom: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    opacity: 0.7;
+    pointer-events: none;
+    user-select: none;
   }
 </style>
