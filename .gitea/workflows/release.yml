@@ -78,6 +78,8 @@ jobs:
           VERSION='${{ steps.v.outputs.version }}'
           TAG='${{ steps.v.outputs.tag }}'
           base="${GITEA}/${REPO}/releases/download/${TAG}"
+          # make-latest-json.sh runs as a child process — VERSION must be in its ENV
+          export VERSION
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           NOTES='${{ steps.v.outputs.name }}' \
           WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
