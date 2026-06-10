@@ -8,7 +8,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "appimage"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
@@ -45,6 +46,14 @@
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://gitea.howlab.co/dave/xbox-remote/releases/download/nightly/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRjBDRTQ4NEFCNTRCOTEKUldTUlM3VktTTTd3VDAzWng2WFdYbzVIUnNqa1BWdlUrYVZHTnk4YlBNNEhkTFVKcXpPaGV0U2gK"
     }
   }
 }

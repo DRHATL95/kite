@@ -16,7 +16,9 @@
   import { onMount } from "svelte";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
+  import { updateStore } from "$lib/update/updateStore.svelte.js";
 
+  import UpdateBanner from "./components/UpdateBanner.svelte";
   import Login       from "./screens/Login.svelte";
   import DeviceCode  from "./screens/DeviceCode.svelte";
   import ConsoleList from "./screens/ConsoleList.svelte";
@@ -40,10 +42,12 @@
 
   onMount(() => {
     authStore.loadCached();
+    updateStore.checkOnLaunch();
   });
 </script>
 
 <div class="app-root">
+  <UpdateBanner />
   {#if activeScreen() === "stream"}
     <Stream onDisconnect={() => connectionStore.disconnect()} />
   {:else if activeScreen() === "deviceCode"}
