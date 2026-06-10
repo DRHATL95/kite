@@ -64,6 +64,11 @@ export interface ConnectionManagerCallbacks {
    * transition is gated on BOTH tracks (spec §3.10).
    */
   onMediaStream: (stream: MediaStream) => void;
+  /**
+   * Called at the start of each reconnect attempt so the UI can show
+   * a live count without depending on the (stopped) StatsSampler snapshot.
+   */
+  onReconnectAttempt?: (current: number, max: number) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,10 +207,18 @@ export class ConnectionManager {
    */
   async connect(xboxConsole: XHomeConsole): Promise<void> {
     // spec §3.7 duplicate-guard — app.js:51-54
-    if (this._state === "connecting" || this._state === "reconnecting") {
+    // Use a local snapshot so TypeScript's control-flow narrowing does NOT
+    // eliminate "connecting" from this._state's type for the rest of the method.
+    const stateNow = this._state;
+    if (stateNow === "connecting" || stateNow === "reconnecting") {
       this._log("Already connecting, ignoring duplicate connect call");
       return;
     }
+
+    // Tear down any stale session from a previous failed/abandoned connection
+    // before starting fresh.  Prevents keepalive timers and partial WebRTC
+    // state from a prior "failed" attempt leaking into the new one.
+    this._cleanupConnection();
 
     this._setState("connecting");
     this._reconnectAttempts = 0;
@@ -221,8 +234,14 @@ export class ConnectionManager {
       await this._createSessionAndStream();
     } catch (error) {
       this._log("Connect failed: " + String(error));
-      this._setState("failed");
-      throw error;
+      this._cleanupConnection();
+      // Guard: if disconnect() was called while we were awaiting (state → "idle"),
+      // do NOT overwrite it with "failed".
+      if (this._state === "connecting") {
+        this._setState("failed");
+      }
+      // Don't re-throw — callers watch reactive state, not return values.
+      // The "failed" → auto-return effect in App.svelte handles UX recovery.
     }
   }
 
@@ -993,8 +1012,12 @@ export class ConnectionManager {
    * spec §3.9; app.js:731-737 (onConnectionLost)
    */
   private _triggerReconnect(reason: string): void {
-    // Already reconnecting or cleanly idle — don't stack reconnects
-    if (this._state === "reconnecting" || this._state === "idle") return;
+    // Already reconnecting, cleanly idle, or permanently failed — don't stack
+    if (
+      this._state === "reconnecting" ||
+      this._state === "idle" ||
+      this._state === "failed"
+    ) return;
 
     this._log(`Connection lost (${reason}) — initiating auto-reconnect`);
     this._lastTriggerReason = reason;
@@ -1002,12 +1025,20 @@ export class ConnectionManager {
   }
 
   /**
-   * Silent reconnect: new session + WebRTC, swap stream.
+   * Silent reconnect loop: up to RECONNECT_MAX_ATTEMPTS attempts with
+   * increasing backoff.  Uses a while-loop rather than recursion so that the
+   * "already reconnecting" guard at the top does not silently swallow retries.
    *
    * spec §3.8; app.js:72-122 (reconnect)
    */
   private async _reconnect(): Promise<void> {
-    if (this._state === "reconnecting") {
+    // Prevent a second concurrent cycle (e.g. if _triggerReconnect fires twice
+    // in quick succession before the guard in _triggerReconnect kicks in).
+    // IMPORTANT: compare via a local snapshot so TypeScript's control-flow
+    // analysis does NOT narrow `this._state` for the rest of this async method —
+    // _setState() can change the property during any `await` below.
+    const stateNow = this._state;
+    if (stateNow === "reconnecting") {
       this._log("Already reconnecting, skipping");
       return;
     }
@@ -1017,52 +1048,62 @@ export class ConnectionManager {
       return;
     }
 
-    this._reconnectAttempts++;
-    this._log(
-      `Reconnect attempt ${this._reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS}`,
-    );
-
-    if (this._reconnectAttempts > RECONNECT_MAX_ATTEMPTS) {
-      this._log("Max reconnect attempts reached");
-      this._setState("failed");
-      return;
-    }
-
     this._setState("reconnecting");
 
-    // Clean up old connection but keep UI state — app.js:95
-    this._cleanupConnection();
-
-    // Increasing delay: 3 s, 6 s, 9 s — Xbox needs time to clean up old session
-    // spec §3.8: RECONNECT_BASE_DELAY_MS × attemptNumber
-    // app.js:98-100
-    const delay = RECONNECT_BASE_DELAY_MS * this._reconnectAttempts;
-    this._lastBackoffMs = delay;
-    this._log(`Waiting ${delay / 1000}s before reconnect...`);
-    await new Promise<void>((r) => setTimeout(r, delay));
-
-    try {
-      await this._createSessionAndStream();
-
-      // Wait for at least one data channel to open — app.js:106-110
-      const channelReady = await this._waitForDataChannels(
-        WAIT_FOR_DATA_CHANNELS_MS,
+    while (this._reconnectAttempts < RECONNECT_MAX_ATTEMPTS) {
+      this._reconnectAttempts++;
+      this._log(
+        `Reconnect attempt ${this._reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS}`,
       );
-      if (channelReady) {
-        this._log("Reconnect successful!");
-        this._reconnectAttempts = 0; // Reset counter on success — app.js:109
-      } else {
-        throw new Error("Data channels did not open within 15s");
+      this._cb.onReconnectAttempt?.(this._reconnectAttempts, RECONNECT_MAX_ATTEMPTS);
+
+      // Clean up the previous (failed) connection before starting a new one.
+      this._cleanupConnection();
+
+      // Increasing backoff: 3 s, 6 s, 9 s — gives Xbox time to expire the old session.
+      // spec §3.8: RECONNECT_BASE_DELAY_MS × attemptNumber; app.js:98-100
+      const delay = RECONNECT_BASE_DELAY_MS * this._reconnectAttempts;
+      this._lastBackoffMs = delay;
+      this._log(`Waiting ${delay / 1000}s before reconnect...`);
+      await new Promise<void>((r) => setTimeout(r, delay));
+
+      // Bail out if the user disconnected during the backoff wait.
+      if (this._state !== "reconnecting") {
+        this._log("Reconnect aborted — state changed to " + this._state);
+        return;
       }
-    } catch (error) {
-      this._log("Reconnect failed: " + String(error));
-      // Try again if we have attempts left — app.js:115-119
-      if (this._reconnectAttempts < RECONNECT_MAX_ATTEMPTS) {
-        void this._reconnect();
-      } else {
-        this._setState("failed");
+
+      try {
+        await this._createSessionAndStream();
+
+        // Bail if disconnect was called while _createSessionAndStream was awaiting.
+        if (this._state !== "reconnecting") {
+          this._cleanupConnection();
+          this._log("Reconnect aborted — state changed to " + this._state);
+          return;
+        }
+
+        // Wait for at least one data channel to open — app.js:106-110
+        const channelReady = await this._waitForDataChannels(
+          WAIT_FOR_DATA_CHANNELS_MS,
+        );
+        if (channelReady) {
+          this._log("Reconnect successful!");
+          this._reconnectAttempts = 0; // Reset counter on success — app.js:109
+          return;
+        }
+        this._log(
+          `Data channels did not open within ${WAIT_FOR_DATA_CHANNELS_MS / 1000}s`,
+        );
+      } catch (error) {
+        this._log(
+          `Reconnect attempt ${this._reconnectAttempts} failed: ` + String(error),
+        );
       }
     }
+
+    this._log("Max reconnect attempts reached — giving up");
+    this._setState("failed");
   }
 
   /**

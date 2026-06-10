@@ -19,6 +19,15 @@
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import { updateStore } from "$lib/update/updateStore.svelte.js";
 
+  // Auto-return to console list 3 s after a connection failure, so the user
+  // is never stranded on a blank stream screen with no obvious next step.
+  $effect(() => {
+    if (connectionStore.state === "failed") {
+      const t = setTimeout(() => void connectionStore.disconnect(), 3000);
+      return () => clearTimeout(t);
+    }
+  });
+
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import Login       from "./screens/Login.svelte";
   import DeviceCode  from "./screens/DeviceCode.svelte";

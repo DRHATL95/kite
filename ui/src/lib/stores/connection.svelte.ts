@@ -41,6 +41,13 @@ class ConnectionStore {
    */
   mediaStream: MediaStream | null = $state(null);
 
+  /**
+   * Current reconnect attempt number (1-based), 0 when not reconnecting.
+   * Updated by onReconnectAttempt — does NOT depend on the StatsSampler snapshot
+   * so it stays accurate even while the sampler is stopped between attempts.
+   */
+  reconnectAttempt: number = $state(0);
+
   // ── Private: single ConnectionManager instance ────────────────────────────
 
   private readonly _manager: ConnectionManager;
@@ -49,6 +56,8 @@ class ConnectionStore {
     this._manager = new ConnectionManager({
       onStateChange: (s: SessionState) => {
         this.state = s;
+        // Reset the live counter whenever we leave reconnecting state.
+        if (s !== "reconnecting") this.reconnectAttempt = 0;
       },
 
       onDiagnostics: (snap: DiagnosticsSnapshot) => {
@@ -68,6 +77,10 @@ class ConnectionStore {
 
       onMediaStream: (stream: MediaStream) => {
         this.mediaStream = stream;
+      },
+
+      onReconnectAttempt: (current: number) => {
+        this.reconnectAttempt = current;
       },
     });
   }

@@ -17,6 +17,7 @@
    */
 
   import { connectionStore } from "$lib/stores/connection.svelte.js";
+  import { RECONNECT_MAX_ATTEMPTS } from "$lib/connection/constants.js";
 
   // ── Loss thresholds (named constants) ─────────────────────────────────────────
   const LOSS_WARN_PCT = 2;
@@ -65,13 +66,10 @@
     <!-- State label -->
     <span class="state-label">{stateLabel(connectionStore.state)}</span>
 
-    <!-- Reconnect attempt count (warn tone) -->
-    {#if connectionStore.state === "reconnecting" && connectionStore.snapshot}
+    <!-- Reconnect attempt count (warn tone) — uses live counter, not stale snapshot -->
+    {#if connectionStore.state === "reconnecting"}
       <span class="reconnect-info" style="color: var(--warn);">
-        attempt {connectionStore.snapshot.currentAttempt}/{connectionStore.snapshot.maxAttempts}
-        {#if connectionStore.snapshot.lastTriggerReason}
-          &mdash; {connectionStore.snapshot.lastTriggerReason}
-        {/if}
+        attempt {connectionStore.reconnectAttempt}/{RECONNECT_MAX_ATTEMPTS}
       </span>
     {/if}
   </div>
