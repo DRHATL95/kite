@@ -2,8 +2,17 @@ name: release
 
 # Nightly: every push to master -> rolling "nightly" release (version 0.1.<run_number>).
 # Stable:  pushing a v* tag    -> permanent vX.Y.Z release.
-# Windows-only artifacts for now; Linux users build from source
-# (add a build-linux job + a linux entry in make-latest-json.sh to extend).
+#
+# Single job on the Linux runner: the Windows installer is CROSS-COMPILED via
+# cargo-xwin (validated 2026-06-10: exe + updater .sig build and run fine on
+# real Windows). Runner prerequisites (baked into CT 106): clang/lld/llvm,
+# nsis, rust target x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache.
+#
+# Windows-only artifacts for now; Linux users build from source.
+# NOTE: build+publish are ONE job on purpose — actions/upload-artifact@v4
+# hard-refuses non-github.com servers ("GHES not supported"), so cross-job
+# artifact handoff is avoided entirely. If a second build job is ever added,
+# use the Gitea-mirrored artifact actions (gitea.com/actions/*) instead.
 on:
   push:
     branches: [master]
@@ -13,16 +22,20 @@ permissions:
   contents: write
 
 jobs:
-  setup:
+  release:
     runs-on: linux
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      tag: ${{ steps.v.outputs.tag }}
-      name: ${{ steps.v.outputs.name }}
-      prerelease: ${{ steps.v.outputs.prerelease }}
-      channel: ${{ steps.v.outputs.channel }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      XWIN_ACCEPT_LICENSE: "1"
+      GITEA: https://gitea.howlab.co
+      REPO: dave/xbox-remote
+      TOKEN: ${{ secrets.GITEA_TOKEN }}
     steps:
-      - id: v
+      - uses: actions/checkout@v4
+
+      - name: Compute version + channel
+        id: v
         shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
@@ -35,20 +48,6 @@ jobs:
               echo "prerelease=true"; echo "channel=nightly"; } >> "$GITHUB_OUTPUT"
           fi
 
-  # Cross-compiles the Windows NSIS installer ON the Linux runner via
-  # cargo-xwin (validated 2026-06-10: exe + updater .sig build and run fine).
-  # Runner prerequisites (baked into CT 106): clang/lld/llvm, nsis,
-  # rust target x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache.
-  build-windows:
-    needs: setup
-    runs-on: linux
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      XWIN_ACCEPT_LICENSE: "1"
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Build frontend
         run: |
           npm --prefix ui ci
@@ -59,7 +58,7 @@ jobs:
       - name: Tauri cross-build (signed NSIS for Windows x64)
         shell: bash
         run: |
-          printf '{"version":"%s"}' "${{ needs.setup.outputs.version }}" > ci-version.json
+          printf '{"version":"%s"}' "${{ steps.v.outputs.version }}" > ci-version.json
           cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
             --bundles nsis --config ci-version.json
 
@@ -68,41 +67,19 @@ jobs:
       - name: Stage artifacts
         shell: bash
         run: |
-          v='${{ needs.setup.outputs.version }}'
-          mkdir -p out
-          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "out/xbox-remote_${v}_x64-setup.exe"
-          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "out/xbox-remote_${v}_x64-setup.exe.sig"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: out/*
-
-  publish:
-    needs: [setup, build-windows]
-    runs-on: linux
-    env:
-      GITEA: https://gitea.howlab.co
-      REPO: dave/xbox-remote
-      TOKEN: ${{ secrets.GITEA_TOKEN }}
-      VERSION: ${{ needs.setup.outputs.version }}
-      TAG: ${{ needs.setup.outputs.tag }}
-      RELEASE_NAME: ${{ needs.setup.outputs.name }}
-      CHANNEL: ${{ needs.setup.outputs.channel }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows
-          path: dist
+          v='${{ steps.v.outputs.version }}'
+          mkdir -p dist
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "dist/xbox-remote_${v}_x64-setup.exe"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "dist/xbox-remote_${v}_x64-setup.exe.sig"
 
       - name: Build latest.json
         shell: bash
         run: |
+          VERSION='${{ steps.v.outputs.version }}'
+          TAG='${{ steps.v.outputs.tag }}'
           base="${GITEA}/${REPO}/releases/download/${TAG}"
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-          NOTES="${RELEASE_NAME}" \
+          NOTES='${{ steps.v.outputs.name }}' \
           WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
           WIN_URL="${base}/xbox-remote_${VERSION}_x64-setup.exe" \
           bash scripts/ci/make-latest-json.sh > dist/latest.json
@@ -111,6 +88,10 @@ jobs:
       - name: Create release + upload assets
         shell: bash
         run: |
+          VERSION='${{ steps.v.outputs.version }}'
+          TAG='${{ steps.v.outputs.tag }}'
+          RELEASE_NAME='${{ steps.v.outputs.name }}'
+          CHANNEL='${{ steps.v.outputs.channel }}'
           source scripts/ci/gitea-release.sh
           if [ "$CHANNEL" = nightly ]; then
             ID="$(roll_nightly "$TAG" "$RELEASE_NAME" true "$GITHUB_SHA")"
