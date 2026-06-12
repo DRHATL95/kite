@@ -107,14 +107,15 @@ The button should still work - you can manually open the auth link:
 **Solution**:
 1. Check that files exist:
    ```bash
-   ls -la ui/public/
+   ls -la ui/dist/
    ```
-   Should show: `index.html`, `app.js`, `styles.css`
+   Should show the built frontend assets from Vite.
 
 2. Rebuild to ensure files are included:
    ```bash
-   cargo clean
-   cargo build --features tauri
+   npm --prefix ui run build
+   cargo clean -p xbox-remote
+   cargo build
    ```
 
 ## Debugging with Browser Developer Tools
@@ -132,11 +133,12 @@ If the Tauri window won't show, you can test the frontend in a regular browser:
 
 ```bash
 # Start a simple HTTP server
-cd ui/public
-python3 -m http.server 8000
+cd ui
+npm install
+npm run dev -- --host 127.0.0.1
 ```
 
-Then open: `http://localhost:8000` in your browser.
+Then open the Vite URL shown in the terminal, usually `http://127.0.0.1:5173`.
 
 **Note**: Tauri commands won't work, but you'll see if the UI loads correctly.
 
@@ -159,7 +161,8 @@ If the window is rendering off-screen or with wrong size, edit `tauri.conf.json`
 
 Then rebuild:
 ```bash
-cargo build --features tauri
+npm --prefix ui run build
+cargo build
 ```
 
 ## WSL-Specific Checks
@@ -242,5 +245,5 @@ startAuthentication();
 ```
 
 If `typeof startAuthentication` returns `"undefined"`, the script file
-isn't loaded. Rebuild with `cargo build` (no feature flags) and verify
-`ui/public/app.js` exists.
+isn't loaded. Rebuild with `npm --prefix ui run build`, then `cargo build`,
+and verify `ui/dist` contains the built assets.

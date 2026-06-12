@@ -27,7 +27,11 @@ cargo build --release
 
 # Windows NSIS installer (.exe)
 npm --prefix ui run build
-cargo tauri build
+cargo tauri build --bundles nsis
+
+# Linux AppImage
+npm --prefix ui run build
+cargo tauri build --bundles appimage
 
 # Run Rust tests
 cargo test
@@ -52,23 +56,37 @@ npm --prefix ui run test
 
 There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
 
-### Windows Installer
+### Release Builds
 
-`tauri.conf.json` enables Tauri's NSIS bundler. To produce a setup `.exe`, build the frontend first and then run the Tauri build from the repository root:
+`tauri.conf.json` enables Tauri's NSIS and AppImage bundlers. To produce local release artifacts, build the frontend first and then run the Tauri build from the repository root:
 
 ```powershell
 npm --prefix ui install
 npm --prefix ui run build
-cargo tauri build
+cargo tauri build --bundles nsis
 ```
 
-The installer output is under (default host target):
+Windows installer output is under (default host target):
 
 ```text
 target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 ```
 
-Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
+Linux AppImage builds run on Linux:
+
+```bash
+npm --prefix ui install
+npm --prefix ui run build
+cargo tauri build --bundles appimage
+```
+
+Linux output is under:
+
+```text
+target/release/bundle/appimage/
+```
+
+Do not skip the frontend build; release artifacts embed the current `ui/dist` output just like `cargo run` and `cargo build`.
 
 ### Releases & Auto-Update (CI/CD)
 
@@ -77,9 +95,11 @@ Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
 
 - **Nightly**: every push to `master` cross-compiles the **Windows** NSIS installer on Linux
   (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`),
-  signs the updater artifact, and force-updates the rolling `nightly` release with
-  `xbox-remote_<v>_x64-setup.exe` + `.sig` + `latest.json`. Version = `0.1.<run_number>`,
-  injected via `--config` (the committed version stays `0.1.0`).
+  then builds the native **Linux** AppImage (`cargo tauri build --bundles appimage`), signs both
+  updater artifacts, and force-updates the rolling `nightly` release with
+  `xbox-remote_<v>_x64-setup.exe`, `xbox-remote_<v>_amd64.AppImage`, their `.sig` files, and
+  `latest.json`. Version = `0.1.<run_number>`, injected via `--config` (the committed version
+  stays `0.1.0`).
 - **Stable**: pushing a `vX.Y.Z` tag cuts a permanent release.
 - **In-app updates**: the app checks `releases/download/nightly/latest.json` on launch
   (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`) and prompts to
@@ -88,8 +108,8 @@ Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
   `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
   The public key is embedded in `tauri.conf.json`.
 - **Gotchas**: `actions/upload-artifact@v4` refuses non-GitHub hosts (build+publish are one job
-  on purpose); Linux is build-from-source for now (no AppImage job); every master push — even
-  docs-only — produces a new nightly and an update prompt.
+  on purpose); the Linux runner must have the Tauri Linux/AppImage dependencies installed; every
+  master push — even docs-only — produces a new nightly and an update prompt.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run

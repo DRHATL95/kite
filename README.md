@@ -46,6 +46,22 @@ xcode-select --install
 
 ## Installation
 
+### Release Builds
+
+The Gitea Actions release publishes a rolling `nightly` release for people you give access to:
+
+- Windows: download and run `xbox-remote_<version>_x64-setup.exe`.
+- Linux x64: download `xbox-remote_<version>_amd64.AppImage`, make it executable, then run it:
+
+```bash
+chmod +x xbox-remote_<version>_amd64.AppImage
+./xbox-remote_<version>_amd64.AppImage
+```
+
+The in-app updater checks the `nightly` release manifest on launch. Linux updates use the AppImage artifact; `.deb` packages are not part of the updater path.
+
+### From Source
+
 1. Clone the repository:
 
 ```powershell
@@ -56,10 +72,12 @@ cd xbox-remote
 2. Build and run:
 
 ```powershell
+npm --prefix ui install
+npm --prefix ui run build
 cargo run
 ```
 
-That's it. There are no feature flags. `cargo run` builds and launches the full Tauri app.
+There are no feature flags. The frontend build writes `ui/dist`, which Tauri embeds when `cargo run` launches the app.
 
 ## Usage
 
@@ -82,10 +100,9 @@ xbox-remote/
 │   ├── token_store.rs       # OS keychain token persistence
 │   └── error.rs             # Centralized error types
 ├── ui/
-│   └── public/              # Tauri frontend (embedded at compile time)
-│       ├── index.html
-│       ├── styles.css
-│       └── app.js           # Auth UI, WebRTC, input forwarding
+│   ├── src/                 # Svelte 5 + TypeScript frontend
+│   ├── index.html
+│   └── dist/                # Built frontend embedded by Tauri
 ├── Cargo.toml
 ├── tauri.conf.json
 └── build.rs
@@ -98,8 +115,6 @@ See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for window visibility issues, WSL
 See [AZURE_SETUP.md](./AZURE_SETUP.md) if you need to register your own Azure app client ID.
 
 See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected console log sequences, and manual debug commands.
-
-TEST
 
 ### No Consoles Found
 
@@ -116,7 +131,7 @@ TEST
 ### Build Issues
 
 - `edition = "2024"` requires Rust 1.85+. Run `rustup update stable`.
-- After changing `ui/public/` files, run `cargo clean -p xbox-remote` before rebuilding.
+- After changing `ui/src/` files, run `npm --prefix ui run build`, then `cargo clean -p xbox-remote` before rebuilding.
 
 ## Development
 
@@ -157,6 +172,24 @@ target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 ```
 
 Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.
+
+## Building a Linux AppImage
+
+Linux releases use Tauri's AppImage bundler, because that is the Linux format supported by the Tauri updater.
+
+```bash
+npm --prefix ui install
+npm --prefix ui run build
+cargo tauri build --bundles appimage
+```
+
+The AppImage is written to:
+
+```text
+target/release/bundle/appimage/
+```
+
+Ubuntu/Debian build hosts need the Linux prerequisites listed above. The Gitea Actions release workflow builds and publishes the AppImage as `xbox-remote_<version>_amd64.AppImage` alongside its `.sig` updater signature.
 
 ## How It Works
 

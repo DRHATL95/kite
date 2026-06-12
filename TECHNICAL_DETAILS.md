@@ -55,7 +55,7 @@ Complete xHome API integration:
 - `send_sdp_answer()`: Sends SDP answer for WebRTC connection
 - `send_keepalive()`: Maintains session alive
 
-### 4. Frontend WebRTC ([ui/public/app.js](ui/public/app.js))
+### 4. Frontend WebRTC ([ui/src/lib/connection/ConnectionManager.ts](ui/src/lib/connection/ConnectionManager.ts))
 Browser-side WebRTC implementation:
 - Creates RTCPeerConnection with ICE servers
 - Handles SDP offer from Xbox
@@ -102,7 +102,8 @@ Tauri App
 ./run.sh
 
 # Or manually
-cargo build --release --features tauri
+npm --prefix ui run build
+cargo build --release
 DISPLAY=:0 ./target/release/xbox-remote
 ```
 

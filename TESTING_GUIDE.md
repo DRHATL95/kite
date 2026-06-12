@@ -46,8 +46,12 @@ Based on Greenlight's implementation:
 
 ### Method 2: Direct execution
 ```bash
+# Build the frontend once so Tauri can embed ui/dist
+npm --prefix ui install
+npm --prefix ui run build
+
 # Debug build (slower, more logs)
-DISPLAY=:0 cargo run --features tauri
+DISPLAY=:0 cargo run
 
 # Release build (faster, optimized)
 DISPLAY=:0 ./target/release/xbox-remote
@@ -56,7 +60,8 @@ DISPLAY=:0 ./target/release/xbox-remote
 ### Method 3: Build and run separately
 ```bash
 # Build
-cargo build --release --features tauri
+npm --prefix ui run build
+cargo build --release
 
 # Run
 DISPLAY=:0 ./target/release/xbox-remote

@@ -5,10 +5,11 @@ name: release
 #
 # Single job on the Linux runner: the Windows installer is CROSS-COMPILED via
 # cargo-xwin (validated 2026-06-10: exe + updater .sig build and run fine on
-# real Windows). Runner prerequisites (baked into CT 106): clang/lld/llvm,
-# nsis, rust target x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache.
+# real Windows), then the native Linux AppImage is built on the same runner.
+# Runner prerequisites (baked into CT 106): clang/lld/llvm, nsis, rust target
+# x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache, Tauri Linux deps,
+# AppImage tooling, jq, curl, Node, and Rust.
 #
-# Windows-only artifacts for now; Linux users build from source.
 # NOTE: build+publish are ONE job on purpose — actions/upload-artifact@v4
 # hard-refuses non-github.com servers ("GHES not supported"), so cross-job
 # artifact handoff is avoided entirely. If a second build job is ever added,
@@ -62,6 +63,11 @@ jobs:
           cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
             --bundles nsis --config ci-version.json
 
+      - name: Tauri build (signed AppImage for Linux x64)
+        shell: bash
+        run: |
+          cargo tauri build --bundles appimage --config ci-version.json
+
       # Space-free asset names so release URLs need no %20 escaping.
       # The .sig signs file BYTES, so renaming does not invalidate it.
       - name: Stage artifacts
@@ -71,6 +77,8 @@ jobs:
           mkdir -p dist
           cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "dist/xbox-remote_${v}_x64-setup.exe"
           cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "dist/xbox-remote_${v}_x64-setup.exe.sig"
+          cp target/release/bundle/appimage/*.AppImage     "dist/xbox-remote_${v}_amd64.AppImage"
+          cp target/release/bundle/appimage/*.AppImage.sig "dist/xbox-remote_${v}_amd64.AppImage.sig"
 
       - name: Build latest.json
         shell: bash
@@ -84,6 +92,8 @@ jobs:
           NOTES='${{ steps.v.outputs.name }}' \
           WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
           WIN_URL="${base}/xbox-remote_${VERSION}_x64-setup.exe" \
+          LIN_SIG_FILE="dist/xbox-remote_${VERSION}_amd64.AppImage.sig" \
+          LIN_URL="${base}/xbox-remote_${VERSION}_amd64.AppImage" \
           bash scripts/ci/make-latest-json.sh > dist/latest.json
           cat dist/latest.json
 
@@ -104,6 +114,8 @@ jobs:
           for f in \
             "xbox-remote_${VERSION}_x64-setup.exe" \
             "xbox-remote_${VERSION}_x64-setup.exe.sig" \
+            "xbox-remote_${VERSION}_amd64.AppImage" \
+            "xbox-remote_${VERSION}_amd64.AppImage.sig" \
             "latest.json"; do
             upload_asset "$ID" "$f" "dist/$f"
           done

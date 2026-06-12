@@ -7,10 +7,12 @@ Xbox Remote streams your Xbox console via Microsoft's cloud Remote Play service.
 ## Quick Start
 
 ```powershell
+npm --prefix ui install
+npm --prefix ui run build
 cargo run
 ```
 
-That's all. No feature flags, no separate CLI mode. `cargo run` builds and launches the Tauri app.
+No feature flags, no separate CLI mode. The frontend build writes `ui/dist`, then `cargo run` embeds it and launches the Tauri app.
 
 ## What Should Happen
 
@@ -59,7 +61,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) for the full expected log sequences and
 ┌───────────────────────────────────────────┐
 │   Tauri Window (WebView2 on Windows)      │
 │   ┌───────────────────────────────────┐   │
-│   │  Frontend (ui/public/app.js)       │   │
+│   │  Frontend (Svelte in ui/src)       │   │
 │   │  - Device code auth UI             │   │
 │   │  - WebRTC peer connection          │   │
 │   │  - Video display                   │   │
@@ -83,7 +85,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) for the full expected log sequences and
 
 - Rust edition 2024, requires Rust 1.85+
 - Tauri v2
-- Frontend: vanilla JavaScript + WebRTC APIs
+- Frontend: Svelte 5 + TypeScript + Vite + WebRTC APIs
 - OS keychain for token persistence
 
 ## Key Files

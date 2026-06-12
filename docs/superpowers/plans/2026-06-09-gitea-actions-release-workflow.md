@@ -1,10 +1,9 @@
 # Gitea Actions Release Workflow (Sub-project 2) — Implementation Plan
 
-> **DESCOPED 2026-06-10 (owner decision):** releases ship the **Windows exe only** for now;
-> Linux users clone + build from source. The `build-linux` job (Task 5) is NOT implemented and
-> `make-latest-json.sh` emits only a `windows-x86_64` platform entry. The Linux runner still
-> executes the `setup` and `publish` jobs. To add Linux later: implement Task 5 and add the
-> linux entry back to the manifest script.
+> **UPDATED 2026-06-12:** Linux release artifacts are enabled as a native AppImage built on the
+> same Linux runner that cross-builds the Windows NSIS installer. `make-latest-json.sh` now emits
+> both `windows-x86_64` and `linux-x86_64` entries. The current workflow remains a single
+> build+publish job because `actions/upload-artifact@v4` is not compatible with this Gitea host.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (or executing-plans) to implement task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
