@@ -15,18 +15,23 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 ## Prerequisites
 
 ### Rust
+
 If you don't have Rust installed:
+
 ```powershell
 # Windows (PowerShell)
 winget install Rustlang.Rustup
 ```
+
 Or visit [rustup.rs](https://rustup.rs). Requires Rust 1.85+ (edition 2024).
 
 ### Windows
+
 - [MSVC Build Tools](https://visualstudio.microsoft.com/downloads/) (or Visual Studio)
 - WebView2 runtime (pre-installed on Windows 11)
 
 ### Linux (Ubuntu/Debian)
+
 ```bash
 sudo apt-get install -y \
     build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
@@ -34,6 +39,7 @@ sudo apt-get install -y \
 ```
 
 ### macOS
+
 ```bash
 xcode-select --install
 ```
@@ -41,12 +47,14 @@ xcode-select --install
 ## Installation
 
 1. Clone the repository:
+
 ```powershell
 git clone <your-repo-url>
 cd xbox-remote
 ```
 
 2. Build and run:
+
 ```powershell
 cargo run
 ```
@@ -91,6 +99,8 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) if you need to register your own Azure ap
 
 See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected console log sequences, and manual debug commands.
 
+TEST
+
 ### No Consoles Found
 
 - Ensure your Xbox is signed in with the same Microsoft account
@@ -111,17 +121,20 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected cons
 ## Development
 
 ### Running Tests
+
 ```powershell
 cargo test
 ```
 
 ### Debug Logging
+
 ```powershell
 $env:RUST_LOG = "debug"
 cargo run
 ```
 
 ### Overriding the Azure Client ID
+
 ```powershell
 $env:XBOX_CLIENT_ID = "your-client-id"
 cargo run
