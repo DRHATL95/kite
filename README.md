@@ -129,6 +129,8 @@ cargo run
 
 ## Building a Windows Installer
 
+TEST
+
 Xbox Remote uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
 
 ```powershell
