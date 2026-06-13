@@ -88,6 +88,23 @@ export class MediaMonitor {
         this.lastFrames = framesDecoded;
         this.lastProgressAt = nowMs;
         this.cb.onMediaStart();
+        return;
+      }
+
+      const elapsed = nowMs - this.armedAt;
+      if (elapsed >= this.cfg.startTimeoutMs) {
+        this.phase = "idle";
+        this.cb.onRecover("mediaNeverStarted");
+        return;
+      }
+      if (this.startNudgesSent === 0 && elapsed >= this.cfg.startNudge1Ms) {
+        this.startNudgesSent = 1;
+        this.cb.onNudge("starting");
+        return;
+      }
+      if (this.startNudgesSent === 1 && elapsed >= this.cfg.startNudge2Ms) {
+        this.startNudgesSent = 2;
+        this.cb.onNudge("starting");
       }
       return;
     }
