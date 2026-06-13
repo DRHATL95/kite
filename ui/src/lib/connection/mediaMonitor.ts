@@ -52,7 +52,8 @@ export class MediaMonitor {
 
   private phase: Phase = "idle";
   private lastFrames: number | null = null;
-  private armedAt = 0;
+  /** Start-of-budget timestamp, stamped lazily on the first tick (not at arm()). */
+  private armedAt: number | null = null;
   private lastProgressAt = 0;
   private startNudgesSent = 0;
   private stallNudgeSent = false;
@@ -66,7 +67,8 @@ export class MediaMonitor {
   arm(nowMs: number): void {
     this.phase = "awaitingFirstFrame";
     this.lastFrames = null;
-    this.armedAt = nowMs;
+    // Defer the start-of-budget to the first tick — see tick() for why.
+    this.armedAt = null;
     this.lastProgressAt = nowMs;
     this.startNudgesSent = 0;
     this.stallNudgeSent = false;
@@ -76,7 +78,7 @@ export class MediaMonitor {
   reset(): void {
     this.phase = "idle";
     this.lastFrames = null;
-    this.armedAt = 0;
+    this.armedAt = null;
     this.lastProgressAt = 0;
     this.startNudgesSent = 0;
     this.stallNudgeSent = false;
@@ -85,6 +87,13 @@ export class MediaMonitor {
   /** Drive the state machine. Called once per ConnectionManager tick. */
   tick(framesDecoded: number | null, nowMs: number): void {
     if (this.phase === "awaitingFirstFrame") {
+      // Stamp the start-of-budget on the FIRST tick, not at arm() time. The tick
+      // timer that drives this isn't started until the stats sampler runs (after
+      // ICE polling), so measuring from arm() would let a slow ICE phase silently
+      // eat the nudge/timeout budget and fire a premature reconnect.
+      const armedAt = this.armedAt ?? nowMs;
+      this.armedAt = armedAt;
+
       if (framesDecoded != null && framesDecoded > 0) {
         this.phase = "flowing";
         this.lastFrames = framesDecoded;
@@ -93,7 +102,7 @@ export class MediaMonitor {
         return;
       }
 
-      const elapsed = nowMs - this.armedAt;
+      const elapsed = nowMs - armedAt;
       if (elapsed >= this.cfg.startTimeoutMs) {
         this.phase = "idle";
         this.cb.onRecover("mediaNeverStarted");

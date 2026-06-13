@@ -111,9 +111,14 @@ Internal fields: `phase`, `lastFrames`, `armedAt`, `lastProgressAt`,
 `startNudgesSent`, `stallNudgeSent`.
 
 **`awaitingFirstFrame`** (armed when both tracks negotiate; no frames yet):
+- `armedAt` is stamped on the **first `tick()`**, not at `arm()` time. The tick
+  timer doesn't start until the stats sampler runs (after ICE polling), so
+  measuring the budget from `arm()` would let a slow ICE phase silently consume
+  the nudge/timeout budget and fire a premature reconnect. `arm()` sets
+  `armedAt = null`; the first tick sets `armedAt = now`.
 - If `framesDecoded != null && framesDecoded > 0`:
   → `phase = flowing`, `lastProgressAt = now`, `onMediaStart()`.
-- Else, with `elapsed = now - armedAt`:
+- Else, with `elapsed = now - armedAt` (`armedAt` = the first tick's timestamp):
   - `elapsed ≥ MEDIA_START_NUDGE_1_MS` and `startNudgesSent === 0`
     → `onNudge("starting")`, `startNudgesSent = 1`.
   - `elapsed ≥ MEDIA_START_NUDGE_2_MS` and `startNudgesSent === 1`
