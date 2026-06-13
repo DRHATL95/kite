@@ -57,7 +57,7 @@ in-app version readout, not the repo.
   `Cargo.toml` version and `<run_number>` is the Gitea Actions run counter
   (monotonically increasing, never resets).
 - Publishes to a **single rolling release tagged `nightly`**. Each build deletes
-  and recreates that release's assets (`roll_nightly` in
+  and recreates that release's assets (`roll_channel` in
   `scripts/ci/gitea-release.sh`), so `releases/download/nightly/…` URLs are stable
   and always point at the newest build.
 - Marked as a **pre-release**.
