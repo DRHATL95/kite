@@ -1,6 +1,7 @@
 name: release
 
-# Nightly: every push to master -> rolling "nightly" release (version 0.1.<run_number>).
+# Nightly: every push to master -> rolling "nightly" release
+#          (version <major.minor>.<run_number>; major.minor read from Cargo.toml).
 # Stable:  pushing a v* tag    -> permanent vX.Y.Z release.
 #
 # Single job on the Linux runner producing BOTH platforms:
@@ -46,13 +47,17 @@ jobs:
       # GTK/WebKit dev libs + AppImage tooling for the NATIVE Linux bundle.
       # Ideally baked into CT 106 (drop this step then); kept here so a fresh
       # runner still works. apt is idempotent, so re-running is cheap.
+      # NOTE: use libayatana-appindicator3-dev, NOT legacy libappindicator3-dev —
+      # jammy's libwebkit2gtk-4.1 pulls in libayatana-appindicator3-1, which
+      # Conflicts: libappindicator3-1. If baking these deps into CT 106, install
+      # the ayatana variant there too, or this apt conflict comes right back.
       - name: Install Linux build dependencies
         shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-            libappindicator3-dev librsvg2-dev patchelf libfuse2 file
+            libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
 
       - name: Compute version + channel
         id: v
@@ -63,7 +68,12 @@ jobs:
             { echo "version=$VER"; echo "tag=v$VER"; echo "name=v$VER";
               echo "prerelease=false"; echo "channel=stable"; } >> "$GITHUB_OUTPUT"
           else
-            VER="0.1.${{ github.run_number }}"
+            # Derive major.minor from the committed version so nightlies track it
+            # (0.2.0 -> 0.2.<run_number>) and always sort correctly against the
+            # matching vX.Y.0 stable tag. Bump Cargo.toml/tauri.conf.json to move
+            # the nightly line; do NOT hardcode the prefix here.
+            FULL="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+            VER="${FULL%.*}.${{ github.run_number }}"
             { echo "version=$VER"; echo "tag=nightly"; echo "name=Nightly $VER";
               echo "prerelease=true"; echo "channel=nightly"; } >> "$GITHUB_OUTPUT"
           fi
@@ -74,7 +84,7 @@ jobs:
           npm --prefix ui run build
 
       # Inject the CI version via Tauri's --config merge-patch (RFC 7396);
-      # the committed version stays 0.1.0 and the tree stays clean.
+      # the committed version supplies major.minor and the tree stays clean.
       - name: Tauri cross-build (signed NSIS for Windows x64)
         shell: bash
         run: |
