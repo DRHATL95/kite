@@ -33,4 +33,11 @@ out3="$(VERSION=0.1.42 PUB_DATE=2026-06-09T00:00:00Z \
   bash make-latest-json.sh)"
 echo "$out3" | jq -e '(.platforms|keys|length)==1' >/dev/null
 
+# ── Case 4: prerelease version is emitted verbatim ──────────────────────────────
+out4="$(VERSION=0.3.0-nightly.42 NOTES='n' PUB_DATE=2026-06-09T00:00:00Z \
+  WIN_SIG_FILE="$tmp/win.sig" WIN_URL='https://h/win.exe' \
+  LINUX_SIG_FILE="$tmp/linux.sig" LINUX_URL='https://h/app.AppImage' \
+  bash make-latest-json.sh)"
+echo "$out4" | jq -e '.version=="0.3.0-nightly.42"' >/dev/null
+
 echo "PASS"
