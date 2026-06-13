@@ -421,6 +421,17 @@ impl XboxAuth {
             .map_err(|e| XboxError::AuthError(format!("Failed to parse XSTS response: {}", e)))
     }
 
+    /// Sign out: clear in-memory tokens AND wipe the persisted tokens from the
+    /// OS keychain so the next launch starts signed-out. The keychain clear is
+    /// best-effort surfaced as an error, but the in-memory tokens are dropped
+    /// first so the session is immediately unauthenticated regardless.
+    pub async fn sign_out(&self) -> Result<()> {
+        *self.tokens.lock().await = None;
+        Self::token_store()?.clear()?;
+        info!("Signed out: cleared in-memory tokens and OS keychain");
+        Ok(())
+    }
+
     /// Check if tokens are valid
     pub async fn is_authenticated(&self) -> bool {
         if let Some(tokens) = self.tokens.lock().await.as_ref() {

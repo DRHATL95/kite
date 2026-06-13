@@ -75,21 +75,29 @@ Do not skip the frontend build; the installer embeds the current `ui/dist` outpu
 Releases are built by **Gitea Actions** (`.gitea/workflows/release.yml`) on a self-hosted
 Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
 
-- **Nightly**: every push to `master` cross-compiles the **Windows** NSIS installer on Linux
-  (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`),
-  signs the updater artifact, and force-updates the rolling `nightly` release with
-  `xbox-remote_<v>_x64-setup.exe` + `.sig` + `latest.json`. Version = `0.1.<run_number>`,
+- **Nightly**: every push to `master` builds **both** platforms in one job and force-updates
+  the rolling `nightly` release. Windows NSIS installer is cross-compiled
+  (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`);
+  the Linux AppImage is built natively on the same runner
+  (`cargo tauri build --bundles appimage`). Both updater artifacts are signed, and the assets
+  uploaded are `xbox-remote_<v>_x64-setup.exe` + `.sig`, `xbox-remote_<v>_amd64.AppImage` + `.sig`,
+  and `latest.json` (with `windows-x86_64` + `linux-x86_64` entries). Version = `0.1.<run_number>`,
   injected via `--config` (the committed version stays `0.1.0`).
 - **Stable**: pushing a `vX.Y.Z` tag cuts a permanent release.
 - **In-app updates**: the app checks `releases/download/nightly/latest.json` on launch
   (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`) and prompts to
-  install. Offline / off-LAN the check silently no-ops.
+  install. Offline / off-LAN the check silently no-ops. On Linux the updater only updates
+  **AppImage** installs (not `.deb`/repackaged builds).
 - **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` lives in Gitea Actions secrets (private key file at
   `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
   The public key is embedded in `tauri.conf.json`.
+- **Linux build deps**: the native AppImage build needs GTK/WebKit dev libs + AppImage tooling
+  (`libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2`).
+  The workflow `apt-get`-installs them defensively (with `APPIMAGE_EXTRACT_AND_RUN=1` so no FUSE
+  is needed); bake them into CT 106 and drop that step to speed builds up.
 - **Gotchas**: `actions/upload-artifact@v4` refuses non-GitHub hosts (build+publish are one job
-  on purpose); Linux is build-from-source for now (no AppImage job); every master push — even
-  docs-only — produces a new nightly and an update prompt.
+  on purpose — and why both platforms build in the same job); every master push — even
+  docs-only — produces a new nightly and an update prompt. macOS is still build-from-source.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run

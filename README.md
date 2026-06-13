@@ -46,12 +46,25 @@ git clone <your-repo-url>
 cd xbox-remote
 ```
 
-2. Build and run:
+2. Build the frontend, then run:
 ```powershell
+# Install frontend dependencies (first time / after package.json changes)
+npm --prefix ui install
+
+# Build the Svelte frontend → ui/dist (Tauri embeds this at compile time)
+npm --prefix ui run build
+
+# Build and launch the Tauri app
 cargo run
 ```
 
-That's it. There are no feature flags. `cargo run` builds and launches the full Tauri app.
+There are no feature flags. `cargo run` builds and launches the full Tauri app.
+
+> **Important:** This project does not use the Tauri CLI / `tauri dev`, and Tauri
+> embeds `ui/dist` at compile time. You must run `npm --prefix ui run build` before
+> `cargo run`, or the app will ship a stale/empty frontend. After any change under
+> `ui/src/`, rebuild the frontend and run `cargo clean -p xbox-remote && cargo run`
+> so the new assets are re-embedded.
 
 ## Usage
 
@@ -73,11 +86,18 @@ xbox-remote/
 │   ├── xhome.rs             # xHome REST API client
 │   ├── token_store.rs       # OS keychain token persistence
 │   └── error.rs             # Centralized error types
-├── ui/
-│   └── public/              # Tauri frontend (embedded at compile time)
-│       ├── index.html
-│       ├── styles.css
-│       └── app.js           # Auth UI, WebRTC, input forwarding
+├── ui/                      # Svelte 5 + TypeScript + Vite frontend
+│   ├── src/
+│   │   ├── screens/         # Login, DeviceCode, ConsoleList, Stream
+│   │   ├── components/      # StreamControls, StreamStatus, DiagnosticsHud
+│   │   ├── lib/
+│   │   │   ├── connection/  # ConnectionManager, WebRTC, input encoder
+│   │   │   ├── ipc/         # Typed wrappers around Tauri commands
+│   │   │   ├── stores/      # Svelte rune-based state stores
+│   │   │   ├── update/      # In-app auto-update (tauri-plugin-updater)
+│   │   │   └── design/      # Design-system foundation
+│   │   └── main.ts
+│   └── dist/                # Vite build output (embedded by Tauri at compile time)
 ├── Cargo.toml
 ├── tauri.conf.json
 └── build.rs
@@ -106,13 +126,18 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected cons
 ### Build Issues
 
 - `edition = "2024"` requires Rust 1.85+. Run `rustup update stable`.
-- After changing `ui/public/` files, run `cargo clean -p xbox-remote` before rebuilding.
+- After changing files under `ui/src/`, run `npm --prefix ui run build`, then `cargo clean -p xbox-remote` before rebuilding so the new frontend assets are re-embedded.
 
 ## Development
 
 ### Running Tests
 ```powershell
+# Rust backend tests
 cargo test
+
+# Frontend unit tests (Vitest) and type-check
+npm --prefix ui run test
+npm --prefix ui run check
 ```
 
 ### Debug Logging
@@ -129,8 +154,6 @@ cargo run
 
 ## Building a Windows Installer
 
-TEST
-
 Xbox Remote uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
 
 ```powershell
@@ -146,6 +169,9 @@ target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 ```
 
 Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.
+
+> Releases are produced by CI, not by hand. See [docs/RELEASES.md](./docs/RELEASES.md)
+> for how versioning works and how the nightly and stable channels differ.
 
 ## How It Works
 

@@ -18,6 +18,17 @@ import type { XHomeConsole } from "../ipc/types.js";
 /** Maximum number of log entries to keep in memory. */
 const LOG_CAP = 500;
 
+/**
+ * Map an internal reconnect/trigger reason to a user-facing failure message.
+ * Media reasons point the user at the real-world fix (restart the console).
+ */
+function mapFailureReason(reason: string | null): string {
+  if (reason === "mediaNeverStarted" || reason === "mediaStalled") {
+    return "Couldn't get video from the console. It may be unresponsive — try restarting the console.";
+  }
+  return "The connection failed. Please try again.";
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Store class — reactive fields via $state runes
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +59,12 @@ class ConnectionStore {
    */
   reconnectAttempt: number = $state(0);
 
+  /**
+   * Human-readable reason for the last failure, or null. Set when state becomes
+   * "failed", cleared on a fresh connect(). Drives the ConsoleList failure banner.
+   */
+  failureReason: string | null = $state(null);
+
   // ── Private: single ConnectionManager instance ────────────────────────────
 
   private readonly _manager: ConnectionManager;
@@ -58,6 +75,10 @@ class ConnectionStore {
         this.state = s;
         // Reset the live counter whenever we leave reconnecting state.
         if (s !== "reconnecting") this.reconnectAttempt = 0;
+        // Capture a user-facing failure reason when we give up.
+        if (s === "failed") {
+          this.failureReason = mapFailureReason(this._manager.lastTriggerReason);
+        }
       },
 
       onDiagnostics: (snap: DiagnosticsSnapshot) => {
@@ -92,6 +113,7 @@ class ConnectionStore {
    * Idempotent while already connecting/reconnecting (handled inside manager).
    */
   async connect(xboxConsole: XHomeConsole): Promise<void> {
+    this.failureReason = null;
     await this._manager.connect(xboxConsole);
   }
 

@@ -18,9 +18,11 @@
 
   import { onMount } from "svelte";
   import { authStore } from "$lib/stores/auth.svelte.js";
+  import { connectionStore } from "$lib/stores/connection.svelte.js";
   import type { XHomeConsole } from "$lib/ipc/types.js";
   import Button from "$lib/design/Button.svelte";
   import Badge from "$lib/design/Badge.svelte";
+  import SettingsModal from "../components/SettingsModal.svelte";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,7 @@
   // ── Local state ───────────────────────────────────────────────────────────────
 
   let loading = $state(false);
+  let settingsOpen = $state(false);
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -86,13 +89,36 @@
 </script>
 
 <div class="console-list-screen">
+  {#if connectionStore.failureReason}
+    <div class="failure-banner" role="alert">
+      <span class="failure-banner__text">{connectionStore.failureReason}</span>
+      <button
+        type="button"
+        class="failure-banner__dismiss"
+        onclick={() => (connectionStore.failureReason = null)}
+        aria-label="Dismiss"
+      >✕</button>
+    </div>
+  {/if}
+
   <!-- ── Header row ── -->
   <header class="screen-header">
     <div class="header-identity">
       <span class="live-dot" aria-hidden="true"></span>
       <span class="signed-in-label">signed in</span>
     </div>
-    <span class="wordmark">XBOX REMOTE</span>
+    <div class="header-right">
+      <span class="wordmark">XBOX REMOTE</span>
+      <button
+        type="button"
+        class="settings-gear"
+        onclick={() => (settingsOpen = true)}
+        aria-label="Settings"
+        title="Settings"
+      >
+        ⚙
+      </button>
+    </div>
   </header>
 
   <!-- ── Console list panel ── -->
@@ -158,6 +184,8 @@
       {/if}
     </div>
   </div>
+
+  <SettingsModal bind:open={settingsOpen} onClose={() => (settingsOpen = false)} />
 </div>
 
 <style>
@@ -169,7 +197,7 @@
     align-items: center;
     min-height: 100vh;
     padding: var(--space-5);
-    background: var(--bg);
+    background: transparent;
     gap: var(--space-4);
   }
 
@@ -190,6 +218,40 @@
     gap: var(--space-2);
   }
 
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  /* Settings gear — quiet ghost icon button */
+  .settings-gear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    font-size: var(--text-base);
+    line-height: 1;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .settings-gear:hover {
+    background: var(--surface-2);
+    border-color: var(--text-dim);
+    color: var(--text);
+  }
+
+  .settings-gear:focus-visible {
+    box-shadow: var(--focus-ring);
+  }
+
   /* Pulsing green dot — signals "signed in / live" */
   .live-dot {
     width: 8px;
@@ -206,11 +268,11 @@
   }
 
   .wordmark {
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: var(--text-base);
+    font-weight: 700;
     color: var(--text);
-    letter-spacing: 0.14em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
   }
 
@@ -219,11 +281,20 @@
   .console-panel {
     width: 100%;
     max-width: 560px;
-    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     overflow: hidden;
+    animation: panel-rise 600ms var(--ease-out) backwards;
+    animation-delay: 80ms;
+  }
+
+  @keyframes panel-rise {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   /* ── Section header row ───────────────────────────────────────────────────── */
@@ -372,5 +443,46 @@
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-dim);
+  }
+
+  /* ── Failure banner ───────────────────────────────────────────────────────── */
+
+  .failure-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: color-mix(in srgb, var(--bad) 14%, var(--surface));
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    width: 100%;
+    max-width: 560px;
+    box-sizing: border-box;
+  }
+
+  .failure-banner__text {
+    flex: 1;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+  }
+
+  .failure-banner__dismiss {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--text-sm);
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px var(--space-1);
+    border-radius: var(--radius-sm);
+  }
+
+  .failure-banner__dismiss:hover {
+    color: var(--text);
+  }
+
+  .failure-banner__dismiss:focus-visible {
+    box-shadow: var(--focus-ring);
   }
 </style>

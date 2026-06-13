@@ -21,6 +21,7 @@ import {
   checkAuthStatus,
   startXboxAuth,
   discoverXhomeConsoles,
+  signOut as signOutCmd,
 } from "../ipc/commands.js";
 import type { DeviceCodeInfo, XHomeConsole } from "../ipc/types.js";
 
@@ -159,15 +160,32 @@ class AuthStore {
   }
 
   /**
-   * Reset back to signedOut state (e.g. after token expiry).
+   * Reset local auth state back to signedOut (e.g. after token expiry).
+   * Does NOT touch the keychain — for a full sign-out use signOut().
    */
-  signOut(): void {
+  private resetLocal(): void {
     this._pollAbortController?.abort();
     this._pollAbortController = null;
     this.authState = "signedOut";
     this.deviceCode = null;
     this.consoles = [];
     this.error = null;
+  }
+
+  /**
+   * Full sign-out: clear the persisted tokens from the OS keychain on the
+   * backend, then reset local state so the app returns to the login screen.
+   * The local reset runs even if the backend clear fails, so the user is never
+   * stuck "signed in" in the UI.
+   */
+  async signOut(): Promise<void> {
+    try {
+      await signOutCmd();
+    } catch (e) {
+      // Surface but don't block the UI reset — the session is being abandoned.
+      this.error = String(e);
+    }
+    this.resetLocal();
   }
 }
 

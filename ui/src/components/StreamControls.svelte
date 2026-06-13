@@ -47,24 +47,47 @@
 
   const VOLUME_KEY = "xbox-remote-volume";
 
-  /** 0–100 integer; initialised from localStorage if a saved value exists. */
-  let volumePct = $state<number>((() => {
+  /** Read the persisted volume as a 0–100 integer, defaulting to 80. */
+  function readSavedVolumePct(): number {
     const saved = localStorage.getItem(VOLUME_KEY);
     if (saved !== null) {
       const v = parseFloat(saved);
       if (!Number.isNaN(v)) return Math.round(v * 100);
     }
     return 80;
-  })());
+  }
+
+  /** 0–100 integer; initialised from localStorage if a saved value exists. */
+  let volumePct = $state<number>(readSavedVolumePct());
+
+  /**
+   * Last non-zero volume, used to restore audio when un-muting.
+   * Seeded from the initial volume (or a sensible 80% default if we start muted).
+   */
+  let lastNonZeroVolume = $state<number>(readSavedVolumePct() || 80);
 
   /** Apply the current volumePct to the video element and persist. */
   function applyVolume(pct: number) {
     volumePct = pct;
+    if (pct > 0) lastNonZeroVolume = pct;
     if (video) {
       video.volume = pct / 100;
       video.muted = pct === 0;
     }
     localStorage.setItem(VOLUME_KEY, String(pct / 100));
+  }
+
+  /**
+   * Toggle mute by clicking the speaker icon.
+   *   - If audio is playing, drop to 0 (and remember the level we left).
+   *   - If already muted, restore the last non-zero level.
+   */
+  function toggleMute() {
+    if (volumePct > 0) {
+      applyVolume(0);
+    } else {
+      applyVolume(lastNonZeroVolume > 0 ? lastNonZeroVolume : 80);
+    }
   }
 
   /** Sync video element when it becomes available (also called from Stream.svelte after mount). */
@@ -157,10 +180,17 @@
   class:stream-controls--visible={!focusMode || controlsVisible}
   aria-label="Stream controls"
 >
-  <!-- Volume: speaker glyph (accent) + slider + value -->
-  <div class="ctrl-volume" title="Volume">
-    <!-- Speaker glyph -->
-    <span class="ctrl-volume__icon" aria-hidden="true" style="color: var(--accent);">
+  <!-- Volume: clickable speaker glyph (mute toggle) + slider + value -->
+  <div class="ctrl-volume">
+    <!-- Speaker glyph — click to mute / unmute -->
+    <button
+      type="button"
+      class="ctrl-volume__icon"
+      onclick={toggleMute}
+      aria-pressed={volumePct === 0}
+      aria-label={volumePct === 0 ? "Unmute" : "Mute"}
+      title={volumePct === 0 ? "Unmute" : "Mute"}
+    >
       {#if volumePct === 0}
         🔇
       {:else if volumePct < 50}
@@ -168,7 +198,7 @@
       {:else}
         🔊
       {/if}
-    </span>
+    </button>
 
     <!-- Slider — CSS custom property drives the accent fill via background gradient -->
     <input
@@ -188,14 +218,16 @@
   <!-- Separator -->
   <span class="ctrl-sep" aria-hidden="true"></span>
 
-  <!-- Focus mode toggle (ghost button) -->
+  <!-- Immersive (focus) mode toggle (ghost button) -->
   <button
     class="ctrl-btn"
     onclick={toggleFocusMode}
     aria-pressed={focusMode}
-    title={focusMode ? "Exit Focus Mode (Esc)" : "Focus Mode"}
+    title={focusMode
+      ? "Exit immersive mode (Esc) — bring back the app controls"
+      : "Immersive mode — hide the app controls for a distraction-free view (Esc to exit)"}
   >
-    {focusMode ? "Exit Focus" : "Focus"}
+    {focusMode ? "Exit Immersive" : "Immersive"}
   </button>
 
   <!-- Fullscreen toggle (ghost button) -->
@@ -203,18 +235,20 @@
     class="ctrl-btn"
     onclick={toggleFullscreen}
     aria-pressed={isFullscreen}
-    title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+    title={isFullscreen
+      ? "Exit fullscreen"
+      : "Fullscreen — make the window fill your whole screen"}
   >
     {isFullscreen ? "Exit FS" : "Fullscreen"}
   </button>
 
-  <!-- Keyframe request (ghost button) -->
+  <!-- Fix Video / keyframe request (ghost button) -->
   <button
     class="ctrl-btn"
     onclick={requestKeyframe}
-    title="Request keyframe (fix corruption)"
+    title="Fix Video — refresh the picture if it looks blocky, smeared, or frozen"
   >
-    Keyframe
+    Fix Video
   </button>
 
   <!-- Separator -->
@@ -351,11 +385,32 @@
     gap: var(--space-2);
   }
 
+  /* Speaker glyph is a button (mute toggle) — reset native button chrome */
   .ctrl-volume__icon {
     font-size: var(--text-base);
     line-height: 1;
-    min-width: 20px;
+    min-width: 24px;
+    height: 24px;
     text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    cursor: pointer;
+    transition: background 120ms ease;
+    user-select: none;
+  }
+
+  .ctrl-volume__icon:hover {
+    background: var(--surface-2);
+  }
+
+  .ctrl-volume__icon:focus-visible {
+    box-shadow: var(--focus-ring);
   }
 
   /* Volume slider — custom accent fill via CSS gradient trick */
