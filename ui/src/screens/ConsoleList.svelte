@@ -93,6 +93,7 @@
     <div class="failure-banner" role="alert">
       <span class="failure-banner__text">{connectionStore.failureReason}</span>
       <button
+        type="button"
         class="failure-banner__dismiss"
         onclick={() => (connectionStore.failureReason = null)}
         aria-label="Dismiss"
@@ -451,7 +452,6 @@
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    margin-bottom: var(--space-4);
     background: color-mix(in srgb, var(--bad) 14%, var(--surface));
     border: 1px solid var(--bad);
     border-radius: var(--radius-md);
