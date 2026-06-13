@@ -30,7 +30,7 @@ Or visit [rustup.rs](https://rustup.rs). Requires Rust 1.85+ (edition 2024).
 ```bash
 sudo apt-get install -y \
     build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-    libappindicator3-dev librsvg2-dev patchelf
+    libayatana-appindicator3-dev librsvg2-dev patchelf
 ```
 
 ### macOS

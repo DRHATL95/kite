@@ -92,9 +92,12 @@ Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
   `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
   The public key is embedded in `tauri.conf.json`.
 - **Linux build deps**: the native AppImage build needs GTK/WebKit dev libs + AppImage tooling
-  (`libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2`).
+  (`libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2`).
   The workflow `apt-get`-installs them defensively (with `APPIMAGE_EXTRACT_AND_RUN=1` so no FUSE
-  is needed); bake them into CT 106 and drop that step to speed builds up.
+  is needed); bake them into CT 106 and drop that step to speed builds up. Use the **ayatana**
+  appindicator (`libayatana-appindicator3-dev`), not legacy `libappindicator3-dev` — jammy's
+  `libwebkit2gtk-4.1` pulls `libayatana-appindicator3-1`, which conflicts with the legacy
+  package; baking the legacy one into CT 106 would reintroduce the apt failure.
 - **Gotchas**: `actions/upload-artifact@v4` refuses non-GitHub hosts (build+publish are one job
   on purpose — and why both platforms build in the same job); every master push — even
   docs-only — produces a new nightly and an update prompt. macOS is still build-from-source.
@@ -114,7 +117,7 @@ Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
 ```bash
 sudo apt-get install -y \
     build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-    libappindicator3-dev librsvg2-dev patchelf
+    libayatana-appindicator3-dev librsvg2-dev patchelf
 ```
 
 **macOS**: Install Xcode Command Line Tools.
