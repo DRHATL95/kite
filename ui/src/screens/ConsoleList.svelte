@@ -18,6 +18,7 @@
 
   import { onMount } from "svelte";
   import { authStore } from "$lib/stores/auth.svelte.js";
+  import { connectionStore } from "$lib/stores/connection.svelte.js";
   import type { XHomeConsole } from "$lib/ipc/types.js";
   import Button from "$lib/design/Button.svelte";
   import Badge from "$lib/design/Badge.svelte";
@@ -88,6 +89,17 @@
 </script>
 
 <div class="console-list-screen">
+  {#if connectionStore.failureReason}
+    <div class="failure-banner" role="alert">
+      <span class="failure-banner__text">{connectionStore.failureReason}</span>
+      <button
+        class="failure-banner__dismiss"
+        onclick={() => (connectionStore.failureReason = null)}
+        aria-label="Dismiss"
+      >✕</button>
+    </div>
+  {/if}
+
   <!-- ── Header row ── -->
   <header class="screen-header">
     <div class="header-identity">
@@ -430,5 +442,47 @@
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-dim);
+  }
+
+  /* ── Failure banner ───────────────────────────────────────────────────────── */
+
+  .failure-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    background: color-mix(in srgb, var(--bad) 14%, var(--surface));
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    width: 100%;
+    max-width: 560px;
+    box-sizing: border-box;
+  }
+
+  .failure-banner__text {
+    flex: 1;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+  }
+
+  .failure-banner__dismiss {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--text-sm);
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px var(--space-1);
+    border-radius: var(--radius-sm);
+  }
+
+  .failure-banner__dismiss:hover {
+    color: var(--text);
+  }
+
+  .failure-banner__dismiss:focus-visible {
+    box-shadow: var(--focus-ring);
   }
 </style>
