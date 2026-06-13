@@ -217,6 +217,11 @@ export class ConnectionManager {
     return this._state;
   }
 
+  /** The reason for the most recent reconnect trigger / failure, or null. */
+  get lastTriggerReason(): string | null {
+    return this._lastTriggerReason;
+  }
+
   /** Last DiagnosticsSnapshot emitted (may be null before first sample). */
   private _lastSnapshot: DiagnosticsSnapshot | null = null;
   get lastSnapshot(): DiagnosticsSnapshot | null {
