@@ -82,7 +82,7 @@
 <style>
   .app-root {
     height: 100vh;
-    background: var(--bg);
+    background: transparent; /* body::before paints the themed atmosphere */
     color: var(--text);
   }
 

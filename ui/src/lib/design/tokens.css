@@ -1,30 +1,186 @@
+/* ============================================================================
+   Signal Deck — design tokens + theme system
+   ----------------------------------------------------------------------------
+   Theme-independent tokens (type, spacing, radii, motion) live in :root.
+   Each colour theme is a `:root[data-theme="x"]` block — specificity (0,2,0)
+   beats bare :root (0,1,0), so a theme's colours always win. The default
+   (no/`carbon` data-theme) uses the :root colour values directly.
+
+   Fonts are bundled via @fontsource and imported in main.ts (offline-safe).
+   No raw hex should appear outside this file.
+   ========================================================================== */
+
 :root {
-  /* Carbon + Green — single source of truth. No hex outside this file. */
-  --bg: #0d0f0d;
+  /* ── Type ───────────────────────────────────────────────────────────── */
+  --font-display: "Chakra Petch", system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk Variable", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+
+  --text-xs: 11px; --text-sm: 12px; --text-base: 14px;
+  --text-lg: 17px; --text-xl: 22px; --text-2xl: 32px; --text-3xl: 46px;
+
+  /* ── Spacing / radii ────────────────────────────────────────────────── */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --radius-sm: 5px; --radius-md: 9px; --radius-lg: 14px; --radius-pill: 999px;
+
+  /* ── Motion ─────────────────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --theme-fade: background-color 450ms ease, color 450ms ease, border-color 450ms ease;
+
+  /* ── Colour — default theme: CARBON ─────────────────────────────────── */
+  --bg: #0c0e0c;
+  --bg-2: #11150f;
   --surface: #161916;
   --surface-2: #1d211d;
-  --border: #242824;
-  --text-dim: #7e857e;
-  --text: #e8ece8;
-  --accent: #43c463;        /* good / active / healthy ONLY */
-  --on-accent: #06120a;     /* text on accent fill (dark-on-green for contrast) */
-  --accent-press: #2f8f47;  /* pressed accent */
-  --warn: #e0b341;          /* trouble */
-  --bad: #d4685f;           /* trouble */
+  --border: #262b26;
+  --text-dim: #8a918a;
+  --text: #e9ede9;
+  --accent: #46cf68;          /* good / active / healthy */
+  --accent-2: #46cf68;        /* secondary accent (duotone themes differ) */
+  --on-accent: #06120a;       /* text on accent fill */
+  --accent-press: #2f8f47;
+  --warn: #e0b341;
+  --bad: #d4685f;
 
-  --video-bg: #000;             /* pure black behind video; intentional */
+  --video-bg: #000;           /* pure black behind video — never themed */
 
-  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", "Cascadia Mono", Menlo, Consolas, monospace;
+  /* atmosphere */
+  --glow: rgba(70, 207, 104, 0.10);
+  --grid-line: rgba(130, 150, 130, 0.045);
+  --grain-opacity: 0.035;
 
-  --text-xs: 11px; --text-sm: 12px; --text-base: 14px; --text-lg: 17px; --text-xl: 22px;
-  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
-  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
-  --shadow-md: 0 6px 18px rgba(0,0,0,.45);
-  --focus-ring: 0 0 0 2px rgba(67,196,99,.5);
+  /* derived */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, .5);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
 }
+
+/* ── MIDNIGHT — deep blue-black + electric cyan ───────────────────────── */
+:root[data-theme="midnight"] {
+  --bg: #080b12;
+  --bg-2: #0a1019;
+  --surface: #10151f;
+  --surface-2: #161e2b;
+  --border: #243044;
+  --text-dim: #808da3;
+  --text: #e7edf6;
+  --accent: #36cfe8;
+  --accent-2: #5b8cff;
+  --on-accent: #04121a;
+  --accent-press: #2398ad;
+  --warn: #e7b84d;
+  --bad: #f0726a;
+  --glow: rgba(54, 207, 232, 0.13);
+  --grid-line: rgba(91, 140, 255, 0.06);
+}
+
+/* ── SYNTHWAVE — violet-black, magenta + cyan duotone ─────────────────── */
+:root[data-theme="synth"] {
+  --bg: #120a1f;
+  --bg-2: #190d2c;
+  --surface: #1c1230;
+  --surface-2: #271843;
+  --border: #3a2660;
+  --text-dim: #ab92d2;
+  --text: #f4ecff;
+  --accent: #ff48c4;
+  --accent-2: #36e0ff;
+  --on-accent: #1a0524;
+  --accent-press: #cc3a9d;
+  --warn: #ffcf5c;
+  --bad: #ff6b8b;
+  --glow: rgba(255, 72, 196, 0.15);
+  --grid-line: rgba(54, 224, 255, 0.07);
+}
+
+/* ── EMBER — near-black + amber phosphor (CRT) ────────────────────────── */
+:root[data-theme="ember"] {
+  --bg: #0d0a07;
+  --bg-2: #140f08;
+  --surface: #16100a;
+  --surface-2: #1f1710;
+  --border: #2e2316;
+  --text-dim: #9d8d72;
+  --text: #f1e5d0;
+  --accent: #ffa53a;
+  --accent-2: #ffcf6a;
+  --on-accent: #1a0f02;
+  --accent-press: #cc7f24;
+  --warn: #ffd24a;
+  --bad: #ef6b52;
+  --glow: rgba(255, 165, 58, 0.12);
+  --grid-line: rgba(255, 165, 58, 0.05);
+}
+
+/* ── PAPER — warm light editorial, vermilion accent ───────────────────── */
+:root[data-theme="paper"] {
+  --bg: #f3efe7;
+  --bg-2: #ece5d8;
+  --surface: #fbf8f2;
+  --surface-2: #f0ebe1;
+  --border: #dad3c4;
+  --text-dim: #6e6857;
+  --text: #211d16;
+  --accent: #c1452c;
+  --accent-2: #1f6f56;
+  --on-accent: #fdf7f0;
+  --accent-press: #9e3621;
+  --warn: #9a6b0f;
+  --bad: #b3261e;
+  --glow: rgba(193, 69, 44, 0.08);
+  --grid-line: rgba(40, 30, 20, 0.05);
+  --grain-opacity: 0.02;
+  --shadow-sm: 0 1px 2px rgba(40, 30, 20, .10);
+  --shadow-md: 0 12px 30px rgba(40, 30, 20, .14);
+}
+
+/* ── Base reset ───────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: var(--text-base); }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: var(--theme-fade);
+}
+
 :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* ── Atmosphere — fixed signal-grid + accent glow, behind the SPA ─────── */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(125% 85% at 50% -12%, var(--glow), transparent 58%),
+    radial-gradient(90% 70% at 100% 108%, color-mix(in srgb, var(--accent-2) 8%, transparent), transparent 60%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 100% 34px,
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 34px 100%,
+    linear-gradient(180deg, var(--bg), var(--bg-2));
+  transition: var(--theme-fade);
+  pointer-events: none;
+}
+
+/* ── Atmosphere — fine grain overlay ──────────────────────────────────── */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: var(--grain-opacity);
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  body, body::before { transition: none; }
+}

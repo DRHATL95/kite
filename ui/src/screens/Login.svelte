@@ -14,7 +14,7 @@
   import { onMount } from "svelte";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import Button from "$lib/design/Button.svelte";
-  import Panel from "$lib/design/Panel.svelte";
+  import ThemeSwitcher from "../components/ThemeSwitcher.svelte";
 
   let loading = $state(false);
 
@@ -33,32 +33,44 @@
 
 <div class="login-screen">
   <div class="login-card">
-    <!-- Wordmark -->
-    <div class="login-wordmark" aria-label="Xbox Remote">
-      XBOX REMOTE
+    <!-- Kicker -->
+    <div class="login-kicker" style="--i: 0;">
+      <span class="kicker-dot" aria-hidden="true"></span>
+      <span>CLOUD REMOTE PLAY</span>
     </div>
-    <p class="login-subtitle">Stream your Xbox console, anywhere.</p>
 
-    <Panel title="Sign in">
-      <div class="login-body">
-        {#if loading}
-          <p class="login-status">Checking saved sign-in…</p>
-          <div class="spinner" role="status" aria-label="Loading"></div>
-        {:else}
-          <p class="login-description">
-            Sign in with your Microsoft account to discover and connect to your Xbox consoles.
-          </p>
+    <!-- Wordmark -->
+    <h1 class="brand" style="--i: 1;" aria-label="Xbox Remote">
+      <span>XBOX</span><span class="brand__accent">REMOTE</span>
+    </h1>
 
-          <Button onclick={handleSignIn} disabled={loading}>
-            Sign in to Xbox
-          </Button>
+    <p class="login-subtitle" style="--i: 2;">Stream your console. Anywhere on your network.</p>
 
-          {#if authStore.error}
-            <p class="login-error" role="alert">{authStore.error}</p>
-          {/if}
+    <!-- Sign-in card -->
+    <div class="signin" style="--i: 3;">
+      {#if loading}
+        <p class="login-status">Checking saved sign-in…</p>
+        <div class="spinner" role="status" aria-label="Loading"></div>
+      {:else}
+        <p class="login-description">
+          Sign in with your Microsoft account to discover and connect to your Xbox consoles.
+        </p>
+
+        <Button onclick={handleSignIn} disabled={loading} class="signin__btn">
+          Sign in to Xbox
+        </Button>
+
+        {#if authStore.error}
+          <p class="login-error" role="alert">{authStore.error}</p>
         {/if}
-      </div>
-    </Panel>
+      {/if}
+    </div>
+
+    <!-- Theme picker — discoverable from the first screen -->
+    <div class="login-theme" style="--i: 4;">
+      <span class="login-theme__label">THEME</span>
+      <ThemeSwitcher variant="dots" />
+    </div>
   </div>
 </div>
 
@@ -69,26 +81,72 @@
     justify-content: center;
     min-height: 100vh;
     padding: var(--space-5);
-    background: var(--bg);
+    background: transparent;
   }
 
   .login-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-5);
+    gap: var(--space-4);
     width: 100%;
-    max-width: 400px;
+    max-width: 440px;
+    text-align: center;
   }
 
-  .login-wordmark {
+  /* Staggered entrance — each child sets --i for its delay. */
+  .login-card > * {
+    animation: rise 700ms var(--ease-out) backwards;
+    animation-delay: calc(var(--i, 0) * 90ms + 60ms);
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Kicker ─────────────────────────────────────────────────────────── */
+  .login-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
     font-family: var(--font-mono);
-    font-size: var(--text-xl);
+    font-size: var(--text-xs);
+    letter-spacing: 0.22em;
+    color: var(--text-dim);
+  }
+
+  .kicker-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  /* ── Wordmark ───────────────────────────────────────────────────────── */
+  .brand {
+    margin: 0;
+    display: flex;
+    gap: 0.28em;
+    font-family: var(--font-display);
     font-weight: 700;
-    letter-spacing: 0.18em;
+    font-size: var(--text-3xl);
+    letter-spacing: 0.04em;
+    line-height: 1;
     color: var(--text);
-    text-align: center;
     user-select: none;
+  }
+
+  .brand__accent {
+    color: var(--accent);
+    text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
   .login-subtitle {
@@ -96,16 +154,25 @@
     font-family: var(--font-sans);
     font-size: var(--text-base);
     color: var(--text-dim);
-    text-align: center;
+    max-width: 340px;
+    line-height: 1.5;
   }
 
-  .login-body {
+  /* ── Sign-in card ───────────────────────────────────────────────────── */
+  .signin {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--space-4);
-    min-width: 280px;
-    text-align: center;
+    width: 100%;
+    margin-top: var(--space-2);
+    padding: var(--space-5);
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   .login-description {
@@ -115,6 +182,13 @@
     color: var(--text-dim);
     line-height: 1.6;
     max-width: 320px;
+  }
+
+  /* Make the sign-in button full-width and a touch taller. */
+  .signin :global(.signin__btn) {
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-base);
   }
 
   .login-status {
@@ -149,5 +223,21 @@
 
   @keyframes spin {
     to { transform: rotate(360deg); }
+  }
+
+  /* ── Theme picker row ───────────────────────────────────────────────── */
+  .login-theme {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  .login-theme__label {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.22em;
+    color: var(--text-dim);
   }
 </style>
