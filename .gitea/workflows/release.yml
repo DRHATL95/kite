@@ -1,7 +1,8 @@
 name: release
 
-# Nightly: every push to master -> rolling "nightly" release (version 0.1.<run_number>).
-# Stable:  pushing a v* tag    -> permanent vX.Y.Z release.
+# Nightly: every push to master -> rolling "nightly" release
+#          (version <target>-nightly.<run_number>; <target> read from Cargo.toml).
+# Stable:  pushing a v* tag    -> permanent vX.Y.Z archive + rolling "stable" pointer.
 #
 # Single job on the Linux runner producing BOTH platforms:
 #   - Windows installer CROSS-COMPILED via cargo-xwin (validated 2026-06-10:
@@ -77,7 +78,7 @@ jobs:
           npm --prefix ui run build
 
       # Inject the CI version via Tauri's --config merge-patch (RFC 7396);
-      # the committed version stays 0.1.0 and the tree stays clean.
+      # the committed version (Cargo.toml in-dev target) supplies the base and the tree stays clean.
       - name: Tauri cross-build (signed NSIS for Windows x64)
         shell: bash
         run: |
