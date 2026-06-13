@@ -51,7 +51,7 @@ describe("MediaMonitor — start escalation", () => {
     const m = new MediaMonitor(cb);
     m.arm(0);
 
-    m.tick(0, 1_000);
+    m.tick(0, 0);       // first tick stamps the start-of-budget at t=0
     m.tick(0, 3_000);
     expect(cb.nudges).toEqual([]);
 
@@ -79,6 +79,7 @@ describe("MediaMonitor — start escalation", () => {
     const m = new MediaMonitor(cb);
     m.arm(0);
 
+    m.tick(null, 0);     // first tick stamps the start-of-budget at t=0
     m.tick(null, 4_000);
     m.tick(null, 7_000);
     m.tick(null, 10_000);
@@ -93,12 +94,37 @@ describe("MediaMonitor — start escalation", () => {
     const m = new MediaMonitor(cb);
     m.arm(0);
 
-    m.tick(0, 4_000);     // nudge #1
+    m.tick(0, 4_000);     // first tick stamps budget; no frames yet
     m.tick(2, 5_000);     // frames! -> streaming
     m.tick(8, 11_000);    // well past 10s but flowing
 
     expect(cb.starts).toBe(1);
     expect(cb.recovers).toEqual([]);
+  });
+
+  it("measures the start budget from the first tick, not arm() time (slow ICE)", () => {
+    const cb = makeCallbacks();
+    const m = new MediaMonitor(cb);
+    m.arm(0);
+
+    // Ticks don't begin until 9s after arm() — e.g. ICE polling delayed the
+    // stats sampler that drives tick(). The budget must start at this first
+    // observation, NOT at arm(), or the whole budget is already spent.
+    m.tick(0, 9_000);
+    expect(cb.recovers).toEqual([]); // old arm-time budget would reconnect here
+    expect(cb.nudges).toEqual([]);
+
+    m.tick(0, 13_000);               // elapsed 4s -> nudge #1
+    expect(cb.nudges).toEqual(["starting"]);
+
+    m.tick(0, 16_000);               // elapsed 7s -> nudge #2
+    expect(cb.nudges).toEqual(["starting", "starting"]);
+
+    m.tick(0, 18_000);               // elapsed 9s -> still no reconnect
+    expect(cb.recovers).toEqual([]);
+
+    m.tick(0, 19_000);               // elapsed 10s -> reconnect
+    expect(cb.recovers).toEqual(["mediaNeverStarted"]);
   });
 });
 
