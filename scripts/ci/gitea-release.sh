@@ -11,9 +11,9 @@ release_id_for_tag() {
   curl -fsS -H "$AUTH" "${API}/releases/tags/$1" 2>/dev/null | jq -r '.id // empty'
 }
 
-delete_release() { curl -fsS -X DELETE -H "$AUTH" "${API}/releases/$1"; }
+delete_release() { curl -fsS -X DELETE -H "$AUTH" "${API}/releases/$1" >/dev/null; }
 
-delete_tag() { curl -fsS -X DELETE -H "$AUTH" "${API}/tags/$1" || true; }
+delete_tag() { curl -fsS -X DELETE -H "$AUTH" "${API}/tags/$1" >/dev/null || true; }
 
 # create_release <tag> <name> <prerelease:true|false> <target_sha> -> echoes new id
 create_release() {
