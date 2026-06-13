@@ -76,6 +76,8 @@ export class MediaMonitor {
   reset(): void {
     this.phase = "idle";
     this.lastFrames = null;
+    this.armedAt = 0;
+    this.lastProgressAt = 0;
     this.startNudgesSent = 0;
     this.stallNudgeSent = false;
   }
@@ -116,6 +118,7 @@ export class MediaMonitor {
         this.stallNudgeSent = false;
         return;
       }
+      // Keep lastFrames current even when not progressing, so the next advance is detected.
       if (framesDecoded != null) {
         this.lastFrames = framesDecoded;
       }
