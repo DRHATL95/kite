@@ -101,3 +101,60 @@ describe("MediaMonitor — start escalation", () => {
     expect(cb.recovers).toEqual([]);
   });
 });
+
+describe("MediaMonitor — mid-stream stall", () => {
+  function armedAndFlowing(cb: ReturnType<typeof makeCallbacks>) {
+    const m = new MediaMonitor(cb);
+    m.arm(0);
+    m.tick(1, 1_000);   // first frame -> flowing, lastProgressAt = 1000
+    return m;
+  }
+
+  it("nudges at 4s stalled, reconnects at 8s stalled", () => {
+    const cb = makeCallbacks();
+    const m = armedAndFlowing(cb);
+
+    m.tick(1, 3_000);   // no advance (still 1), stalled 2s
+    expect(cb.nudges).toEqual([]);
+
+    m.tick(1, 5_000);   // stalled 4s -> nudge
+    expect(cb.nudges).toEqual(["stalled"]);
+
+    m.tick(1, 6_000);   // stalled 5s -> no extra nudge
+    expect(cb.nudges).toEqual(["stalled"]);
+
+    m.tick(1, 9_000);   // stalled 8s -> reconnect
+    expect(cb.recovers).toEqual(["mediaStalled"]);
+
+    m.tick(1, 10_000);  // idle after recover
+    expect(cb.recovers).toEqual(["mediaStalled"]);
+  });
+
+  it("recovers without reconnect when frames resume after a nudge", () => {
+    const cb = makeCallbacks();
+    const m = armedAndFlowing(cb);
+
+    m.tick(1, 5_000);   // stalled 4s -> nudge
+    expect(cb.nudges).toEqual(["stalled"]);
+
+    m.tick(2, 6_000);   // frames advance -> progress clock resets, nudge guard clears
+    m.tick(2, 9_000);   // stalled only 3s -> no nudge, no reconnect
+    m.tick(3, 10_000);  // advance again
+
+    expect(cb.recovers).toEqual([]);
+    expect(cb.nudges).toEqual(["stalled"]); // the one earlier nudge only
+
+    m.tick(3, 14_000);  // now stalled 4s again -> a fresh nudge is allowed
+    expect(cb.nudges).toEqual(["stalled", "stalled"]);
+  });
+
+  it("does not start streaming or escalate after reset()", () => {
+    const cb = makeCallbacks();
+    const m = armedAndFlowing(cb);
+    m.reset();
+    m.tick(1, 20_000);
+    m.tick(null, 30_000);
+    expect(cb.recovers).toEqual([]);
+    expect(cb.nudges).toEqual([]);
+  });
+});

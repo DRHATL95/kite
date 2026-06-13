@@ -108,5 +108,29 @@ export class MediaMonitor {
       }
       return;
     }
+
+    if (this.phase === "flowing") {
+      if (framesDecoded != null && this.lastFrames != null && framesDecoded > this.lastFrames) {
+        this.lastFrames = framesDecoded;
+        this.lastProgressAt = nowMs;
+        this.stallNudgeSent = false;
+        return;
+      }
+      if (framesDecoded != null) {
+        this.lastFrames = framesDecoded;
+      }
+
+      const stalled = nowMs - this.lastProgressAt;
+      if (stalled >= this.cfg.stallTimeoutMs) {
+        this.phase = "idle";
+        this.cb.onRecover("mediaStalled");
+        return;
+      }
+      if (!this.stallNudgeSent && stalled >= this.cfg.stallNudgeMs) {
+        this.stallNudgeSent = true;
+        this.cb.onNudge("stalled");
+      }
+      return;
+    }
   }
 }
