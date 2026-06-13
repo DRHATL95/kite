@@ -1225,6 +1225,10 @@ export class ConnectionManager {
     this._tracksReceived = { video: false, audio: false };
     this._hasStartedPlaying = false;
 
+    // Drop the stale snapshot so the media watchdog can't read the previous
+    // session's framesDecoded and flip to "streaming" before real frames arrive.
+    this._lastSnapshot = null;
+
     // Reset input sequence so reconnect re-initialises — app.js:846-848
     this._inputSeq = 0;
     this._remoteCandidatesAdded = 0;
