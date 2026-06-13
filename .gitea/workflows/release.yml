@@ -3,12 +3,19 @@ name: release
 # Nightly: every push to master -> rolling "nightly" release (version 0.1.<run_number>).
 # Stable:  pushing a v* tag    -> permanent vX.Y.Z release.
 #
-# Single job on the Linux runner: the Windows installer is CROSS-COMPILED via
-# cargo-xwin (validated 2026-06-10: exe + updater .sig build and run fine on
-# real Windows). Runner prerequisites (baked into CT 106): clang/lld/llvm,
-# nsis, rust target x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache.
+# Single job on the Linux runner producing BOTH platforms:
+#   - Windows installer CROSS-COMPILED via cargo-xwin (validated 2026-06-10:
+#     exe + updater .sig build and run fine on real Windows).
+#   - Linux AppImage built NATIVELY on the same runner (host target).
+# Both share the one ui/dist build and the one injected version; both get a
+# signed updater artifact and an entry in latest.json.
 #
-# Windows-only artifacts for now; Linux users build from source.
+# Runner prerequisites (CT 106): clang/lld/llvm, nsis, rust target
+# x86_64-pc-windows-msvc, cargo-xwin, warm xwin SDK cache. The Linux build also
+# needs the GTK/WebKit dev libs + AppImage tooling; the workflow installs them
+# defensively below, but baking them into CT 106 is faster — see the
+# "Install Linux build dependencies" step.
+#
 # NOTE: build+publish are ONE job on purpose — actions/upload-artifact@v4
 # hard-refuses non-github.com servers ("GHES not supported"), so cross-job
 # artifact handoff is avoided entirely. If a second build job is ever added,
@@ -28,11 +35,24 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       XWIN_ACCEPT_LICENSE: "1"
+      # Run the AppImage tooling without FUSE (CI containers usually lack it).
+      APPIMAGE_EXTRACT_AND_RUN: "1"
       GITEA: https://gitea.howlab.co
       REPO: dave/xbox-remote
       TOKEN: ${{ secrets.GITEA_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      # GTK/WebKit dev libs + AppImage tooling for the NATIVE Linux bundle.
+      # Ideally baked into CT 106 (drop this step then); kept here so a fresh
+      # runner still works. apt is idempotent, so re-running is cheap.
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev patchelf libfuse2 file
 
       - name: Compute version + channel
         id: v
@@ -62,6 +82,13 @@ jobs:
           cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
             --bundles nsis --config ci-version.json
 
+      # Native Linux build (host target x86_64-unknown-linux-gnu). Reuses the
+      # ci-version.json written above and the already-built ui/dist.
+      - name: Tauri build (signed AppImage for Linux x64)
+        shell: bash
+        run: |
+          cargo tauri build --bundles appimage --config ci-version.json
+
       # Space-free asset names so release URLs need no %20 escaping.
       # The .sig signs file BYTES, so renaming does not invalidate it.
       - name: Stage artifacts
@@ -69,8 +96,12 @@ jobs:
         run: |
           v='${{ steps.v.outputs.version }}'
           mkdir -p dist
+          # Windows (cross-compiled NSIS)
           cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "dist/xbox-remote_${v}_x64-setup.exe"
           cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "dist/xbox-remote_${v}_x64-setup.exe.sig"
+          # Linux (native AppImage). Tauri names the AppImage with arch token "amd64".
+          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage"     "dist/xbox-remote_${v}_amd64.AppImage"
+          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage.sig" "dist/xbox-remote_${v}_amd64.AppImage.sig"
 
       - name: Build latest.json
         shell: bash
@@ -84,6 +115,8 @@ jobs:
           NOTES='${{ steps.v.outputs.name }}' \
           WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
           WIN_URL="${base}/xbox-remote_${VERSION}_x64-setup.exe" \
+          LINUX_SIG_FILE="dist/xbox-remote_${VERSION}_amd64.AppImage.sig" \
+          LINUX_URL="${base}/xbox-remote_${VERSION}_amd64.AppImage" \
           bash scripts/ci/make-latest-json.sh > dist/latest.json
           cat dist/latest.json
 
@@ -104,6 +137,8 @@ jobs:
           for f in \
             "xbox-remote_${VERSION}_x64-setup.exe" \
             "xbox-remote_${VERSION}_x64-setup.exe.sig" \
+            "xbox-remote_${VERSION}_amd64.AppImage" \
+            "xbox-remote_${VERSION}_amd64.AppImage.sig" \
             "latest.json"; do
             upload_asset "$ID" "$f" "dist/$f"
           done
