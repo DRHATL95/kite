@@ -81,13 +81,19 @@ Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
   the Linux AppImage is built natively on the same runner
   (`cargo tauri build --bundles appimage`). Both updater artifacts are signed, and the assets
   uploaded are `xbox-remote_<v>_x64-setup.exe` + `.sig`, `xbox-remote_<v>_amd64.AppImage` + `.sig`,
-  and `latest.json` (with `windows-x86_64` + `linux-x86_64` entries). Version = `0.1.<run_number>`,
-  injected via `--config` (the committed version stays `0.1.0`).
+  and `latest.json` (with `windows-x86_64` + `linux-x86_64` entries).
+  Nightly version = `<target>-nightly.<run_number>` where `<target>` is the committed
+  `Cargo.toml` version (the next unreleased `X.Y.Z`); injected via `--config` so the
+  tree stays clean. Stable (`vX.Y.Z` tag) = clean version from the tag, published to
+  BOTH the permanent `vX.Y.Z` archive and the rolling `stable` pointer. After cutting
+  a stable, bump the committed target. Both channels expose a rolling
+  `…/releases/download/{nightly,stable}/latest.json`.
 - **Stable**: pushing a `vX.Y.Z` tag cuts a permanent release.
-- **In-app updates**: the app checks `releases/download/nightly/latest.json` on launch
+- **In-app updates**: the app checks the active channel's `latest.json` on launch
   (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`) and prompts to
-  install. Offline / off-LAN the check silently no-ops. On Linux the updater only updates
-  **AppImage** installs (not `.deb`/repackaged builds).
+  install. Two channels: `releases/download/nightly/latest.json` and
+  `releases/download/stable/latest.json`. Offline / off-LAN the check silently no-ops. On Linux
+  the updater only updates **AppImage** installs (not `.deb`/repackaged builds).
 - **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` lives in Gitea Actions secrets (private key file at
   `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
   The public key is embedded in `tauri.conf.json`.
