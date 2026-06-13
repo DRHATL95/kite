@@ -34,12 +34,15 @@ import {
   DISCONNECT_GRACE_MS,
   ICE_GATHER_WAIT_MS,
   REPORT_TYPE_GAMEPAD,
+  MEDIA_MONITOR_TICK_MS,
 } from "./constants.js";
 
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller } from "./input.js";
+
+import { MediaMonitor } from "./mediaMonitor.js";
 
 import { StatsSampler } from "./stats.js";
 
@@ -168,6 +171,10 @@ export class ConnectionManager {
   // ── Stats sampler ──────────────────────────────────────────────────────────
   private _sampler: StatsSampler | null = null;
 
+  // ── Media-flow watchdog ────────────────────────────────────────────────────
+  private _mediaMonitor: MediaMonitor | null = null;
+  private _mediaMonitorTimer: ReturnType<typeof setInterval> | null = null;
+
   // ── Callbacks ──────────────────────────────────────────────────────────────
   private readonly _cb: ConnectionManagerCallbacks;
 
@@ -178,6 +185,27 @@ export class ConnectionManager {
   // ──────────────────────────────────────────────────────────────────────────
   constructor(callbacks: ConnectionManagerCallbacks) {
     this._cb = callbacks;
+    this._mediaMonitor = new MediaMonitor({
+      onMediaStart: () => {
+        if (this._state === "connecting" || this._state === "reconnecting") {
+          this._log("First decoded frame — transitioning to streaming");
+          this._setState("streaming");
+          this._startGamepadPoller();
+        }
+      },
+      onNudge: (context) => {
+        if (this._channels && this._channels.control.readyState === "open") {
+          sendKeyframeRequest(this._channels.control);
+          this._keyframeRequestsSent++;
+          this._log(`Media ${context} — sent keyframe nudge`);
+          this._pushManagerStats();
+        }
+      },
+      onRecover: (reason) => {
+        this._log(`Media watchdog: ${reason} — escalating to reconnect`);
+        this._triggerReconnect(reason);
+      },
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -577,18 +605,17 @@ export class ConnectionManager {
       }
 
       // Dual-track gate — spec §3.10; app.js:627-666
-      // Transition to 'streaming' + start input ONLY when BOTH tracks arrived.
+      // Both tracks negotiated. NOTE: ontrack fires during setRemoteDescription,
+      // BEFORE media actually flows. Do NOT go to "streaming" here — arm the
+      // media watchdog and let it promote us once frames actually decode.
       if (
         this._tracksReceived.video &&
         this._tracksReceived.audio &&
         !this._hasStartedPlaying
       ) {
         this._hasStartedPlaying = true;
-        this._log("Both tracks received — transitioning to streaming");
-        this._setState("streaming");
-
-        // Start gamepad poller now that we're streaming — app.js:704
-        this._startGamepadPoller();
+        this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
+        this._mediaMonitor?.arm(Date.now());
       }
 
       this._pushManagerStats();
@@ -917,6 +944,16 @@ export class ConnectionManager {
     );
     this._pushManagerStats();
     this._sampler.start();
+
+    // Drive the media watchdog off the latest snapshot's framesDecoded.
+    if (this._mediaMonitorTimer === null) {
+      this._mediaMonitorTimer = setInterval(() => {
+        this._mediaMonitor?.tick(
+          this._lastSnapshot?.framesDecoded ?? null,
+          Date.now(),
+        );
+      }, MEDIA_MONITOR_TICK_MS);
+    }
   }
 
   private _stopStatsSampler(): void {
@@ -1163,6 +1200,12 @@ export class ConnectionManager {
     this._stopAllKeepalives();
     this._stopGamepadPoller();
     this._stopStatsSampler();
+
+    if (this._mediaMonitorTimer !== null) {
+      clearInterval(this._mediaMonitorTimer);
+      this._mediaMonitorTimer = null;
+    }
+    this._mediaMonitor?.reset();
 
     if (this._disconnectGraceTimer !== null) {
       clearTimeout(this._disconnectGraceTimer);
