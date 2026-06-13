@@ -60,12 +60,15 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VER="${{ github.ref_name }}"; VER="${VER#v}"
-            { echo "version=$VER"; echo "tag=v$VER"; echo "name=v$VER";
-              echo "prerelease=false"; echo "channel=stable"; } >> "$GITHUB_OUTPUT"
+            { echo "version=$VER"; echo "pointer_tag=stable"; echo "archive_tag=v$VER";
+              echo "name=v$VER"; echo "prerelease=false"; echo "channel=stable"; } >> "$GITHUB_OUTPUT"
           else
-            VER="0.1.${{ github.run_number }}"
-            { echo "version=$VER"; echo "tag=nightly"; echo "name=Nightly $VER";
-              echo "prerelease=true"; echo "channel=nightly"; } >> "$GITHUB_OUTPUT"
+            # Nightly = prerelease of the committed in-dev target, so it sorts below
+            # the eventual stable (0.3.0-nightly.41 < 0.3.0-nightly.42 < 0.3.0).
+            TARGET="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+            VER="${TARGET}-nightly.${{ github.run_number }}"
+            { echo "version=$VER"; echo "pointer_tag=nightly"; echo "archive_tag=";
+              echo "name=Nightly $VER"; echo "prerelease=true"; echo "channel=nightly"; } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build frontend
