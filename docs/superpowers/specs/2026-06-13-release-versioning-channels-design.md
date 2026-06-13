@@ -82,7 +82,15 @@ cutting `vX.Y.Z` stable, bump the committed version to the next target (e.g.
 > step also bumps the committed target to `0.3.0` (since `0.2.x` nightlies were
 > published) so the prerelease line starts clean above them.
 
-### ⚠️ Open risk to resolve first: NSIS + prerelease version strings
+### ✅ RESOLVED (2026-06-13): NSIS accepts prerelease version strings → Approach A
+
+Spike run locally: `cargo tauri build --bundles nsis --config '{"version":"0.3.0-nightly.42"}'`
+compiled and **produced `Xbox Remote_0.3.0-nightly.42_x64-setup.exe`** (the prerelease
+string survives into the NSIS bundle and filename). The only error was the updater
+*signing* step failing on a missing `TAURI_SIGNING_PRIVATE_KEY` — expected locally;
+CI has the key. **Proceed with Approach A (prerelease nightlies).**
+
+### (Original risk, for the record): NSIS + prerelease version strings
 
 Windows installer (`ProductVersion`) is numeric `a.b.c.d`. Tauri's NSIS bundler
 must accept a semver **prerelease** string (`0.3.0-nightly.42`) for the nightly
