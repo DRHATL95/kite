@@ -31,10 +31,11 @@ upload_asset() {
   echo "uploaded: $2"
 }
 
-# roll_nightly <tag> <name> <prerelease> <sha> — delete old release+tag, recreate; echoes new id.
-# Gitea API quirk: deleting a release does NOT delete its tag, and re-creating a tag
-# does NOT update an existing release — both must be deleted before recreating.
-roll_nightly() {
+# roll_channel <tag> <name> <prerelease> <sha> — delete old release+tag, recreate; echoes new id.
+# Used for the rolling channel pointers ("nightly", "stable"). Gitea API quirk:
+# deleting a release does NOT delete its tag, and re-creating a tag does NOT update
+# an existing release — both must be deleted before recreating.
+roll_channel() {
   local id; id="$(release_id_for_tag "$1")"
   [ -n "$id" ] && delete_release "$id" || true
   delete_tag "$1"

@@ -129,7 +129,7 @@ jobs:
           CHANNEL='${{ steps.v.outputs.channel }}'
           source scripts/ci/gitea-release.sh
           if [ "$CHANNEL" = nightly ]; then
-            ID="$(roll_nightly "$TAG" "$RELEASE_NAME" true "$GITHUB_SHA")"
+            ID="$(roll_channel "$TAG" "$RELEASE_NAME" true "$GITHUB_SHA")"
           else
             ID="$(create_release "$TAG" "$RELEASE_NAME" false "$GITHUB_SHA")"
           fi
