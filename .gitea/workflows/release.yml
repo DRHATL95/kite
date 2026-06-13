@@ -110,9 +110,10 @@ jobs:
         shell: bash
         run: |
           VERSION='${{ steps.v.outputs.version }}'
-          TAG='${{ steps.v.outputs.tag }}'
-          base="${GITEA}/${REPO}/releases/download/${TAG}"
-          # make-latest-json.sh runs as a child process — VERSION must be in its ENV
+          POINTER='${{ steps.v.outputs.pointer_tag }}'
+          # latest.json asset URLs point at the rolling pointer release so they keep
+          # working as it rolls (nightly or stable).
+          base="${GITEA}/${REPO}/releases/download/${POINTER}"
           export VERSION
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           NOTES='${{ steps.v.outputs.name }}' \
@@ -127,21 +128,32 @@ jobs:
         shell: bash
         run: |
           VERSION='${{ steps.v.outputs.version }}'
-          TAG='${{ steps.v.outputs.tag }}'
+          POINTER='${{ steps.v.outputs.pointer_tag }}'
+          ARCHIVE='${{ steps.v.outputs.archive_tag }}'
           RELEASE_NAME='${{ steps.v.outputs.name }}'
-          CHANNEL='${{ steps.v.outputs.channel }}'
+          PRERELEASE='${{ steps.v.outputs.prerelease }}'
           source scripts/ci/gitea-release.sh
-          if [ "$CHANNEL" = nightly ]; then
-            ID="$(roll_channel "$TAG" "$RELEASE_NAME" true "$GITHUB_SHA")"
-          else
-            ID="$(create_release "$TAG" "$RELEASE_NAME" false "$GITHUB_SHA")"
-          fi
-          echo "release id: $ID"
-          for f in \
-            "xbox-remote_${VERSION}_x64-setup.exe" \
-            "xbox-remote_${VERSION}_x64-setup.exe.sig" \
-            "xbox-remote_${VERSION}_amd64.AppImage" \
-            "xbox-remote_${VERSION}_amd64.AppImage.sig" \
-            "latest.json"; do
-            upload_asset "$ID" "$f" "dist/$f"
+
+          assets=(
+            "xbox-remote_${VERSION}_x64-setup.exe"
+            "xbox-remote_${VERSION}_x64-setup.exe.sig"
+            "xbox-remote_${VERSION}_amd64.AppImage"
+            "xbox-remote_${VERSION}_amd64.AppImage.sig"
+          )
+
+          # Always roll the channel pointer (nightly or stable) with binaries + latest.json.
+          PID="$(roll_channel "$POINTER" "$RELEASE_NAME" "$PRERELEASE" "$GITHUB_SHA")"
+          echo "pointer release id: $PID"
+          for f in "${assets[@]}" "latest.json"; do
+            upload_asset "$PID" "$f" "dist/$f"
           done
+
+          # Stable also gets a permanent vX.Y.Z archive (binaries only; the pointer
+          # holds the updater manifest).
+          if [ -n "$ARCHIVE" ]; then
+            AID="$(create_release "$ARCHIVE" "$RELEASE_NAME" false "$GITHUB_SHA")"
+            echo "archive release id: $AID"
+            for f in "${assets[@]}"; do
+              upload_asset "$AID" "$f" "dist/$f"
+            done
+          fi
