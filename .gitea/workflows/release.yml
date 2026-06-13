@@ -46,13 +46,17 @@ jobs:
       # GTK/WebKit dev libs + AppImage tooling for the NATIVE Linux bundle.
       # Ideally baked into CT 106 (drop this step then); kept here so a fresh
       # runner still works. apt is idempotent, so re-running is cheap.
+      # NOTE: use libayatana-appindicator3-dev, NOT legacy libappindicator3-dev —
+      # jammy's libwebkit2gtk-4.1 pulls in libayatana-appindicator3-1, which
+      # Conflicts: libappindicator3-1. If baking these deps into CT 106, install
+      # the ayatana variant there too, or this apt conflict comes right back.
       - name: Install Linux build dependencies
         shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-            libappindicator3-dev librsvg2-dev patchelf libfuse2 file
+            libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
 
       - name: Compute version + channel
         id: v
