@@ -33,7 +33,13 @@ Two rolling pointer releases hold the updater manifests:
 - `…/releases/download/nightly/latest.json`
 - `…/releases/download/stable/latest.json`
 
-(The in-app channel selector that chooses between them is a separate change.)
+The app's **Settings → Updates → Nightly builds** toggle chooses which manifest the
+updater polls (default **Stable**; on = **Nightly** pre-release builds). Launch checks
+only ever upgrade; switching channels in Settings moves you to the chosen channel's
+latest build immediately — even if that's a lower version. Channel selection is
+implemented Rust-side (`src/updater.rs`: `check_update`/`install_update` build the
+updater endpoint per channel), since the JS updater can't override the endpoint at
+runtime.
 
 The committed version in `Cargo.toml` / `tauri.conf.json` is the in-development
 target — a placeholder that stays clean in the tree. The real version is injected
