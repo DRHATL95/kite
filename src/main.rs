@@ -5,6 +5,7 @@
 mod auth;
 mod error;
 mod token_store;
+mod updater;
 mod xhome;
 
 // Tauri UI main function
