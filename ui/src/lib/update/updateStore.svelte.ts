@@ -2,17 +2,20 @@
  * updateStore.svelte.ts — Svelte 5 reactive store for app self-update state.
  *
  * Uses Svelte 5 runes ($state) for reactive state.  Wraps the thin updater
- * helpers in ui/src/lib/update/updater.ts (which call the Tauri updater /
- * process plugins).
+ * helpers in ui/src/lib/update/updater.ts (which call the Rust check_update /
+ * install_update commands).
  *
  * Update flow:
- *   1. On app launch: updateStore.checkOnLaunch()  — silent check; sets `available`
- *      if a newer version exists, otherwise no-ops (offline / no update / error).
+ *   1. On app launch: updateStore.checkOnLaunch()  — silent check on the persisted
+ *      channel; sets `available` if a newer version exists, otherwise no-ops
+ *      (offline / no update / error).
  *   2. If available:   the banner shows; user clicks "Install".
  *   3. updateStore.install()                       — downloads + installs with
  *      progress, then relaunches the app.
  *   4. updateStore.dismiss()                       — hides the banner without
  *      installing.
+ *   5. updateStore.switchChannel(next)             — persists the channel and checks
+ *      the new channel allowing a downgrade (explicit user action).
  *
  * Usage:
  *   import { updateStore } from '$lib/update/updateStore.svelte';
@@ -21,7 +24,7 @@
  */
 
 import { checkForUpdate, applyUpdate, type UpdateInfo } from "./updater.js";
-import type { Update } from "@tauri-apps/plugin-updater";
+import { settings, type UpdateChannel } from "$lib/stores/settings.svelte.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Store class — reactive fields via $state runes
@@ -40,32 +43,29 @@ class UpdateStore {
   /** Human-readable error from the last failed install, if any. */
   error: string | null = $state(null);
 
-  // ── Private: the pending Update handle (not reactive) ────────────────────────
-
-  private _pending: Update | null = null;
-
   // ── Public API ───────────────────────────────────────────────────────────────
 
-  /** Called once on launch. Silently no-ops if no update / offline / check fails. */
+  /** Called once on launch. Checks the persisted channel, upgrade-only. Silent no-op on none/offline/error. */
   async checkOnLaunch(): Promise<void> {
-    const u = await checkForUpdate();
-    if (u) {
-      this._pending = u;
-      this.available = { version: u.version, notes: u.body ?? undefined };
-    }
+    const info = await checkForUpdate(settings.updateChannel, false);
+    if (info) this.available = info;
+  }
+
+  /** Switch channels (persist) and check the new channel allowing a downgrade,
+   *  so picking a lower channel immediately offers that channel's latest. */
+  async switchChannel(next: UpdateChannel): Promise<void> {
+    settings.setChannel(next);
+    const info = await checkForUpdate(next, true);
+    this.available = info; // null clears any stale banner; non-null offers the switch target
   }
 
   /** Download + install the pending update, then relaunch. */
   async install(): Promise<void> {
-    if (!this._pending) return;
     this.installing = true;
     this.error = null;
     try {
-      await applyUpdate(this._pending, (p) => (this.progress = p));
-      // applyUpdate ends by calling relaunch(), which terminates this process,
-      // so execution never returns here on success — no state reset needed.
+      await applyUpdate((p) => (this.progress = p));
     } catch (e) {
-      // Any failure (download, install, OR relaunch) lands here.
       this.error = String(e);
       this.installing = false;
     }
