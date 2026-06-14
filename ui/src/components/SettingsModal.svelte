@@ -19,6 +19,9 @@
   import { authStore } from "$lib/stores/auth.svelte.js";
   import Button from "$lib/design/Button.svelte";
   import ThemeSwitcher from "./ThemeSwitcher.svelte";
+  import Toggle from "$lib/design/Toggle.svelte";
+  import { settings } from "$lib/stores/settings.svelte.js";
+  import { updateStore } from "$lib/update/updateStore.svelte.js";
 
   interface Props {
     open?: boolean;
@@ -44,6 +47,11 @@
     signingOut = false;
     // authState is now 'signedOut' → App routes back to Login. Close the dialog.
     onClose();
+  }
+
+  // ── Update channel ───────────────────────────────────────────────────────────
+  function handleChannelToggle(nightly: boolean) {
+    void updateStore.switchChannel(nightly ? "nightly" : "stable");
   }
 
   // ── Dismissal ───────────────────────────────────────────────────────────────────
@@ -97,6 +105,24 @@
             <span class="settings-row__desc">Switches instantly and is remembered.</span>
           </div>
           <ThemeSwitcher variant="chips" />
+        </div>
+      </section>
+
+      <!-- ── Updates ─────────────────────────────────────────────────────── -->
+      <section class="settings-section">
+        <span class="settings-section__label">UPDATES</span>
+        <div class="settings-row">
+          <div class="settings-row__text">
+            <span class="settings-row__title">Nightly builds</span>
+            <span class="settings-row__desc">
+              Get pre-release updates ahead of stable. Off = stable releases only.
+            </span>
+          </div>
+          <Toggle
+            checked={settings.updateChannel === "nightly"}
+            label=""
+            onchange={handleChannelToggle}
+          />
         </div>
       </section>
 
