@@ -124,6 +124,23 @@
             onchange={handleChannelToggle}
           />
         </div>
+        <div class="settings-row">
+          <div class="settings-row__text">
+            <span class="settings-row__title">Check for updates</span>
+            <span class="settings-row__desc">
+              {#if updateStore.available}
+                Update available: {updateStore.available.version}
+              {:else if updateStore.upToDate}
+                You're on the latest {settings.updateChannel} build.
+              {:else}
+                Re-check the {settings.updateChannel} channel now.
+              {/if}
+            </span>
+          </div>
+          <Button onclick={() => void updateStore.checkNow()} disabled={updateStore.checking}>
+            {updateStore.checking ? "Checking…" : "Check"}
+          </Button>
+        </div>
       </section>
 
       <!-- ── Account ─────────────────────────────────────────────────────── -->
