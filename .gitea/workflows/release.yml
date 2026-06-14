@@ -1,8 +1,8 @@
 name: release
 
 # Nightly: every push to master -> rolling "nightly" release
-#          (version <major.minor>.<run_number>; major.minor read from Cargo.toml).
-# Stable:  pushing a v* tag    -> permanent vX.Y.Z release.
+#          (version <target>-nightly.<run_number>; <target> read from Cargo.toml).
+# Stable:  pushing a v* tag    -> permanent vX.Y.Z archive + rolling "stable" pointer.
 #
 # Single job on the Linux runner producing BOTH platforms:
 #   - Windows installer CROSS-COMPILED via cargo-xwin (validated 2026-06-10:
@@ -65,17 +65,15 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VER="${{ github.ref_name }}"; VER="${VER#v}"
-            { echo "version=$VER"; echo "tag=v$VER"; echo "name=v$VER";
-              echo "prerelease=false"; echo "channel=stable"; } >> "$GITHUB_OUTPUT"
+            { echo "version=$VER"; echo "pointer_tag=stable"; echo "archive_tag=v$VER";
+              echo "name=v$VER"; echo "prerelease=false"; } >> "$GITHUB_OUTPUT"
           else
-            # Derive major.minor from the committed version so nightlies track it
-            # (0.2.0 -> 0.2.<run_number>) and always sort correctly against the
-            # matching vX.Y.0 stable tag. Bump Cargo.toml/tauri.conf.json to move
-            # the nightly line; do NOT hardcode the prefix here.
-            FULL="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
-            VER="${FULL%.*}.${{ github.run_number }}"
-            { echo "version=$VER"; echo "tag=nightly"; echo "name=Nightly $VER";
-              echo "prerelease=true"; echo "channel=nightly"; } >> "$GITHUB_OUTPUT"
+            # Nightly = prerelease of the committed in-dev target, so it sorts below
+            # the eventual stable (0.3.0-nightly.41 < 0.3.0-nightly.42 < 0.3.0).
+            TARGET="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+            VER="${TARGET}-nightly.${{ github.run_number }}"
+            { echo "version=$VER"; echo "pointer_tag=nightly"; echo "archive_tag=";
+              echo "name=Nightly $VER"; echo "prerelease=true"; } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build frontend
@@ -84,7 +82,7 @@ jobs:
           npm --prefix ui run build
 
       # Inject the CI version via Tauri's --config merge-patch (RFC 7396);
-      # the committed version supplies major.minor and the tree stays clean.
+      # the committed version (Cargo.toml in-dev target) supplies the base and the tree stays clean.
       - name: Tauri cross-build (signed NSIS for Windows x64)
         shell: bash
         run: |
@@ -117,9 +115,10 @@ jobs:
         shell: bash
         run: |
           VERSION='${{ steps.v.outputs.version }}'
-          TAG='${{ steps.v.outputs.tag }}'
-          base="${GITEA}/${REPO}/releases/download/${TAG}"
-          # make-latest-json.sh runs as a child process — VERSION must be in its ENV
+          POINTER='${{ steps.v.outputs.pointer_tag }}'
+          # latest.json asset URLs point at the rolling pointer release so they keep
+          # working as it rolls (nightly or stable).
+          base="${GITEA}/${REPO}/releases/download/${POINTER}"
           export VERSION
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           NOTES='${{ steps.v.outputs.name }}' \
@@ -134,21 +133,33 @@ jobs:
         shell: bash
         run: |
           VERSION='${{ steps.v.outputs.version }}'
-          TAG='${{ steps.v.outputs.tag }}'
+          POINTER='${{ steps.v.outputs.pointer_tag }}'
+          ARCHIVE='${{ steps.v.outputs.archive_tag }}'
           RELEASE_NAME='${{ steps.v.outputs.name }}'
-          CHANNEL='${{ steps.v.outputs.channel }}'
+          PRERELEASE='${{ steps.v.outputs.prerelease }}'
           source scripts/ci/gitea-release.sh
-          if [ "$CHANNEL" = nightly ]; then
-            ID="$(roll_nightly "$TAG" "$RELEASE_NAME" true "$GITHUB_SHA")"
-          else
-            ID="$(create_release "$TAG" "$RELEASE_NAME" false "$GITHUB_SHA")"
-          fi
-          echo "release id: $ID"
-          for f in \
-            "xbox-remote_${VERSION}_x64-setup.exe" \
-            "xbox-remote_${VERSION}_x64-setup.exe.sig" \
-            "xbox-remote_${VERSION}_amd64.AppImage" \
-            "xbox-remote_${VERSION}_amd64.AppImage.sig" \
-            "latest.json"; do
-            upload_asset "$ID" "$f" "dist/$f"
+
+          assets=(
+            "xbox-remote_${VERSION}_x64-setup.exe"
+            "xbox-remote_${VERSION}_x64-setup.exe.sig"
+            "xbox-remote_${VERSION}_amd64.AppImage"
+            "xbox-remote_${VERSION}_amd64.AppImage.sig"
+          )
+
+          # Always roll the channel pointer (nightly or stable) with binaries + latest.json.
+          PID="$(roll_channel "$POINTER" "$RELEASE_NAME" "$PRERELEASE" "$GITHUB_SHA")"
+          echo "pointer release id: $PID"
+          for f in "${assets[@]}" "latest.json"; do
+            upload_asset "$PID" "$f" "dist/$f"
           done
+
+          # Stable also gets a permanent vX.Y.Z archive (binaries only; the pointer
+          # holds the updater manifest).
+          if [ -n "$ARCHIVE" ]; then
+            # Fails intentionally if vX.Y.Z already exists — stable tags are cut once.
+            AID="$(create_release "$ARCHIVE" "$RELEASE_NAME" false "$GITHUB_SHA")"
+            echo "archive release id: $AID"
+            for f in "${assets[@]}"; do
+              upload_asset "$AID" "$f" "dist/$f"
+            done
+          fi

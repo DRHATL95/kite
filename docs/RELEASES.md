@@ -9,19 +9,35 @@ source is `.gitea/workflows/release.yml`; this document explains the *why*.
 | | Nightly | Stable |
 |---|---|---|
 | **Trigger** | Every push to `master` | Pushing a `vX.Y.Z` git tag |
-| **Version** | `0.1.<run_number>` (CI build number) | `X.Y.Z` (from the tag) |
-| **Release** | One rolling `nightly` release, **overwritten** each build | A permanent `vX.Y.Z` release |
+| **Version** | `X.Y.Z-nightly.<run_number>` (prerelease of target) | `X.Y.Z` (from the tag) |
+| **Release** | Rolling `nightly` release, **overwritten** each build | Permanent `vX.Y.Z` archive **and** rolling `stable` pointer |
 | **Marked** | Pre-release | Full release |
-| **Auto-update source** | ✅ Yes — the app updates from here | ❌ No (see [Auto-update](#auto-update)) |
+| **Auto-update source** | `…/nightly/latest.json` | `…/stable/latest.json` |
 
-## The committed version never changes
+## Versioning
 
-`Cargo.toml` and `tauri.conf.json` both pin `version = "0.1.0"` and we **leave it
-that way**. The real version is injected at build time so the working tree stays
-clean and there are no version-bump commits.
+- **Committed version** (`Cargo.toml`, `tauri.conf.json`) is the in-development
+  **target** — the next unreleased `X.Y.Z` (currently `0.3.0`).
+- **Nightly** (every push to `master`): `X.Y.Z-nightly.<run_number>` — a semver
+  prerelease of the target, so nightlies sort below the eventual stable
+  (`0.3.0-nightly.41 < 0.3.0-nightly.42 < 0.3.0`). Published to the rolling
+  `nightly` release.
+- **Stable** (push a `vX.Y.Z` tag): clean `X.Y.Z` from the tag. Published to BOTH
+  the permanent `vX.Y.Z` archive release AND the rolling `stable` pointer.
+- **After cutting a stable `vX.Y.Z`**, bump the committed version to the next
+  target so subsequent nightlies stay ahead.
 
-CI writes a one-line `ci-version.json` and merges it into the Tauri config via
-Tauri's `--config` flag (an RFC 7396 merge-patch):
+## Channels
+
+Two rolling pointer releases hold the updater manifests:
+- `…/releases/download/nightly/latest.json`
+- `…/releases/download/stable/latest.json`
+
+(The in-app channel selector that chooses between them is a separate change.)
+
+The committed version in `Cargo.toml` / `tauri.conf.json` is the in-development
+target — a placeholder that stays clean in the tree. The real version is injected
+at build time via Tauri's `--config` flag (an RFC 7396 merge-patch):
 
 ```bash
 printf '{"version":"%s"}' "$VERSION" > ci-version.json
@@ -29,60 +45,58 @@ cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
   --bundles nsis --config ci-version.json
 ```
 
-So `0.1.0` in git is a placeholder, not the shipped version. To find the version
-a user is running, look at the installer filename / the in-app version readout,
-not the repo.
+To find the version a user is running, look at the installer filename or the
+in-app version readout, not the repo.
 
 ## Nightly channel
 
 - **Fires on every push to `master`** — including docs-only commits. There is no
   filtering, so every merge produces a new nightly and (because of auto-update)
   an update prompt for everyone currently online.
-- **Version = `0.1.<run_number>`**, where `<run_number>` is the Gitea Actions run
-  counter — monotonically increasing, never resets.
+- **Version = `<target>-nightly.<run_number>`**, where `<target>` is the committed
+  `Cargo.toml` version and `<run_number>` is the Gitea Actions run counter
+  (monotonically increasing, never resets).
 - Publishes to a **single rolling release tagged `nightly`**. Each build deletes
-  and recreates that release's assets (`roll_nightly` in
+  and recreates that release's assets (`roll_channel` in
   `scripts/ci/gitea-release.sh`), so `releases/download/nightly/…` URLs are stable
   and always point at the newest build.
 - Marked as a **pre-release**.
 
 ## Stable channel
 
-- **Fires when you push a tag matching `v*`** (e.g. `v0.2.0`).
-- **Version = the tag without the `v`** (`v0.2.0` → `0.2.0`).
-- Creates a **permanent, named release** (`v0.2.0`) that is never overwritten.
+- **Fires when you push a tag matching `v*`** (e.g. `v0.3.0`).
+- **Version = the tag without the `v`** (`v0.3.0` → `0.3.0`).
+- Creates a **permanent, named release** (`v0.3.0`) that is never overwritten,
+  **and** force-updates the rolling `stable` release pointer so
+  `releases/download/stable/…` URLs always point at the latest stable build.
 - Marked as a **full release**.
+- **After cutting a stable**, bump `Cargo.toml` / `tauri.conf.json` to the next
+  target version so subsequent nightlies produce `<next>-nightly.<run_number>`.
 
 To cut a stable release:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 ## Auto-update
 
 The app checks for updates on launch via `tauri-plugin-updater`
-(UI in `ui/src/lib/update/`). The updater endpoint is **hard-pinned to the
-nightly manifest** (`tauri.conf.json`):
+(UI in `ui/src/lib/update/`). Two manifests exist:
 
 ```
 https://gitea.howlab.co/dave/xbox-remote/releases/download/nightly/latest.json
+https://gitea.howlab.co/dave/xbox-remote/releases/download/stable/latest.json
 ```
 
-**Consequences — read this before changing the version scheme:**
+**Notes:**
 
-1. **All auto-updates come from the nightly channel.** A user who installs a
-   stable `vX.Y.Z` build still auto-updates *to nightly* on next launch, because
-   that is the only endpoint the app knows. Stable releases today are effectively
-   **manual downloads**, not an auto-update track.
-2. **Version comparison is semver.** Nightly is `0.1.<run_number>`; once
-   `<run_number>` climbs past a stable patch (e.g. nightly `0.1.140` vs a stable
-   `v0.1.5`), the updater always considers nightly "newer." This is fine while
-   there is one channel, but is a sharp edge if a true stable auto-update track is
-   ever added — it would likely need its own `latest.json` endpoint and a version
-   scheme that can't be overtaken by nightly build numbers (e.g. nightlies on a
-   `0.0.x` line, or date-based nightly versions).
+1. **Semver prerelease ordering is correct.** Nightly versions like
+   `0.3.0-nightly.42` sort *below* the eventual stable `0.3.0`, so the updater
+   correctly considers the stable release "newer" when it ships.
+2. **Channel selection** (choosing which `latest.json` the app queries) is a
+   separate in-app feature; see the in-app update UI under `ui/src/lib/update/`.
 3. Offline / off-LAN, the check silently no-ops — `gitea.howlab.co` is only
    reachable on the home network.
 
@@ -95,12 +109,12 @@ when the build produces an AppImage (the script takes optional `LINUX_SIG_FILE`
 
 ```json
 {
-  "version": "0.1.42",
-  "notes": "Nightly 0.1.42",
+  "version": "0.3.0-nightly.42",
+  "notes": "Nightly 0.3.0-nightly.42",
   "pub_date": "2026-06-12T10:00:00Z",
   "platforms": {
-    "windows-x86_64": { "signature": "<minisign sig>", "url": "https://…/xbox-remote_0.1.42_x64-setup.exe" },
-    "linux-x86_64":   { "signature": "<minisign sig>", "url": "https://…/xbox-remote_0.1.42_amd64.AppImage" }
+    "windows-x86_64": { "signature": "<minisign sig>", "url": "https://…/xbox-remote_0.3.0-nightly.42_x64-setup.exe" },
+    "linux-x86_64":   { "signature": "<minisign sig>", "url": "https://…/xbox-remote_0.3.0-nightly.42_amd64.AppImage" }
   }
 }
 ```
