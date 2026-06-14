@@ -68,13 +68,13 @@ let client_id = "12345678-abcd-1234-5678-123456789abc"; // Your actual ID
 ### 7. Rebuild
 
 ```bash
-cargo build --release --features tauri
+npm --prefix ui run build && cargo build --release
 ```
 
 ### 8. Test
 
 ```bash
-./run.sh
+npm --prefix ui run build && cargo run
 ```
 
 Click "Sign in with Microsoft" and it should work!
@@ -111,7 +111,7 @@ let client_id = std::env::var("XBOX_CLIENT_ID")
 Then run:
 ```bash
 export XBOX_CLIENT_ID="12345678-abcd-1234-5678-123456789abc"
-./run.sh
+npm --prefix ui run build && cargo run
 ```
 
 ## What If Xbox Live Scopes Don't Work?
