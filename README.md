@@ -4,13 +4,12 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 
 ## Features
 
-- **Cloud-based console discovery**: Finds your Xbox consoles via the xHome API — no local network scanning required
-- **OAuth device-code sign-in**: Sign in with your Microsoft account using the standard device-code flow
-- **WebRTC streaming**: Video and audio delivered via browser WebRTC data channels
-- **Gamepad and keyboard input**: Forward controller and keyboard input back to the Xbox
-- **Token persistence**: Stays logged in across sessions using the OS keychain
-- **Modern UI**: Svelte 5 + TypeScript interface with a Carbon+Green design system and diagnostics HUD
-- **Auto-update**: Checks for new releases on launch and updates itself in-app (signed updates via the Tauri updater)
+- **Cloud console discovery** — finds your Xbox consoles via the xHome API; no local network scanning
+- **OAuth device-code sign-in** — sign in with your Microsoft account; tokens persist in the OS keychain
+- **WebRTC streaming** — video and audio as WebRTC media tracks; gamepad and keyboard input forwarded to the console
+- **Resilient streaming** — a media-flow watchdog gates the "Streaming" state on real decoded frames and auto-recovers (keyframe nudge → reconnect, then an honest failure message) when a console stalls
+- **Modern UI** — Svelte 5 + TypeScript, a themeable "Signal Deck" design system, in-app settings (theme, sign-out), and a diagnostics HUD (press `` ` ``) for live WebRTC stats
+- **Auto-update with channels** — checks on launch and installs signed updates in-app; choose **Stable** or **Nightly** in Settings
 
 ## Prerequisites
 
@@ -76,6 +75,8 @@ There are no feature flags. `cargo run` builds and launches the full Tauri app.
 
 4. **Input**: Gamepad and keyboard input is forwarded to the Xbox over a WebRTC data channel.
 
+5. **Settings**: open Settings (gear on the console list) to switch theme, choose your update channel (**Stable** or **Nightly**), or sign out. During a stream, press `` ` `` to toggle the diagnostics HUD (fps, bitrate, RTT, packet loss, ICE state).
+
 ## Project Structure
 
 ```
@@ -105,11 +106,8 @@ xbox-remote/
 
 ## Troubleshooting
 
-See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for window visibility issues, WSL/display setup, and button-click debugging.
-
-See [AZURE_SETUP.md](./AZURE_SETUP.md) if you need to register your own Azure app client ID.
-
-See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected console log sequences, and manual debug commands.
+See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID, and
+[TECHNICAL_DETAILS.md](./TECHNICAL_DETAILS.md) for protocol and implementation notes.
 
 ### No Consoles Found
 
