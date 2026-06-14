@@ -43,6 +43,12 @@ class UpdateStore {
   /** Human-readable error from the last failed install, if any. */
   error: string | null = $state(null);
 
+  /** True while a manual "check for updates" is in flight. */
+  checking: boolean = $state(false);
+
+  /** True when the last manual check found nothing newer (transient UI feedback). */
+  upToDate: boolean = $state(false);
+
   // ── Public API ───────────────────────────────────────────────────────────────
 
   /** Called once on launch. Checks the persisted channel, upgrade-only. Silent no-op on none/offline/error. */
@@ -57,6 +63,18 @@ class UpdateStore {
     settings.setChannel(next);
     const info = await checkForUpdate(next, true);
     this.available = info; // null clears any stale banner; non-null offers the switch target
+  }
+
+  /** Manual "Check for updates" on the current channel (upgrade-only). Shows the
+   *  banner if something newer exists, otherwise flags upToDate for brief feedback.
+   *  Lets a user recover a missed check without relaunching. */
+  async checkNow(): Promise<void> {
+    this.checking = true;
+    this.upToDate = false;
+    const info = await checkForUpdate(settings.updateChannel, false);
+    this.checking = false;
+    if (info) this.available = info;
+    else this.upToDate = true;
   }
 
   /** Download + install the pending update, then relaunch. */
