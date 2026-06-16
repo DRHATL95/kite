@@ -392,6 +392,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_bytes_produced_by_the_js_packer() {
+        // IDENTICAL fixture to ui/src/lib/clip/clipPayload.test.ts (`FIXTURE`).
+        // Asserting both the TS packer's output and this parser's input against
+        // the same bytes proves the two agree on field order + endianness.
+        let bytes: &[u8] = &[
+            0x50, 0x4c, 0x43, 0x58, 0x01, // magic 'XCLP' (LE), version 1
+            0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, // w=1 h=2 fps_num=3 fps_den=4
+            0x01, 0x00, 0x00, 0x00, 0xaa, // sps = [0xAA]
+            0x01, 0x00, 0x00, 0x00, 0xbb, // pps = [0xBB]
+            0x01, 0x00, 0x00, 0x00, 0xcc, // aac_config = [0xCC]
+            0x01, 0x00, 0x00, 0x00, // video_count = 1
+            0x01, // keyframe = true
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pts_sec = 0.0
+            0x01, 0x00, 0x00, 0x00, 0x65, // nal = [0x65]
+            0x01, 0x00, 0x00, 0x00, // audio_count = 1
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pts_sec = 0.0
+            0x01, 0x00, 0x00, 0x00, 0xff, // aac = [0xFF]
+        ];
+        let p = ClipPayload::parse(bytes).unwrap();
+        assert_eq!(p.width, 1);
+        assert_eq!(p.height, 2);
+        assert_eq!(p.fps_num, 3);
+        assert_eq!(p.fps_den, 4);
+        assert_eq!(p.sps, vec![0xaa]);
+        assert_eq!(p.pps, vec![0xbb]);
+        assert_eq!(p.aac_config, vec![0xcc]);
+        assert_eq!(p.video.len(), 1);
+        assert!(p.video[0].keyframe);
+        assert_eq!(p.video[0].pts_sec, 0.0);
+        assert_eq!(p.video[0].nal, vec![0x65]);
+        assert_eq!(p.audio.len(), 1);
+        assert_eq!(p.audio[0].pts_sec, 0.0);
+        assert_eq!(p.audio[0].aac, vec![0xff]);
+        // Re-serializing the parsed payload reproduces the exact fixture.
+        assert_eq!(p.to_bytes(), bytes);
+    }
+
+    #[test]
     fn wrap_adts_sets_syncword_and_length() {
         let adts = wrap_adts(&[0xaa, 0xbb, 0xcc], 48_000, 2);
         assert_eq!(adts.len(), 10);
