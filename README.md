@@ -4,81 +4,66 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 
 ## Features
 
-- **Cloud-based console discovery**: Finds your Xbox consoles via the xHome API — no local network scanning required
-- **OAuth device-code sign-in**: Sign in with your Microsoft account using the standard device-code flow
-- **WebRTC streaming**: Video and audio delivered via browser WebRTC data channels
-- **Gamepad and keyboard input**: Forward controller and keyboard input back to the Xbox
-- **Token persistence**: Stays logged in across sessions using the OS keychain
-- **Modern UI**: Svelte 5 + TypeScript interface with a Carbon+Green design system and diagnostics HUD
-- **Auto-update**: Checks for new releases on launch and updates itself in-app (signed updates via the Tauri updater)
-- **Clipping (opt-in, off by default)**: Keeps the last 15/30/60 seconds buffered so you can save the moment that just happened as a WebM clip — auto-saved to your Videos folder with a one-click "Reveal" for sharing (e.g. to Discord). Configured in the Settings panel; the rolling buffer only runs when you turn it on
+- **Cloud console discovery** — finds your Xbox consoles via the xHome API; no local network scanning
+- **OAuth device-code sign-in** — sign in with your Microsoft account; tokens persist in the OS keychain
+- **WebRTC streaming** — video and audio as WebRTC media tracks; gamepad and keyboard input forwarded to the console
+- **Resilient streaming** — a media-flow watchdog gates the "Streaming" state on real decoded frames and auto-recovers (keyframe nudge → reconnect, then an honest failure message) when a console stalls
+- **Modern UI** — Svelte 5 + TypeScript, a themeable "Signal Deck" design system, in-app settings (theme, sign-out), and a diagnostics HUD (press `` ` ``) for live WebRTC stats
+- **Auto-update with channels** — checks on launch and installs signed updates in-app; choose **Stable** or **Nightly** in Settings
 
 ## Prerequisites
 
 ### Rust
-
 If you don't have Rust installed:
-
 ```powershell
 # Windows (PowerShell)
 winget install Rustlang.Rustup
 ```
-
 Or visit [rustup.rs](https://rustup.rs). Requires Rust 1.85+ (edition 2024).
 
 ### Windows
-
 - [MSVC Build Tools](https://visualstudio.microsoft.com/downloads/) (or Visual Studio)
 - WebView2 runtime (pre-installed on Windows 11)
 
 ### Linux (Ubuntu/Debian)
-
 ```bash
 sudo apt-get install -y \
     build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-    libappindicator3-dev librsvg2-dev patchelf
+    libayatana-appindicator3-dev librsvg2-dev patchelf
 ```
 
 ### macOS
-
 ```bash
 xcode-select --install
 ```
 
 ## Installation
 
-### Release Builds
-
-The Gitea Actions release publishes a rolling `nightly` release for people you give access to:
-
-- Windows: download and run `xbox-remote_<version>_x64-setup.exe`.
-- Linux x64: download `xbox-remote_<version>_amd64.AppImage`, make it executable, then run it:
-
-```bash
-chmod +x xbox-remote_<version>_amd64.AppImage
-./xbox-remote_<version>_amd64.AppImage
-```
-
-The in-app updater checks the `nightly` release manifest on launch. Linux updates use the AppImage artifact; `.deb` packages are not part of the updater path.
-
-### From Source
-
 1. Clone the repository:
-
 ```powershell
 git clone <your-repo-url>
 cd xbox-remote
 ```
 
-2. Build and run:
-
+2. Build the frontend, then run:
 ```powershell
+# Install frontend dependencies (first time / after package.json changes)
 npm --prefix ui install
+
+# Build the Svelte frontend → ui/dist (Tauri embeds this at compile time)
 npm --prefix ui run build
+
+# Build and launch the Tauri app
 cargo run
 ```
 
-There are no feature flags. The frontend build writes `ui/dist`, which Tauri embeds when `cargo run` launches the app.
+There are no feature flags. `cargo run` builds and launches the full Tauri app.
+
+> **Important:** This project does not use the Tauri CLI / `tauri dev`, and Tauri
+> embeds `ui/dist` at compile time. You must run `npm --prefix ui run build` before
+> `cargo run`, or the app will ship a stale/empty frontend. After any change under
+> `ui/src/`, rebuild the frontend and run `cargo clean -p xbox-remote && cargo run`
+> so the new assets are re-embedded.
 
 ## Usage
 
@@ -90,7 +75,7 @@ There are no feature flags. The frontend build writes `ui/dist`, which Tauri emb
 
 4. **Input**: Gamepad and keyboard input is forwarded to the Xbox over a WebRTC data channel.
 
-5. **Clipping** (optional): Open Settings (the gear icon), enable clipping, and pick a length (15/30/60s). While streaming, a **Clip** button appears in the controls bar — click it to save the last N seconds to your Videos folder (`Xbox Remote Clips/`); a toast offers to reveal the file. The buffer only runs while clipping is enabled.
+5. **Settings**: open Settings (gear on the console list) to switch theme, choose your update channel (**Stable** or **Nightly**), or sign out. During a stream, press `` ` `` to toggle the diagnostics HUD (fps, bitrate, RTT, packet loss, ICE state).
 
 ## Project Structure
 
@@ -102,10 +87,18 @@ xbox-remote/
 │   ├── xhome.rs             # xHome REST API client
 │   ├── token_store.rs       # OS keychain token persistence
 │   └── error.rs             # Centralized error types
-├── ui/
-│   ├── src/                 # Svelte 5 + TypeScript frontend
-│   ├── index.html
-│   └── dist/                # Built frontend embedded by Tauri
+├── ui/                      # Svelte 5 + TypeScript + Vite frontend
+│   ├── src/
+│   │   ├── screens/         # Login, DeviceCode, ConsoleList, Stream
+│   │   ├── components/      # StreamControls, StreamStatus, DiagnosticsHud
+│   │   ├── lib/
+│   │   │   ├── connection/  # ConnectionManager, WebRTC, input encoder
+│   │   │   ├── ipc/         # Typed wrappers around Tauri commands
+│   │   │   ├── stores/      # Svelte rune-based state stores
+│   │   │   ├── update/      # In-app auto-update (tauri-plugin-updater)
+│   │   │   └── design/      # Design-system foundation
+│   │   └── main.ts
+│   └── dist/                # Vite build output (embedded by Tauri at compile time)
 ├── Cargo.toml
 ├── tauri.conf.json
 └── build.rs
@@ -113,11 +106,8 @@ xbox-remote/
 
 ## Troubleshooting
 
-See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for window visibility issues, WSL/display setup, and button-click debugging.
-
-See [AZURE_SETUP.md](./AZURE_SETUP.md) if you need to register your own Azure app client ID.
-
-See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected console log sequences, and manual debug commands.
+See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID, and
+[TECHNICAL_DETAILS.md](./TECHNICAL_DETAILS.md) for protocol and implementation notes.
 
 ### No Consoles Found
 
@@ -134,25 +124,27 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for the full test flow, expected cons
 ### Build Issues
 
 - `edition = "2024"` requires Rust 1.85+. Run `rustup update stable`.
-- After changing `ui/src/` files, run `npm --prefix ui run build`, then `cargo clean -p xbox-remote` before rebuilding.
+- After changing files under `ui/src/`, run `npm --prefix ui run build`, then `cargo clean -p xbox-remote` before rebuilding so the new frontend assets are re-embedded.
 
 ## Development
 
 ### Running Tests
-
 ```powershell
+# Rust backend tests
 cargo test
+
+# Frontend unit tests (Vitest) and type-check
+npm --prefix ui run test
+npm --prefix ui run check
 ```
 
 ### Debug Logging
-
 ```powershell
 $env:RUST_LOG = "debug"
 cargo run
 ```
 
 ### Overriding the Azure Client ID
-
 ```powershell
 $env:XBOX_CLIENT_ID = "your-client-id"
 cargo run
@@ -176,23 +168,8 @@ target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 
 Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.
 
-## Building a Linux AppImage
-
-Linux releases use Tauri's AppImage bundler, because that is the Linux format supported by the Tauri updater.
-
-```bash
-npm --prefix ui install
-npm --prefix ui run build
-cargo tauri build --bundles appimage
-```
-
-The AppImage is written to:
-
-```text
-target/release/bundle/appimage/
-```
-
-Ubuntu/Debian build hosts need the Linux prerequisites listed above. The Gitea Actions release workflow builds and publishes the AppImage as `xbox-remote_<version>_amd64.AppImage` alongside its `.sig` updater signature.
+> Releases are produced by CI, not by hand. See [docs/RELEASES.md](./docs/RELEASES.md)
+> for how versioning works and how the nightly and stable channels differ.
 
 ## How It Works
 

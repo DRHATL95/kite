@@ -118,7 +118,7 @@
     justify-content: center;
     min-height: 100vh;
     padding: var(--space-5);
-    background: var(--bg);
+    background: transparent;
   }
 
   .device-code-body {
@@ -156,16 +156,18 @@
     width: 100%;
     padding: var(--space-4) var(--space-4);
     background: var(--surface-2);
-    border: 2px solid var(--border);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
     border-radius: var(--radius-md);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   .code-display {
-    font-family: var(--font-mono);
-    font-size: var(--text-xl);
-    font-weight: 800;
-    letter-spacing: 0.18em;
-    color: var(--text);
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    text-shadow: 0 0 20px color-mix(in srgb, var(--accent) 35%, transparent);
     user-select: all;
   }
 

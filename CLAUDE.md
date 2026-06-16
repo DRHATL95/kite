@@ -27,11 +27,7 @@ cargo build --release
 
 # Windows NSIS installer (.exe)
 npm --prefix ui run build
-cargo tauri build --bundles nsis
-
-# Linux AppImage
-npm --prefix ui run build
-cargo tauri build --bundles appimage
+cargo tauri build
 
 # Run Rust tests
 cargo test
@@ -56,60 +52,61 @@ npm --prefix ui run test
 
 There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
 
-### Release Builds
+### Windows Installer
 
-`tauri.conf.json` enables Tauri's NSIS and AppImage bundlers. To produce local release artifacts, build the frontend first and then run the Tauri build from the repository root:
+`tauri.conf.json` enables Tauri's NSIS bundler. To produce a setup `.exe`, build the frontend first and then run the Tauri build from the repository root:
 
 ```powershell
 npm --prefix ui install
 npm --prefix ui run build
-cargo tauri build --bundles nsis
+cargo tauri build
 ```
 
-Windows installer output is under (default host target):
+The installer output is under (default host target):
 
 ```text
 target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
 ```
 
-Linux AppImage builds run on Linux:
-
-```bash
-npm --prefix ui install
-npm --prefix ui run build
-cargo tauri build --bundles appimage
-```
-
-Linux output is under:
-
-```text
-target/release/bundle/appimage/
-```
-
-Do not skip the frontend build; release artifacts embed the current `ui/dist` output just like `cargo run` and `cargo build`.
+Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
 
 ### Releases & Auto-Update (CI/CD)
 
 Releases are built by **Gitea Actions** (`.gitea/workflows/release.yml`) on a self-hosted
 Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
 
-- **Nightly**: every push to `master` cross-compiles the **Windows** NSIS installer on Linux
-  (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`),
-  then builds the native **Linux** AppImage (`cargo tauri build --bundles appimage`), signs both
-  updater artifacts, and force-updates the rolling `nightly` release with
-  `xbox-remote_<v>_x64-setup.exe`, `xbox-remote_<v>_amd64.AppImage`, their `.sig` files, and
-  `latest.json`. Version = `0.1.<run_number>`, injected via `--config` (the committed version
-  stays `0.1.0`).
+- **Nightly**: every push to `master` builds **both** platforms in one job and force-updates
+  the rolling `nightly` release. Windows NSIS installer is cross-compiled
+  (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`);
+  the Linux AppImage is built natively on the same runner
+  (`cargo tauri build --bundles appimage`). Both updater artifacts are signed, and the assets
+  uploaded are `xbox-remote_<v>_x64-setup.exe` + `.sig`, `xbox-remote_<v>_amd64.AppImage` + `.sig`,
+  and `latest.json` (with `windows-x86_64` + `linux-x86_64` entries).
+  Nightly version = `<target>-nightly.<run_number>` where `<target>` is the committed
+  `Cargo.toml` version (the next unreleased `X.Y.Z`); injected via `--config` so the
+  tree stays clean. Stable (`vX.Y.Z` tag) = clean version from the tag, published to
+  BOTH the permanent `vX.Y.Z` archive and the rolling `stable` pointer. After cutting
+  a stable, bump the committed target. Both channels expose a rolling
+  `…/releases/download/{nightly,stable}/latest.json`.
 - **Stable**: pushing a `vX.Y.Z` tag cuts a permanent release.
-- **In-app updates**: the app checks `releases/download/nightly/latest.json` on launch
+- **In-app updates**: the app checks the active channel's `latest.json` on launch
   (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`) and prompts to
-  install. Offline / off-LAN the check silently no-ops.
+  install. Two channels: `releases/download/nightly/latest.json` and
+  `releases/download/stable/latest.json`. Offline / off-LAN the check silently no-ops. On Linux
+  the updater only updates **AppImage** installs (not `.deb`/repackaged builds).
 - **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` lives in Gitea Actions secrets (private key file at
   `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
   The public key is embedded in `tauri.conf.json`.
+- **Linux build deps**: the native AppImage build needs GTK/WebKit dev libs + AppImage tooling
+  (`libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2`).
+  The workflow `apt-get`-installs them defensively (with `APPIMAGE_EXTRACT_AND_RUN=1` so no FUSE
+  is needed); bake them into CT 106 and drop that step to speed builds up. Use the **ayatana**
+  appindicator (`libayatana-appindicator3-dev`), not legacy `libappindicator3-dev` — jammy's
+  `libwebkit2gtk-4.1` pulls `libayatana-appindicator3-1`, which conflicts with the legacy
+  package; baking the legacy one into CT 106 would reintroduce the apt failure.
 - **Gotchas**: `actions/upload-artifact@v4` refuses non-GitHub hosts (build+publish are one job
-  on purpose); the Linux runner must have the Tauri Linux/AppImage dependencies installed; every
-  master push — even docs-only — produces a new nightly and an update prompt.
+  on purpose — and why both platforms build in the same job); every master push — even
+  docs-only — produces a new nightly and an update prompt. macOS is still build-from-source.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
@@ -126,7 +123,7 @@ Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
 ```bash
 sudo apt-get install -y \
     build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-    libappindicator3-dev librsvg2-dev patchelf
+    libayatana-appindicator3-dev librsvg2-dev patchelf
 ```
 
 **macOS**: Install Xcode Command Line Tools.
@@ -172,12 +169,10 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 | `ui/src/lib/connection/stats.ts` | WebRTC stats collection and bitrate calculation |
 | `ui/src/lib/connection/constants.ts` | Protocol constants (channel names, timeouts, packet offsets) |
 | `ui/src/lib/connection/messages.ts` | Structured message builders for data channels |
-| `ui/src/lib/clip/` | Retroactive clip buffer: `clipBufferLogic.ts` (pure retention/assembly, unit-tested) + `ClipBuffer.ts` (MediaRecorder rolling buffer) |
-| `ui/src/lib/settings/` | `clipSettings.ts` — pure clip-preference model (types, defaults, load/save/validate, unit-tested) |
-| `ui/src/lib/stores/` | Svelte 5 rune-based stores (app state, session, diagnostics, settings, clip, ui) |
+| `ui/src/lib/stores/` | Svelte 5 rune-based stores (app state, session, diagnostics) |
 | `ui/src/lib/design/` | Design-system foundation (tokens, typography, spacing) |
-| `ui/src/screens/` | Top-level screens: Login, DeviceCode, ConsoleList, Stream; Settings (modal overlay) |
-| `ui/src/components/` | Shared components: StreamControls, StreamStatus, DiagnosticsHud + HUD panels, Toast |
+| `ui/src/screens/` | Top-level screens: Login, DeviceCode, ConsoleList, Stream |
+| `ui/src/components/` | Shared components: StreamControls, StreamStatus, DiagnosticsHud + HUD panels |
 
 ### Tauri Commands (src/main.rs)
 
@@ -189,7 +184,6 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 - `send_ice_candidate(session_path, candidate)` — forwards ICE candidate to xHome
 - `send_sdp_answer(session_path, sdp)` — forwards SDP answer to xHome
 - `send_keepalive(session_path)` — sends API-side keepalive
-- `save_clip(request)` — writes a recorded clip to `<Videos>/Xbox Remote Clips/`; bytes arrive as a raw IPC body (`tauri::ipc::Request` / `InvokeBody::Raw`) with the file name in the `X-Clip-Name` header. Reveal uses `tauri-plugin-opener`'s `revealItemInDir`. Clipping is opt-in and **off by default** (configured in the Settings modal).
 
 ### xHome API Endpoints
 

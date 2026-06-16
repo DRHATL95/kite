@@ -1,8 +1,7 @@
 /**
- * settings.svelte.ts — reactive wrapper around clipSettings (localStorage-backed).
- *
- * Mirrors the ConnectionManager ← connection.svelte.ts pattern: pure logic in
- * clipSettings.ts, thin reactive shell here.
+ * settings.svelte.ts — small persisted app settings (Svelte 5 runes).
+ * - updateChannel: the auto-update channel (stable | nightly), default stable.
+ * - clip: opt-in clipping preferences (pure model in lib/settings/clipSettings.ts).
  */
 
 import {
@@ -11,15 +10,43 @@ import {
   type ClipSettings,
 } from "../settings/clipSettings.js";
 
+export type UpdateChannel = "stable" | "nightly";
+
+const CHANNEL_KEY = "xbox-remote:update-channel";
+const DEFAULT_CHANNEL: UpdateChannel = "stable";
+
+function readChannel(): UpdateChannel {
+  try {
+    const saved = localStorage.getItem(CHANNEL_KEY);
+    if (saved === "stable" || saved === "nightly") return saved;
+  } catch {
+    // localStorage unavailable — use default
+  }
+  return DEFAULT_CHANNEL;
+}
+
 class SettingsStore {
-  /** Reactive clip preferences. Read e.g. settingsStore.clip.enabled. */
+  /** Active auto-update channel (reactive). */
+  updateChannel: UpdateChannel = $state(readChannel());
+
+  /** Opt-in clipping preferences (reactive). */
   clip: ClipSettings = $state(loadClipSettings(localStorage));
 
-  /** Apply a partial update, persist, and trigger reactivity. */
+  /** Switch channel and persist it. */
+  setChannel(c: UpdateChannel): void {
+    this.updateChannel = c;
+    try {
+      localStorage.setItem(CHANNEL_KEY, c);
+    } catch {
+      // best-effort persistence
+    }
+  }
+
+  /** Apply a partial clip-settings update, persist, and trigger reactivity. */
   setClip(patch: Partial<ClipSettings>): void {
     this.clip = { ...this.clip, ...patch };
     saveClipSettings(localStorage, this.clip);
   }
 }
 
-export const settingsStore = new SettingsStore();
+export const settings = new SettingsStore();

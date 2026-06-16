@@ -63,6 +63,14 @@ export async function checkAuthStatus(): Promise<boolean> {
 }
 
 /**
+ * Sign out: clear cached tokens from memory and the OS keychain on the backend.
+ * Rust: sign_out(state) -> Result<(), String>
+ */
+export async function signOut(): Promise<void> {
+  return invoke<void>("sign_out");
+}
+
+/**
  * Start the OAuth device-code flow.
  * Returns the device code info (user code + verification URL) so the UI can
  * display the code to the user.  Polling for completion runs in a Rust

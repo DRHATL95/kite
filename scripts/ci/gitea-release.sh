@@ -11,9 +11,9 @@ release_id_for_tag() {
   curl -fsS -H "$AUTH" "${API}/releases/tags/$1" 2>/dev/null | jq -r '.id // empty'
 }
 
-delete_release() { curl -fsS -X DELETE -H "$AUTH" "${API}/releases/$1"; }
+delete_release() { curl -fsS -X DELETE -H "$AUTH" "${API}/releases/$1" >/dev/null; }
 
-delete_tag() { curl -fsS -X DELETE -H "$AUTH" "${API}/tags/$1" || true; }
+delete_tag() { curl -fsS -X DELETE -H "$AUTH" "${API}/tags/$1" >/dev/null || true; }
 
 # create_release <tag> <name> <prerelease:true|false> <target_sha> -> echoes new id
 create_release() {
@@ -31,12 +31,50 @@ upload_asset() {
   echo "uploaded: $2"
 }
 
-# roll_nightly <tag> <name> <prerelease> <sha> — delete old release+tag, recreate; echoes new id.
-# Gitea API quirk: deleting a release does NOT delete its tag, and re-creating a tag
-# does NOT update an existing release — both must be deleted before recreating.
-roll_nightly() {
+# ── Atomic channel publishing ────────────────────────────────────────────────
+# The rolling channel pointers ("nightly", "stable") are updated IN PLACE rather
+# than deleted-and-recreated. Deleting the release first left a minutes-long window
+# where the channel's latest.json was missing and every client's update check 404'd
+# (silent no-op). Now the release is reused, new binaries are uploaded, latest.json
+# is swapped LAST (a ~1s window for that one asset), and stale assets are pruned
+# afterwards — so the manifest is never missing or pointing at an absent asset.
+
+# asset_id_by_name <release_id> <name> -> asset id, or empty
+asset_id_by_name() {
+  curl -fsS -H "$AUTH" "${API}/releases/$1/assets" 2>/dev/null \
+    | jq -r --arg n "$2" 'map(select(.name==$n)) | .[0].id // empty'
+}
+
+# replace_asset <release_id> <name> <file> — delete any same-named asset, then upload.
+replace_asset() {
+  local aid; aid="$(asset_id_by_name "$1" "$2")"
+  [ -n "$aid" ] && curl -fsS -X DELETE -H "$AUTH" "${API}/releases/$1/assets/$aid" >/dev/null || true
+  upload_asset "$1" "$2" "$3"
+}
+
+# ensure_release <tag> <name> <prerelease> <sha> -> echoes id.
+# Reuses the existing rolling release (refreshing name/prerelease) instead of
+# deleting it; creates it only if absent. NOTE: a reused release keeps its original
+# tag commit — cosmetic only (the updater reads latest.json, not the tag).
+ensure_release() {
   local id; id="$(release_id_for_tag "$1")"
-  [ -n "$id" ] && delete_release "$id" || true
-  delete_tag "$1"
-  create_release "$1" "$2" "$3" "$4"
+  if [ -n "$id" ]; then
+    curl -fsS -X PATCH -H "$AUTH" -H "Content-Type: application/json" "${API}/releases/$id" \
+      -d "$(jq -nc --arg n "$2" --argjson pre "$3" '{name:$n,prerelease:$pre}')" >/dev/null
+    echo "$id"
+  else
+    create_release "$1" "$2" "$3" "$4"
+  fi
+}
+
+# prune_channel_assets <release_id> <keep_version> — delete assets that are neither
+# the current version's binaries nor latest.json. Run AFTER the latest.json swap so
+# the live manifest never references a pruned asset.
+prune_channel_assets() {
+  local id="$1" ver="$2" ids aid
+  ids="$(curl -fsS -H "$AUTH" "${API}/releases/$id/assets" 2>/dev/null \
+    | jq -r --arg v "$ver" '.[] | select((.name|contains($v))|not) | select(.name!="latest.json") | .id')" || true
+  for aid in $ids; do
+    curl -fsS -X DELETE -H "$AUTH" "${API}/releases/$id/assets/$aid" >/dev/null || true
+  done
 }

@@ -54,20 +54,27 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-4);
     border-radius: var(--radius-sm);
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     font-weight: 600;
+    letter-spacing: 0.01em;
     line-height: 1.4;
     border: 1px solid transparent;
     cursor: pointer;
     transition:
       background 150ms ease,
       border-color 150ms ease,
+      box-shadow 150ms ease,
+      transform 120ms var(--ease-out),
       opacity 150ms ease;
     user-select: none;
     white-space: nowrap;
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
   }
 
   .btn:disabled,
@@ -85,7 +92,8 @@
   }
 
   .btn--primary:hover:not(:disabled) {
-    filter: brightness(1.15);
+    filter: brightness(1.1);
+    box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 35%, transparent);
   }
 
   .btn--primary:active:not(:disabled) {

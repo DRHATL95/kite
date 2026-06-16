@@ -283,3 +283,30 @@ export const BUTTON_BITS: Readonly<Record<number, number>> = {
   10: 16384,  // LeftThumb
   11: 32768,  // RightThumb
 } as const;
+
+// ─────────────────────────────────────────────────────────────
+// Media-flow watchdog (robustness — NOT from app.js)
+// ─────────────────────────────────────────────────────────────
+//
+// These values are NOT part of the Xbox wire protocol and have no app.js
+// provenance. They tune the media-flow watchdog that gates the "streaming"
+// state on real decoded frames and drives keyframe-nudge / reconnect recovery.
+// Safe to retune without touching the reference implementation.
+
+/** How often ConnectionManager drives MediaMonitor.tick(). */
+export const MEDIA_MONITOR_TICK_MS = 1_000;
+
+/** Awaiting first frame: send keyframe nudge #1 this long after arming. */
+export const MEDIA_START_NUDGE_1_MS = 4_000;
+
+/** Awaiting first frame: send keyframe nudge #2 this long after arming. */
+export const MEDIA_START_NUDGE_2_MS = 7_000;
+
+/** Awaiting first frame: no decoded frame by here → trigger reconnect. */
+export const MEDIA_START_TIMEOUT_MS = 10_000;
+
+/** Streaming: frames stalled this long → send a keyframe nudge. */
+export const MEDIA_STALL_NUDGE_MS = 4_000;
+
+/** Streaming: frames stalled this long → trigger reconnect. */
+export const MEDIA_STALL_TIMEOUT_MS = 8_000;

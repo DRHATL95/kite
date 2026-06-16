@@ -5,6 +5,7 @@
 mod auth;
 mod error;
 mod token_store;
+mod updater;
 mod xhome;
 
 // Tauri UI main function
@@ -34,6 +35,7 @@ fn main() {
                 xhome: Mutex::new(None),
                 stream_status: Mutex::new(tauri_commands::StreamStatus::default()),
             });
+            app.manage(updater::PendingUpdate::default());
 
             Ok(())
         })
@@ -41,6 +43,7 @@ fn main() {
             tauri_commands::try_load_cached_auth,
             tauri_commands::start_xbox_auth,
             tauri_commands::check_auth_status,
+            tauri_commands::sign_out,
             tauri_commands::discover_xhome_consoles,
             tauri_commands::create_xhome_session,
             tauri_commands::send_ice_candidate,
@@ -50,6 +53,8 @@ fn main() {
             tauri_commands::set_stream_status,
             tauri_commands::send_session_keepalive,
             tauri_commands::save_clip,
+            updater::check_update,
+            updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -130,6 +135,20 @@ mod tauri_commands {
     pub async fn check_auth_status(state: State<'_, AppState>) -> Result<bool, String> {
         let auth = state.auth.lock().await;
         Ok(auth.is_authenticated().await)
+    }
+
+    /// Sign out: clear the cached Microsoft/Xbox tokens from memory and the OS
+    /// keychain, and drop the xHome client so subsequent API calls require a
+    /// fresh sign-in.
+    #[tauri::command]
+    pub async fn sign_out(state: State<'_, AppState>) -> Result<(), String> {
+        let auth = state.auth.lock().await;
+        auth.sign_out()
+            .await
+            .map_err(|e| format!("Sign out failed: {}", e))?;
+        drop(auth);
+        *state.xhome.lock().await = None;
+        Ok(())
     }
 
     #[tauri::command]
