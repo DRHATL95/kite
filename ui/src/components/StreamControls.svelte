@@ -24,6 +24,13 @@
 
   import { onDestroy } from "svelte";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
+  import { settingsStore } from "$lib/stores/settings.svelte.js";
+  import { clipStore } from "$lib/stores/clip.svelte.js";
+  import { uiStore } from "$lib/stores/ui.svelte.js";
+
+  const showClip = $derived(
+    settingsStore.clip.enabled && connectionStore.state === "streaming",
+  );
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -215,6 +222,27 @@
     title="Request keyframe (fix corruption)"
   >
     Keyframe
+  </button>
+
+  <!-- Clip (only when clipping is enabled + streaming) -->
+  {#if showClip}
+    <button
+      class="ctrl-btn"
+      onclick={() => clipStore.saveClip()}
+      title="Save the last few seconds as a clip"
+    >
+      Clip
+    </button>
+  {/if}
+
+  <!-- Settings (gear) -->
+  <button
+    class="ctrl-btn"
+    onclick={() => uiStore.openSettings()}
+    aria-label="Settings"
+    title="Settings"
+  >
+    ⚙
   </button>
 
   <!-- Separator -->
