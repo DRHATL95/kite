@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability: core, shell, updater, process",
+  "description": "Default capability: core, shell, updater, process, opener",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "shell:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "opener:allow-reveal-item-in-dir"
   ]
 }

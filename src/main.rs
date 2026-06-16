@@ -16,6 +16,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // Initialize logging
             use tracing::Level;
@@ -48,6 +49,7 @@ fn main() {
             tauri_commands::exchange_sdp,
             tauri_commands::set_stream_status,
             tauri_commands::send_session_keepalive,
+            tauri_commands::save_clip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -60,6 +62,17 @@ mod tauri_commands {
     use tauri::State;
     use tokio::sync::Mutex;
     use xhome::XHomeClient;
+
+    use std::path::{Path, PathBuf};
+
+    /// Build the absolute path for a clip file under `base`, rejecting any name
+    /// that could escape the directory (separators, `..`, empty).
+    pub fn clip_file_path(base: &Path, name: &str) -> Result<PathBuf, String> {
+        if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(format!("invalid clip file name: {name:?}"));
+        }
+        Ok(base.join(name))
+    }
 
     pub struct AppState {
         pub auth: Mutex<XboxAuth>,
@@ -261,5 +274,51 @@ mod tauri_commands {
         } else {
             Err("xHome client not initialized".to_string())
         }
+    }
+
+    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Xbox Remote Clips/.
+    /// Bytes arrive as a raw IPC body; the file name is passed via the X-Clip-Name header.
+    /// Returns the absolute path of the written file.
+    #[tauri::command]
+    pub fn save_clip(request: tauri::ipc::Request) -> Result<String, String> {
+        let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+            return Err("clip body must be raw bytes".to_string());
+        };
+        let name = request
+            .headers()
+            .get("X-Clip-Name")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| "missing X-Clip-Name header".to_string())?;
+
+        let dir = dirs::video_dir()
+            .ok_or_else(|| "could not resolve Videos directory".to_string())?
+            .join("Xbox Remote Clips");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create dir failed: {e}"))?;
+
+        let path = clip_file_path(&dir, name)?;
+        std::fs::write(&path, bytes).map_err(|e| format!("write failed: {e}"))?;
+
+        Ok(path.to_string_lossy().into_owned())
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::tauri_commands::clip_file_path;
+    use std::path::Path;
+
+    #[test]
+    fn joins_a_valid_name() {
+        let p = clip_file_path(Path::new("/clips"), "xbox-clip-20260616-101500.webm").unwrap();
+        assert_eq!(p.parent().unwrap(), Path::new("/clips"));
+        assert!(p.ends_with("xbox-clip-20260616-101500.webm"));
+    }
+
+    #[test]
+    fn rejects_path_traversal_and_separators() {
+        assert!(clip_file_path(Path::new("/clips"), "../evil.webm").is_err());
+        assert!(clip_file_path(Path::new("/clips"), "a/b.webm").is_err());
+        assert!(clip_file_path(Path::new("/clips"), "a\\b.webm").is_err());
+        assert!(clip_file_path(Path::new("/clips"), "").is_err());
     }
 }
