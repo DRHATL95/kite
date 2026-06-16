@@ -146,12 +146,17 @@ jobs:
             "xbox-remote_${VERSION}_amd64.AppImage.sig"
           )
 
-          # Always roll the channel pointer (nightly or stable) with binaries + latest.json.
-          PID="$(roll_channel "$POINTER" "$RELEASE_NAME" "$PRERELEASE" "$GITHUB_SHA")"
+          # Update the channel pointer (nightly or stable) IN PLACE — never delete it,
+          # so its latest.json is never missing. Upload binaries first, swap latest.json
+          # LAST (so the manifest always points at assets that already exist), then prune
+          # stale assets from previous versions.
+          PID="$(ensure_release "$POINTER" "$RELEASE_NAME" "$PRERELEASE" "$GITHUB_SHA")"
           echo "pointer release id: $PID"
-          for f in "${assets[@]}" "latest.json"; do
-            upload_asset "$PID" "$f" "dist/$f"
+          for f in "${assets[@]}"; do
+            replace_asset "$PID" "$f" "dist/$f"
           done
+          replace_asset "$PID" "latest.json" "dist/latest.json"
+          prune_channel_assets "$PID" "$VERSION"
 
           # Stable also gets a permanent vX.Y.Z archive (binaries only; the pointer
           # holds the updater manifest).
