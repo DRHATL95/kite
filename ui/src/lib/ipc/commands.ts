@@ -194,3 +194,32 @@ export async function sendSessionKeepalive(
 ): Promise<string> {
   return invoke<string>("send_session_keepalive", { sessionPath });
 }
+
+// ---------------------------------------------------------------------------
+// Clipping
+// ---------------------------------------------------------------------------
+
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+
+/**
+ * Persist a recorded clip to disk under <Videos>/Xbox Remote Clips/.
+ * Bytes are sent as a raw IPC body (no JSON serialisation); the file name
+ * travels in the X-Clip-Name header.  Returns the absolute saved path.
+ *
+ * Rust: save_clip(request) -> Result<String, String>
+ */
+export async function saveClip(
+  bytes: Uint8Array,
+  fileName: string,
+): Promise<string> {
+  return invoke<string>("save_clip", bytes, {
+    headers: { "X-Clip-Name": fileName },
+  });
+}
+
+/**
+ * Reveal a saved clip in the OS file manager (Explorer / Finder / Files).
+ */
+export async function revealClip(path: string): Promise<void> {
+  await revealItemInDir(path);
+}
