@@ -144,6 +144,8 @@ sudo apt-get install -y \
 
 6. **Keepalive** (`ui/src/lib/connection/ConnectionManager.ts`): The session stays alive by sending a keepalive both on the WebRTC data channel and to the xHome API at the interval specified by `keepAlivePulseInSeconds` (with a 2-second safety margin, minimum 5 seconds).
 
+7. **Clipping (opt-in)** (`ui/src/lib/clip/`): When enabled, an `EncodedTap` taps the console's already-encoded H.264 + Opus off the WebRTC receivers via **Insertable Streams** (`encodedInsertableStreams`) — no re-encode, so it never disturbs the live stream (the receiver transform always re-enqueues; a tap error can never break playback). On Clip it slices from the last keyframe, transcodes audio Opus→AAC with WebCodecs, and ships the encoded frames to Rust (`save_clip` → `src/clip.rs`), which remuxes them into a native fast-start **MP4** (H.264 + AAC) with `muxide`. Falls back to a HW-H.264 `MediaRecorder` (`ClipBuffer`) when Insertable Streams are unavailable. A/V is aligned on a shared wall-clock origin (a small residual, audio slightly behind video, is expected — likely AAC encoder priming).
+
 ### Module Structure
 
 ### Rust Backend (`src/`)
@@ -154,6 +156,7 @@ sudo apt-get install -y \
 | `src/auth.rs` | OAuth device-code flow, token chain, `check_auth_status` |
 | `src/xhome.rs` | xHome REST API client: login, list consoles, create session, SDP/ICE exchange, keepalive |
 | `src/token_store.rs` | OS keychain read/write for XSTS and refresh tokens |
+| `src/clip.rs` | Clip payload parser + H.264/AAC remux to a native MP4 via `muxide` |
 | `src/error.rs` | `XboxError` enum with `thiserror` |
 
 ### Frontend (`ui/src/`) — Svelte 5 + TypeScript + Vite
@@ -169,6 +172,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 | `ui/src/lib/connection/stats.ts` | WebRTC stats collection and bitrate calculation |
 | `ui/src/lib/connection/constants.ts` | Protocol constants (channel names, timeouts, packet offsets) |
 | `ui/src/lib/connection/messages.ts` | Structured message builders for data channels |
+| `ui/src/lib/clip/` | Clipping: `EncodedTap` (encoded-frame ring buffers + keyframe-aligned assemble), `annexB`/`rtpTime`/`encodedTapLogic`/`clipPayload` (pure, unit-tested), `audioTranscode` (WebCodecs Opus→AAC on Clip), `ClipBuffer` (MediaRecorder HW-H.264 fallback) |
 | `ui/src/lib/stores/` | Svelte 5 rune-based stores (app state, session, diagnostics) |
 | `ui/src/lib/design/` | Design-system foundation (tokens, typography, spacing) |
 | `ui/src/screens/` | Top-level screens: Login, DeviceCode, ConsoleList, Stream |
@@ -184,6 +188,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 - `send_ice_candidate(session_path, candidate)` — forwards ICE candidate to xHome
 - `send_sdp_answer(session_path, sdp)` — forwards SDP answer to xHome
 - `send_keepalive(session_path)` — sends API-side keepalive
+- `save_clip(payload)` — remuxes an encoded-frame clip payload into an MP4 under `<Videos>/Xbox Remote Clips/` (or writes a fallback blob as-is); returns the saved path
 
 ### xHome API Endpoints
 

@@ -8,6 +8,7 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 - **OAuth device-code sign-in** — sign in with your Microsoft account; tokens persist in the OS keychain
 - **WebRTC streaming** — video and audio as WebRTC media tracks; gamepad and keyboard input forwarded to the console
 - **Resilient streaming** — a media-flow watchdog gates the "Streaming" state on real decoded frames and auto-recovers (keyframe nudge → reconnect, then an honest failure message) when a console stalls
+- **Clipping (opt-in)** — save the last N seconds as a lossless, native **MP4** (H.264 + AAC). Taps the console's already-encoded video via WebRTC Insertable Streams and remuxes it in Rust, so capturing never disturbs the live stream; plays in the Xbox media player, Discord, and VLC
 - **Modern UI** — Svelte 5 + TypeScript, a themeable "Signal Deck" design system, in-app settings (theme, sign-out), and a diagnostics HUD (press `` ` ``) for live WebRTC stats
 - **Auto-update with channels** — checks on launch and installs signed updates in-app; choose **Stable** or **Nightly** in Settings
 
