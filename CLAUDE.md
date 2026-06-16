@@ -172,10 +172,12 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 | `ui/src/lib/connection/stats.ts` | WebRTC stats collection and bitrate calculation |
 | `ui/src/lib/connection/constants.ts` | Protocol constants (channel names, timeouts, packet offsets) |
 | `ui/src/lib/connection/messages.ts` | Structured message builders for data channels |
-| `ui/src/lib/stores/` | Svelte 5 rune-based stores (app state, session, diagnostics) |
+| `ui/src/lib/clip/` | Retroactive clip buffer: `clipBufferLogic.ts` (pure retention/assembly, unit-tested) + `ClipBuffer.ts` (MediaRecorder rolling buffer) |
+| `ui/src/lib/settings/` | `clipSettings.ts` — pure clip-preference model (types, defaults, load/save/validate, unit-tested) |
+| `ui/src/lib/stores/` | Svelte 5 rune-based stores (app state, session, diagnostics, settings, clip, ui) |
 | `ui/src/lib/design/` | Design-system foundation (tokens, typography, spacing) |
-| `ui/src/screens/` | Top-level screens: Login, DeviceCode, ConsoleList, Stream |
-| `ui/src/components/` | Shared components: StreamControls, StreamStatus, DiagnosticsHud + HUD panels |
+| `ui/src/screens/` | Top-level screens: Login, DeviceCode, ConsoleList, Stream; Settings (modal overlay) |
+| `ui/src/components/` | Shared components: StreamControls, StreamStatus, DiagnosticsHud + HUD panels, Toast |
 
 ### Tauri Commands (src/main.rs)
 
@@ -187,6 +189,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 - `send_ice_candidate(session_path, candidate)` — forwards ICE candidate to xHome
 - `send_sdp_answer(session_path, sdp)` — forwards SDP answer to xHome
 - `send_keepalive(session_path)` — sends API-side keepalive
+- `save_clip(request)` — writes a recorded clip to `<Videos>/Xbox Remote Clips/`; bytes arrive as a raw IPC body (`tauri::ipc::Request` / `InvokeBody::Raw`) with the file name in the `X-Clip-Name` header. Reveal uses `tauri-plugin-opener`'s `revealItemInDir`. Clipping is opt-in and **off by default** (configured in the Settings modal).
 
 ### xHome API Endpoints
 

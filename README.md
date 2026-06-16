@@ -11,6 +11,7 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 - **Token persistence**: Stays logged in across sessions using the OS keychain
 - **Modern UI**: Svelte 5 + TypeScript interface with a Carbon+Green design system and diagnostics HUD
 - **Auto-update**: Checks for new releases on launch and updates itself in-app (signed updates via the Tauri updater)
+- **Clipping (opt-in, off by default)**: Keeps the last 15/30/60 seconds buffered so you can save the moment that just happened as a WebM clip — auto-saved to your Videos folder with a one-click "Reveal" for sharing (e.g. to Discord). Configured in the Settings panel; the rolling buffer only runs when you turn it on
 
 ## Prerequisites
 
@@ -88,6 +89,8 @@ There are no feature flags. The frontend build writes `ui/dist`, which Tauri emb
 3. **Stream**: Click "Stream" on a powered-on console. The app creates a session, exchanges SDP and ICE candidates with Xbox, and the video stream starts in the window.
 
 4. **Input**: Gamepad and keyboard input is forwarded to the Xbox over a WebRTC data channel.
+
+5. **Clipping** (optional): Open Settings (the gear icon), enable clipping, and pick a length (15/30/60s). While streaming, a **Clip** button appears in the controls bar — click it to save the last N seconds to your Videos folder (`Xbox Remote Clips/`); a toast offers to reveal the file. The buffer only runs while clipping is enabled.
 
 ## Project Structure
 
