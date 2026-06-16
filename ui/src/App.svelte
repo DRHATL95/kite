@@ -28,11 +28,30 @@
     }
   });
 
+  // Attach/detach the clip buffer based on settings + live stream.
+  // Re-runs whenever the stream, session state, or clip settings change.
+  $effect(() => {
+    const stream = connectionStore.mediaStream;
+    const streaming = connectionStore.state === "streaming";
+    const c = settingsStore.clip;
+    if (c.enabled && streaming && stream) {
+      clipStore.attach(stream, { lengthSec: c.lengthSec, quality: c.quality });
+    } else {
+      clipStore.detach();
+    }
+    return () => clipStore.detach();
+  });
+
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import Login       from "./screens/Login.svelte";
   import DeviceCode  from "./screens/DeviceCode.svelte";
   import ConsoleList from "./screens/ConsoleList.svelte";
   import Stream      from "./screens/Stream.svelte";
+  import { settingsStore } from "$lib/stores/settings.svelte.js";
+  import { clipStore } from "$lib/stores/clip.svelte.js";
+  import { uiStore } from "$lib/stores/ui.svelte.js";
+  import Settings from "./screens/Settings.svelte";
+  import Toast from "./components/Toast.svelte";
 
   // ── Routing ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +93,19 @@
     <Login />
   {/if}
 
+  <!-- Settings modal (overlay; reachable from any screen) -->
+  {#if uiStore.settingsOpen}
+    <Settings onClose={() => uiStore.closeSettings()} />
+  {/if}
+
+  <!-- Toast host -->
+  <Toast />
+
+  <!-- Global settings gear on non-stream screens (stream screen has its own in the controls bar) -->
+  {#if activeScreen() !== "stream"}
+    <button class="app-gear" aria-label="Settings" title="Settings" onclick={() => uiStore.openSettings()}>⚙</button>
+  {/if}
+
   {#if appVersion && activeScreen() !== "stream"}
     <span class="app-version">v{appVersion}</span>
   {/if}
@@ -98,4 +130,23 @@
     pointer-events: none;
     user-select: none;
   }
+
+  /* Quiet settings gear, top-right; hidden during streaming. */
+  .app-gear {
+    position: fixed;
+    top: var(--space-3);
+    right: var(--space-3);
+    z-index: 30;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--text-lg);
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 120ms ease, color 120ms ease;
+  }
+
+  .app-gear:hover { opacity: 1; color: var(--text); }
+  .app-gear:focus-visible { box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 </style>
