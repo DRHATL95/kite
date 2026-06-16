@@ -38,6 +38,8 @@ import {
 } from "./constants.js";
 
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
+
+import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller } from "./input.js";
@@ -113,6 +115,14 @@ export class ConnectionManager {
   };
   /** app.js:29 — prevents double-transition to 'streaming' */
   private _hasStartedPlaying = false;
+
+  // ── Clip tap (encoded-frame capture) ─────────────────────────────────────────
+  /** Active encoded-frame tap, or null when not clipping. Set by clipStore. */
+  private _encodedTap: EncodedTap | null = null;
+  /** False if WebRTC Insertable Streams are unavailable → MediaRecorder fallback. */
+  private _encodedStreamsAvailable = true;
+  /** Receivers already given a passthrough transform (wire each at most once). */
+  private _wiredReceivers = new WeakSet<RTCRtpReceiver>();
 
   // ── Session info ───────────────────────────────────────────────────────────
   /** app.js:19 */
@@ -429,10 +439,17 @@ export class ConnectionManager {
 
     // ── RTCPeerConnection — app.js:235-238 ──────────────────────────────────
     // spec §3.3
-    this._pc = new RTCPeerConnection({
+    // `encodedInsertableStreams` is non-standard (Chromium/WebView2), so it isn't
+    // in the lib.dom RTCConfiguration type — widen locally rather than cast blindly.
+    const pcConfig: RTCConfiguration & { encodedInsertableStreams?: boolean } = {
       iceServers,
       iceCandidatePoolSize: 10,
-    });
+      // Enable Insertable Streams so the clip tap can read encoded frames
+      // pre-decode. The passthrough is byte-transparent when no tap is attached
+      // (verified on hardware — Task 1 spike).
+      encodedInsertableStreams: true,
+    };
+    this._pc = new RTCPeerConnection(pcConfig);
 
     // ── Data channels BEFORE createOffer (so SCTP is in the SDP) — app.js:241 ──
     // spec §3.3, §3.4
@@ -579,6 +596,12 @@ export class ConnectionManager {
 
       this._tracksReceived[event.track.kind as "video" | "audio"] = true;
 
+      // Wire the byte-transparent encoded-frame tap for this receiver (once).
+      this._wireEncodedTap(
+        event.receiver,
+        event.track.kind as "video" | "audio",
+      );
+
       // Track lifecycle logging — app.js:609-612
       event.track.onmute = () => this._log(`Track ${event.track.kind} MUTED`);
       event.track.onunmute = () =>
@@ -625,6 +648,57 @@ export class ConnectionManager {
 
       this._pushManagerStats();
     };
+  }
+
+  /**
+   * Wire a byte-transparent passthrough transform onto a receiver's encoded
+   * stream (at most once per receiver). Every frame is re-enqueued unchanged so
+   * playback is unaffected; when a tap is attached, a copy is also pushed to it.
+   *
+   * Invariant (spec §5.2): with no tap attached, this is byte-identical to the
+   * stream with no transform — Task 11 confirms a clipping-off stream is normal.
+   */
+  private _wireEncodedTap(
+    receiver: RTCRtpReceiver,
+    kind: "video" | "audio",
+  ): void {
+    if (this._wiredReceivers.has(receiver)) return;
+    try {
+      // @ts-expect-error createEncodedStreams is non-standard (Chromium/WebView2)
+      const { readable, writable } = receiver.createEncodedStreams();
+      this._wiredReceivers.add(receiver);
+      const transform = new TransformStream({
+        transform: (
+          frame: { data: ArrayBuffer; type?: string; timestamp: number },
+          controller: TransformStreamDefaultController,
+        ) => {
+          const tap = this._encodedTap;
+          if (tap) {
+            const data = new Uint8Array(frame.data);
+            if (kind === "video") {
+              tap.pushVideo(data, frame.type === "key", frame.timestamp);
+            } else {
+              tap.pushAudio(data, frame.timestamp);
+            }
+          }
+          controller.enqueue(frame); // passthrough — MUST re-enqueue or playback stops
+        },
+      });
+      readable.pipeThrough(transform).pipeTo(writable);
+    } catch (e) {
+      this._log("createEncodedStreams unavailable: " + String(e));
+      this._encodedStreamsAvailable = false;
+    }
+  }
+
+  /** Attach (or detach with null) the encoded-frame clip tap. Called by clipStore. */
+  setEncodedTap(tap: EncodedTap | null): void {
+    this._encodedTap = tap;
+  }
+
+  /** Whether Insertable Streams are usable (else fall back to MediaRecorder). */
+  get encodedStreamsAvailable(): boolean {
+    return this._encodedStreamsAvailable;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1225,6 +1299,11 @@ export class ConnectionManager {
       this._pc.close();
       this._pc = null;
     }
+
+    // Drop the clip tap + per-receiver wiring; the old transforms die with the
+    // closed pc, and clipStore re-attaches a fresh tap when streaming resumes.
+    this._encodedTap = null;
+    this._wiredReceivers = new WeakSet();
 
     this._channels = null;
     this._tracksReceived = { video: false, audio: false };
