@@ -177,7 +177,10 @@
                   </Badge>
                 </div>
               </div>
-              <Button onclick={() => onConnect(console)}>Connect →</Button>
+              <Button
+                disabled={!isOn(console.powerState)}
+                onclick={() => onConnect(console)}
+              >Connect →</Button>
             </li>
           {/each}
         </ul>
