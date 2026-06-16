@@ -45,6 +45,26 @@ describe("EncodedTap", () => {
     expect(tap.assemble(0)).toBeNull();
   });
 
+  it("puts audio and video on one shared timeline (no A/V desync)", () => {
+    // Simulate the real ordering: audio flows ~0.5s before the first video
+    // keyframe (video waits for an IDR). A video frame and an audio frame that
+    // arrive at the SAME wall-clock instant must get the SAME pts.
+    let clock = 1000;
+    const tap = new EncodedTap({ lengthSec: 30, now: () => clock });
+
+    clock = 1000;
+    tap.pushAudio(new Uint8Array([0xa1]), 48000); // first frame overall → shared origin
+    clock = 1500;
+    tap.pushVideo(keyframe, true, 90000); // first video, 0.5s later (90kHz)
+    clock = 1500;
+    tap.pushAudio(new Uint8Array([0xa2]), 72000); // same instant as the keyframe (+0.5s @ 48kHz)
+
+    const a = tap.assemble(30)!;
+    const sameInstantAudio = a.audio.find((f) => f.bytes[0] === 0xa2)!;
+    expect(sameInstantAudio).toBeDefined();
+    expect(sameInstantAudio.ptsSec).toBeCloseTo(a.video[0].ptsSec, 6);
+  });
+
   it("copies frame bytes so reuse of the source buffer is not observed", () => {
     const tap = new EncodedTap({ lengthSec: 30 });
     const src = keyframe.slice();

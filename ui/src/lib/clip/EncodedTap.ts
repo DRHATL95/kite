@@ -28,6 +28,8 @@ export interface EncodedTapOptions {
   lengthSec: number;
   /** Video track settings (from `MediaStreamTrack.getSettings()`) for w/h/fps. */
   videoTrackSettings?: MediaTrackSettings;
+  /** Wall-clock source in ms; injectable for tests. Defaults to performance.now. */
+  now?: () => number;
 }
 
 export interface AssembledClip {
@@ -50,21 +52,33 @@ export class EncodedTap {
   private sps?: Uint8Array;
   private pps?: Uint8Array;
   private lastEvictSec = -Infinity;
+  // Shared-timeline anchoring: the first frame of EITHER stream sets the common
+  // wall-clock origin; each stream records its own offset to it exactly once.
+  private _originMs: number | null = null;
+  private _videoWallOffsetSec = 0;
+  private _audioWallOffsetSec = 0;
+  private _videoStarted = false;
+  private _audioStarted = false;
   private readonly lengthSec: number;
   private readonly settings: MediaTrackSettings;
+  private readonly _now: () => number;
 
   constructor(opts: EncodedTapOptions) {
     this.lengthSec = opts.lengthSec;
     this.settings = opts.videoTrackSettings ?? {};
+    this._now = opts.now ?? (() => performance.now());
   }
 
   /** Buffer one encoded video frame. `rtpTs` is the frame's uint32 RTP timestamp. */
   pushVideo(data: Uint8Array, isKeyframe: boolean, rtpTs: number): void {
+    const wallOffset = this._streamOffsetSec("video");
     const norm = toAnnexB(data);
     // Copy: the WebRTC frame's ArrayBuffer is reused after enqueue. The AVCC
     // branch of toAnnexB already returns a fresh array; the passthrough doesn't.
     const bytes = norm === data ? data.slice() : norm;
-    const ptsSec = this.videoClock.toSeconds(rtpTs);
+    // Shared timeline: this stream's offset from the common origin + its smooth
+    // within-stream RTP delta. Keeps A/V aligned across the two clocks (spec §6.3).
+    const ptsSec = wallOffset + this.videoClock.toSeconds(rtpTs);
 
     if (isKeyframe && (!this.sps || !this.pps)) {
       const { sps, pps } = extractSpsPps(bytes);
@@ -78,8 +92,32 @@ export class EncodedTap {
 
   /** Buffer one encoded audio (Opus) frame. */
   pushAudio(data: Uint8Array, rtpTs: number): void {
-    const ptsSec = this.audioClock.toSeconds(rtpTs);
+    const wallOffset = this._streamOffsetSec("audio");
+    const ptsSec = wallOffset + this.audioClock.toSeconds(rtpTs);
     this.audio.push({ bytes: data.slice(), ptsSec, isKeyframe: false });
+  }
+
+  /**
+   * Wall-clock offset (seconds) from the shared origin to this stream's first
+   * frame. The first frame of EITHER stream sets the shared origin; each stream
+   * then captures its own offset exactly once. Anchoring both RTP timelines to a
+   * single instant is what keeps audio and video in sync (spec §6.3).
+   */
+  private _streamOffsetSec(kind: "video" | "audio"): number {
+    const nowMs = this._now();
+    if (this._originMs === null) this._originMs = nowMs;
+    if (kind === "video") {
+      if (!this._videoStarted) {
+        this._videoStarted = true;
+        this._videoWallOffsetSec = (nowMs - this._originMs) / 1000;
+      }
+      return this._videoWallOffsetSec;
+    }
+    if (!this._audioStarted) {
+      this._audioStarted = true;
+      this._audioWallOffsetSec = (nowMs - this._originMs) / 1000;
+    }
+    return this._audioWallOffsetSec;
   }
 
   /**
@@ -116,6 +154,11 @@ export class EncodedTap {
     this.sps = undefined;
     this.pps = undefined;
     this.lastEvictSec = -Infinity;
+    this._originMs = null;
+    this._videoWallOffsetSec = 0;
+    this._audioWallOffsetSec = 0;
+    this._videoStarted = false;
+    this._audioStarted = false;
   }
 
   private maybeEvict(nowSec: number): void {
