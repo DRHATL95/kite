@@ -84,9 +84,13 @@ describe("assembleClipBlob", () => {
 });
 
 describe("clipFileName", () => {
-  it("formats a sortable timestamped webm name", () => {
+  it("defaults to a sortable timestamped mp4 name", () => {
     const d = new Date(2026, 5, 16, 9, 5, 3); // 2026-06-16 09:05:03 local
-    expect(clipFileName(d)).toBe("xbox-clip-20260616-090503.webm");
+    expect(clipFileName(d)).toBe("xbox-clip-20260616-090503.mp4");
+  });
+  it("honors an explicit extension", () => {
+    const d = new Date(2026, 5, 16, 9, 5, 3);
+    expect(clipFileName(d, "webm")).toBe("xbox-clip-20260616-090503.webm");
   });
 });
 

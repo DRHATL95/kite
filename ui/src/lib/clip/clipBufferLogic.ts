@@ -66,12 +66,12 @@ export function assembleClipBlob(
   return new BlobCtor(parts, { type: mimeType });
 }
 
-/** Sortable, filesystem-safe clip file name from a Date. */
-export function clipFileName(d: Date): string {
+/** Sortable, filesystem-safe clip file name from a Date. Defaults to `.mp4`. */
+export function clipFileName(d: Date, ext = "mp4"): string {
   const p = (n: number) => String(n).padStart(2, "0");
   const date = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
   const time = `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-  return `xbox-clip-${date}-${time}.webm`;
+  return `xbox-clip-${date}-${time}.${ext}`;
 }
 
 /** Map a quality tier to a target video bitrate (bits/s). Tunable. */

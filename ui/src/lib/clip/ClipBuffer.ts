@@ -29,11 +29,21 @@ export interface ClipBufferOptions {
   onLog?: (msg: string) => void;
 }
 
-/** Pick the best-supported WebM mime type for recording. */
+/**
+ * Pick the best-supported mime type for recording.
+ *
+ * Prefer hardware-accelerated H.264 in an MP4 container: the encode runs on the
+ * GPU (not the CPU, which would starve the WebRTC pipeline and drop the stream),
+ * and MP4/H.264 is natively playable by the Xbox media player (WebM is not).
+ * Falls back to H.264-in-WebM, then VP8 (software) as a last resort.
+ */
 function pickMimeType(): string {
   const prefs = [
+    "video/mp4;codecs=avc1.42E01E,mp4a.40.2", // H.264 + AAC (hardware encode, MP4)
+    "video/mp4;codecs=avc1.42E01E",
+    "video/mp4",
+    "video/webm;codecs=h264,opus",
     "video/webm;codecs=vp8,opus",
-    "video/webm;codecs=vp9,opus",
     "video/webm",
   ];
   for (const m of prefs) {

@@ -316,7 +316,18 @@ mod tauri_commands {
         std::fs::create_dir_all(&dir).map_err(|e| format!("create dir failed: {e}"))?;
 
         let path = clip_file_path(&dir, name)?;
-        std::fs::write(&path, bytes).map_err(|e| format!("write failed: {e}"))?;
+
+        // Encoded-frame clips arrive as an `XCLP` payload to remux into a native
+        // MP4. MediaRecorder fallback clips arrive as a finished media file and
+        // are written through unchanged.
+        let data: Vec<u8> = if bytes.starts_with(&crate::clip::MAGIC.to_le_bytes()) {
+            let payload =
+                crate::clip::ClipPayload::parse(bytes).map_err(|e| format!("clip parse: {e}"))?;
+            crate::clip::mux_to_mp4(&payload).map_err(|e| format!("clip mux: {e}"))?
+        } else {
+            bytes.clone()
+        };
+        std::fs::write(&path, &data).map_err(|e| format!("write failed: {e}"))?;
 
         Ok(path.to_string_lossy().into_owned())
     }

@@ -14,6 +14,7 @@
 import { ConnectionManager } from "../connection/ConnectionManager.js";
 import type { SessionState, DiagnosticsSnapshot } from "../connection/types.js";
 import type { XHomeConsole } from "../ipc/types.js";
+import type { EncodedTap } from "../clip/EncodedTap.js";
 
 /** Maximum number of log entries to keep in memory. */
 const LOG_CAP = 500;
@@ -131,6 +132,16 @@ class ConnectionStore {
    */
   requestKeyframe(): void {
     this._manager.requestKeyframe();
+  }
+
+  /** Attach (or detach with null) the encoded-frame clip tap on the manager. */
+  setEncodedTap(tap: EncodedTap | null): void {
+    this._manager.setEncodedTap(tap);
+  }
+
+  /** Whether WebRTC Insertable Streams are usable (else MediaRecorder fallback). */
+  get encodedStreamsAvailable(): boolean {
+    return this._manager.encodedStreamsAvailable;
   }
 
   /**
