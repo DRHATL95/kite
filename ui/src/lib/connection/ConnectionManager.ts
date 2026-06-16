@@ -674,14 +674,20 @@ export class ConnectionManager {
         ) => {
           const tap = this._encodedTap;
           if (tap) {
-            const data = new Uint8Array(frame.data);
-            if (kind === "video") {
-              tap.pushVideo(data, frame.type === "key", frame.timestamp);
-            } else {
-              tap.pushAudio(data, frame.timestamp);
+            try {
+              const data = new Uint8Array(frame.data);
+              if (kind === "video") {
+                tap.pushVideo(data, frame.type === "key", frame.timestamp);
+              } else {
+                tap.pushAudio(data, frame.timestamp);
+              }
+            } catch (e) {
+              // Spec §7: a tap error must never disturb the live stream — log and
+              // skip this frame; it is still enqueued below.
+              this._log("encoded tap error (frame skipped): " + String(e));
             }
           }
-          controller.enqueue(frame); // passthrough — MUST re-enqueue or playback stops
+          controller.enqueue(frame); // passthrough — ALWAYS re-enqueue or playback stops
         },
       });
       readable.pipeThrough(transform).pipeTo(writable);
