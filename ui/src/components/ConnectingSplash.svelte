@@ -24,8 +24,10 @@
 </script>
 
 <div class="splash" role="status" aria-live="polite">
-  <div class="splash__glow" aria-hidden="true"></div>
-  <div class="splash__art"><ConsoleArt consoleType={type} size={96} /></div>
+  <div class="splash__art">
+    <div class="splash__glow" aria-hidden="true"></div>
+    <ConsoleArt consoleType={type} size={96} />
+  </div>
   <div class="splash__title">Waking {name}</div>
   <div class="splash__sub">{consoleTypeLabel(type)} · negotiating connection</div>
   <div class="splash__bar" aria-hidden="true"><div class="splash__bar-fill"></div></div>
@@ -51,19 +53,33 @@
     padding: var(--space-5);
   }
 
+  .splash__art {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Keep the glow halo clear of the title below it */
+    margin-bottom: var(--space-7);
+    animation: splashFloat 3.4s ease-in-out infinite;
+  }
+
+  /* Centered behind the console art via inset+auto margins, so the scale
+     animation (which owns `transform`) doesn't fight a centering transform. */
   .splash__glow {
     position: absolute;
-    width: 200px;
-    height: 200px;
+    inset: 0;
+    margin: auto;
+    width: 160px;
+    height: 160px;
     border-radius: 50%;
     background: var(--accent);
     opacity: 0.18;
     animation: splashGlow 2.6s ease-in-out infinite;
   }
 
-  .splash__art {
+  .splash__art :global(.console-art) {
     position: relative;
-    animation: splashFloat 3.4s ease-in-out infinite;
+    z-index: 1;
   }
 
   .splash :global(.console-art__pulse) {
