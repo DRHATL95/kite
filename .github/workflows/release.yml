@@ -57,12 +57,13 @@ jobs:
 
       - name: Build frontend
         run: |
-          # rolldown ships a platform-gated native binary as an optionalDependency;
-          # the committed lockfile is Windows-generated, so nuke lockfile+modules and
-          # install fresh so the Linux binding resolves on this runner.
-          rm -rf ui/node_modules ui/package-lock.json
-          npm --prefix ui install --no-audit --no-fund
-          npm --prefix ui run build
+          # pnpm's lockfile records all platform variants of the rolldown native
+          # binding, so one committed pnpm-lock.yaml resolves on Linux here and on
+          # Windows locally. corepack provisions the pinned pnpm from package.json's
+          # packageManager field. --frozen-lockfile makes the lockfile authoritative.
+          corepack enable
+          pnpm --dir ui install --frozen-lockfile
+          pnpm --dir ui run build
 
       - name: Tauri cross-build (signed NSIS for Windows x64)
         shell: bash
