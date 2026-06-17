@@ -13,11 +13,14 @@ at the repo root, not under `src-tauri/`). Tauri embeds the pre-built frontend f
 `ui/dist` at compile time, so the workflow is **build the frontend, then `cargo run`**:
 
 ```powershell
+# First time only: enable pnpm (bundled with node via corepack)
+corepack enable
+
 # Install frontend dependencies (first time / after package.json changes)
-npm --prefix ui install
+pnpm --dir ui install
 
 # 1) Build the frontend (Svelte → ui/dist, which Tauri embeds)
-npm --prefix ui run build
+pnpm --dir ui run build
 
 # 2) Run the app (embeds ui/dist and launches the Tauri window)
 cargo run
@@ -26,7 +29,7 @@ cargo run
 cargo build --release
 
 # Windows NSIS installer (.exe)
-npm --prefix ui run build
+pnpm --dir ui run build
 cargo tauri build
 
 # Run Rust tests
@@ -41,13 +44,13 @@ cargo run
 
 ```powershell
 # Production build → ui/dist (embedded by Tauri; REQUIRED before cargo run)
-npm --prefix ui run build
+pnpm --dir ui run build
 
 # TypeScript + Svelte type-check
-npm --prefix ui run check
+pnpm --dir ui run check
 
 # Vitest unit tests
-npm --prefix ui run test
+pnpm --dir ui run test
 ```
 
 There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
@@ -57,8 +60,8 @@ There are no feature flags. `cargo run` always builds the full Tauri app. Editio
 `tauri.conf.json` enables Tauri's NSIS bundler. To produce a setup `.exe`, build the frontend first and then run the Tauri build from the repository root:
 
 ```powershell
-npm --prefix ui install
-npm --prefix ui run build
+pnpm --dir ui install
+pnpm --dir ui run build
 cargo tauri build
 ```
 
@@ -115,7 +118,7 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
-> `npm --prefix ui run build`, then `cargo clean -p xbox-remote && cargo run` so the new
+> `pnpm --dir ui run build`, then `cargo clean -p xbox-remote && cargo run` so the new
 > assets are re-embedded. Skipping the rebuild ships stale UI; skipping `cargo clean -p`
 > can serve a cached copy. (A previous misconfiguration set `devUrl` without installing the
 > Tauri CLI, which made `cargo run` show "localhost refused to connect" — removed.)
@@ -219,7 +222,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 2. **XSTS audience** — must use `gssv` audience (`https://gssv.xboxlive.com/`) for the streaming XSTS token; the default Xbox Live audience will be rejected by the xHome API.
 3. **Keepalive drift** — use `keepAlivePulseInSeconds` from the session config response, not a hardcoded interval; Xbox disconnects after ~56 seconds if the interval is wrong.
 4. **Token expiry** — XSTS tokens expire in ~1 hour; call `check_auth_status()` before API calls and prompt re-auth if expired.
-5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `npm --prefix ui run build` (regenerates `ui/dist`), then `cargo clean -p xbox-remote && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
+5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `pnpm --dir ui run build` (regenerates `ui/dist`), then `cargo clean -p xbox-remote && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
 6. **Edition 2024** — requires Rust 1.85+. Run `rustup update stable` if the build fails with edition errors.
 
 ## Error Handling

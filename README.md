@@ -48,11 +48,14 @@ cd xbox-remote
 
 2. Build the frontend, then run:
 ```powershell
+# First time only: enable pnpm (bundled with node via corepack)
+corepack enable
+
 # Install frontend dependencies (first time / after package.json changes)
-npm --prefix ui install
+pnpm --dir ui install
 
 # Build the Svelte frontend → ui/dist (Tauri embeds this at compile time)
-npm --prefix ui run build
+pnpm --dir ui run build
 
 # Build and launch the Tauri app
 cargo run
@@ -61,7 +64,7 @@ cargo run
 There are no feature flags. `cargo run` builds and launches the full Tauri app.
 
 > **Important:** This project does not use the Tauri CLI / `tauri dev`, and Tauri
-> embeds `ui/dist` at compile time. You must run `npm --prefix ui run build` before
+> embeds `ui/dist` at compile time. You must run `pnpm --dir ui run build` before
 > `cargo run`, or the app will ship a stale/empty frontend. After any change under
 > `ui/src/`, rebuild the frontend and run `cargo clean -p xbox-remote && cargo run`
 > so the new assets are re-embedded.
@@ -125,7 +128,7 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID,
 ### Build Issues
 
 - `edition = "2024"` requires Rust 1.85+. Run `rustup update stable`.
-- After changing files under `ui/src/`, run `npm --prefix ui run build`, then `cargo clean -p xbox-remote` before rebuilding so the new frontend assets are re-embedded.
+- After changing files under `ui/src/`, run `pnpm --dir ui run build`, then `cargo clean -p xbox-remote` before rebuilding so the new frontend assets are re-embedded.
 
 ## Development
 
@@ -135,8 +138,8 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID,
 cargo test
 
 # Frontend unit tests (Vitest) and type-check
-npm --prefix ui run test
-npm --prefix ui run check
+pnpm --dir ui run test
+pnpm --dir ui run check
 ```
 
 ### Debug Logging
@@ -156,8 +159,8 @@ cargo run
 Xbox Remote uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
 
 ```powershell
-npm --prefix ui install
-npm --prefix ui run build
+pnpm --dir ui install
+pnpm --dir ui run build
 cargo tauri build
 ```
 
