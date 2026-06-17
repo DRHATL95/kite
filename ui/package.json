@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -18,12 +22,12 @@
     "svelte": "^5"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "latest",
-    "@tsconfig/svelte": "latest",
+    "@sveltejs/vite-plugin-svelte": "7.1.2",
+    "@tsconfig/svelte": "5.0.8",
     "jsdom": "^29.1.1",
-    "svelte-check": "latest",
-    "typescript": "latest",
-    "vite": "latest",
-    "vitest": "latest"
+    "svelte-check": "4.6.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.16",
+    "vitest": "4.1.9"
   }
 }
