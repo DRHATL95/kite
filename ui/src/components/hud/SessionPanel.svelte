@@ -14,6 +14,7 @@
   import Panel from "$lib/design/Panel.svelte";
   import Stat from "$lib/design/Stat.svelte";
   import Badge from "$lib/design/Badge.svelte";
+  import { consoleTypeLabel } from "$lib/console/consoleArt.js";
   import type { DiagnosticsSnapshot } from "$lib/connection/types.js";
 
   interface Props {
@@ -59,6 +60,12 @@
 </script>
 
 <Panel title="Session">
+  {#if snapshot?.consoleName}
+    <div class="identity">
+      <span class="identity__name">{snapshot.consoleName}</span>
+      <span class="identity__type">{consoleTypeLabel(snapshot.consoleType ?? "")}</span>
+    </div>
+  {/if}
   <!-- State + keepalive badges -->
   <div class="badge-row">
     {#if snapshot != null}
@@ -108,6 +115,26 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-bottom: var(--space-3);
+  }
+
+  .identity {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .identity__name {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .identity__type {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
   }
 
   .kick-warn {
