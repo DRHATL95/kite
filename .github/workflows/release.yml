@@ -1,0 +1,141 @@
+name: release
+
+# Nightly: every push to master -> rolling "nightly" release in the PUBLIC
+#          releases repo (version <target>-nightly.<run_number>).
+# Stable:  pushing a v* tag    -> permanent vX.Y.Z archive + rolling "stable".
+#
+# Single job on the SELF-HOSTED Linux runner producing BOTH platforms:
+#   - Windows installer CROSS-COMPILED via cargo-xwin.
+#   - Linux AppImage built NATIVELY on the same runner.
+# Releases are published CROSS-REPO to DRHATL95/xbox-remote-releases (public) so
+# the in-app updater can read latest.json + binaries anonymously, while this code
+# repo stays private. Cross-repo auth uses the RELEASES_TOKEN PAT.
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: [self-hosted, Linux, X64]
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      XWIN_ACCEPT_LICENSE: "1"
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      RELEASES_REPO: DRHATL95/xbox-remote-releases
+    steps:
+      - uses: actions/checkout@v4
+
+      # GTK/WebKit dev libs + AppImage tooling for the NATIVE Linux bundle.
+      # Best baked into the runner image; kept here so a fresh runner still works.
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
+
+      - name: Compute version + channel
+        id: v
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VER="${{ github.ref_name }}"; VER="${VER#v}"
+            { echo "version=$VER"; echo "pointer_tag=stable"; echo "archive_tag=v$VER";
+              echo "name=v$VER"; echo "prerelease=false"; } >> "$GITHUB_OUTPUT"
+          else
+            TARGET="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+            VER="${TARGET}-nightly.${{ github.run_number }}"
+            { echo "version=$VER"; echo "pointer_tag=nightly"; echo "archive_tag=";
+              echo "name=Nightly $VER"; echo "prerelease=true"; } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build frontend
+        run: |
+          # rolldown ships a platform-gated native binary as an optionalDependency;
+          # the committed lockfile is Windows-generated, so nuke lockfile+modules and
+          # install fresh so the Linux binding resolves on this runner.
+          rm -rf ui/node_modules ui/package-lock.json
+          npm --prefix ui install --no-audit --no-fund
+          npm --prefix ui run build
+
+      - name: Tauri cross-build (signed NSIS for Windows x64)
+        shell: bash
+        run: |
+          printf '{"version":"%s"}' "${{ steps.v.outputs.version }}" > ci-version.json
+          cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
+            --bundles nsis --config ci-version.json
+
+      - name: Tauri build (signed AppImage for Linux x64)
+        shell: bash
+        run: |
+          cargo tauri build --bundles appimage --config ci-version.json
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          v='${{ steps.v.outputs.version }}'
+          mkdir -p dist
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "dist/xbox-remote_${v}_x64-setup.exe"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "dist/xbox-remote_${v}_x64-setup.exe.sig"
+          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage"     "dist/xbox-remote_${v}_amd64.AppImage"
+          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage.sig" "dist/xbox-remote_${v}_amd64.AppImage.sig"
+
+      - name: Build latest.json
+        shell: bash
+        run: |
+          VERSION='${{ steps.v.outputs.version }}'
+          POINTER='${{ steps.v.outputs.pointer_tag }}'
+          # Asset URLs point at the rolling pointer release in the PUBLIC releases repo.
+          base="https://github.com/${RELEASES_REPO}/releases/download/${POINTER}"
+          export VERSION
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          NOTES='${{ steps.v.outputs.name }}' \
+          WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
+          WIN_URL="${base}/xbox-remote_${VERSION}_x64-setup.exe" \
+          LINUX_SIG_FILE="dist/xbox-remote_${VERSION}_amd64.AppImage.sig" \
+          LINUX_URL="${base}/xbox-remote_${VERSION}_amd64.AppImage" \
+          bash scripts/ci/make-latest-json.sh > dist/latest.json
+          cat dist/latest.json
+
+      - name: Publish release + assets (cross-repo to the public releases repo)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          VERSION='${{ steps.v.outputs.version }}'
+          POINTER='${{ steps.v.outputs.pointer_tag }}'
+          ARCHIVE='${{ steps.v.outputs.archive_tag }}'
+          RELEASE_NAME='${{ steps.v.outputs.name }}'
+          PRERELEASE='${{ steps.v.outputs.prerelease }}'
+          source scripts/ci/github-release.sh
+
+          assets=(
+            "xbox-remote_${VERSION}_x64-setup.exe"
+            "xbox-remote_${VERSION}_x64-setup.exe.sig"
+            "xbox-remote_${VERSION}_amd64.AppImage"
+            "xbox-remote_${VERSION}_amd64.AppImage.sig"
+          )
+
+          # Update the rolling pointer IN PLACE: ensure release -> upload binaries
+          # (clobber) -> swap latest.json LAST -> prune stale assets. Never delete
+          # the release, so its latest.json is never missing.
+          ensure_release "$POINTER" "$RELEASE_NAME" "$PRERELEASE"
+          for f in "${assets[@]}"; do
+            replace_asset "$POINTER" "dist/$f"
+          done
+          replace_asset "$POINTER" "dist/latest.json"
+          prune_channel_assets "$POINTER" "$VERSION"
+
+          # Stable also gets a permanent vX.Y.Z archive (binaries only).
+          if [ -n "$ARCHIVE" ]; then
+            create_archive_release "$ARCHIVE" "$RELEASE_NAME"
+            for f in "${assets[@]}"; do
+              replace_asset "$ARCHIVE" "dist/$f"
+            done
+          fi
