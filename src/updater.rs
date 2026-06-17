@@ -6,7 +6,7 @@
 /// Unknown values fall back to the stable channel (safe default).
 pub fn channel_endpoint(channel: &str) -> String {
     let ch = if channel == "nightly" { "nightly" } else { "stable" };
-    format!("https://gitea.howlab.co/dave/xbox-remote/releases/download/{ch}/latest.json")
+    format!("https://github.com/DRHATL95/xbox-remote-releases/releases/download/{ch}/latest.json")
 }
 
 use std::sync::Mutex;
@@ -114,5 +114,14 @@ mod tests {
     fn unknown_channel_falls_back_to_stable() {
         assert!(channel_endpoint("garbage").ends_with("/download/stable/latest.json"));
         assert!(channel_endpoint("").ends_with("/download/stable/latest.json"));
+    }
+
+    #[test]
+    fn uses_github_releases_host() {
+        let url = channel_endpoint("stable");
+        assert!(
+            url.starts_with("https://github.com/DRHATL95/xbox-remote-releases/releases/download/"),
+            "unexpected endpoint host: {url}"
+        );
     }
 }

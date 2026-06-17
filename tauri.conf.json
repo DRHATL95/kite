@@ -51,7 +51,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://gitea.howlab.co/dave/xbox-remote/releases/download/stable/latest.json"
+        "https://github.com/DRHATL95/xbox-remote-releases/releases/download/stable/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRjBDRTQ4NEFCNTRCOTEKUldTUlM3VktTTTd3VDAzWng2WFdYbzVIUnNqa1BWdlUrYVZHTnk4YlBNNEhkTFVKcXpPaGV0U2gK"
     }
