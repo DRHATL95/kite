@@ -104,7 +104,9 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   **never commit it**.
 - **Runner**: a self-hosted GitHub Actions runner on CT 106 (label set
   `[self-hosted, Linux, X64]`). Build deps baked in: clang/lld/llvm, nsis, rust
-  target `x86_64-pc-windows-msvc`, `cargo-xwin`, warm xwin SDK cache, plus the
+  target `x86_64-pc-windows-msvc`, `cargo-xwin`, warm xwin SDK cache, the GitHub
+  CLI (`gh`) + `jq` (used by the publish scripts — `gh` is required; the publish
+  step fails `gh: command not found` without it), plus the
   GTK/WebKit dev libs + AppImage tooling (`libgtk-3-dev libwebkit2gtk-4.1-dev
   libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2`). Use the
   **ayatana** appindicator, not legacy `libappindicator3-dev`.
