@@ -54,6 +54,12 @@ class ConnectionStore {
   mediaStream: MediaStream | null = $state(null);
 
   /**
+   * The console currently being connected to / streamed. Set on connect(),
+   * cleared on disconnect(). Drives the connecting splash artwork + name.
+   */
+  currentConsole: XHomeConsole | null = $state(null);
+
+  /**
    * Current reconnect attempt number (1-based), 0 when not reconnecting.
    * Updated by onReconnectAttempt — does NOT depend on the StatsSampler snapshot
    * so it stays accurate even while the sampler is stopped between attempts.
@@ -115,6 +121,7 @@ class ConnectionStore {
    */
   async connect(xboxConsole: XHomeConsole): Promise<void> {
     this.failureReason = null;
+    this.currentConsole = xboxConsole;
     await this._manager.connect(xboxConsole);
   }
 
@@ -125,6 +132,7 @@ class ConnectionStore {
     await this._manager.disconnect();
     // Clear media stream reference so UI can clean up srcObject
     this.mediaStream = null;
+    this.currentConsole = null;
   }
 
   /**
