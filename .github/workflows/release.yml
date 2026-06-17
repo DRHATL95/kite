@@ -56,14 +56,17 @@ jobs:
           fi
 
       - name: Build frontend
+        # Run from ui/ so corepack reads the pinned pnpm from ui/package.json's
+        # packageManager field (the repo root has no package.json, so running from
+        # there would let corepack fall back to `latest` — which needs newer node).
+        working-directory: ui
         run: |
           # pnpm's lockfile records all platform variants of the rolldown native
           # binding, so one committed pnpm-lock.yaml resolves on Linux here and on
-          # Windows locally. corepack provisions the pinned pnpm from package.json's
-          # packageManager field. --frozen-lockfile makes the lockfile authoritative.
+          # Windows locally. --frozen-lockfile makes the lockfile authoritative.
           corepack enable
-          pnpm --dir ui install --frozen-lockfile
-          pnpm --dir ui run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Tauri cross-build (signed NSIS for Windows x64)
         shell: bash
