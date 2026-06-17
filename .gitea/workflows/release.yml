@@ -78,12 +78,17 @@ jobs:
 
       - name: Build frontend
         run: |
-          # NOT `npm ci`: it strictly reproduces the lockfile's install tree, which —
-          # when the lockfile was generated on Windows — omits rolldown's Linux native
-          # binding (shipped as a platform-gated optionalDependency; npm/cli#4828), so
-          # `vite build` fails on this runner with "Cannot find @rolldown/binding-linux-x64-gnu".
-          # `npm install` re-resolves optionals for THIS platform (the binding is already
-          # in the committed lockfile), installing @rolldown/binding-linux-x64-gnu correctly.
+          # vite's bundler is rolldown, whose native binary ships as a platform-gated
+          # optionalDependency. The committed lockfile is generated on Windows, and
+          # neither `npm ci` nor `npm install` will materialize the Linux binding from it
+          # on this runner (npm/cli#4828) — the reused act workspace makes `npm install`
+          # keep the prior, binding-less node_modules. Per npm's own error guidance,
+          # nuke the lockfile + node_modules and install fresh so optionalDependencies
+          # resolve against THIS platform (installs @rolldown/binding-linux-x64-gnu).
+          # Trade-off: CI re-resolves the `latest`-pinned UI deps each run (no lockfile
+          # reproducibility) — acceptable until versions are pinned + a cross-platform
+          # lockfile is committed.
+          rm -rf ui/node_modules ui/package-lock.json
           npm --prefix ui install --no-audit --no-fund
           npm --prefix ui run build
 
