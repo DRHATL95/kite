@@ -24,6 +24,12 @@
   --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px;
   --radius-sm: 5px; --radius-md: 9px; --radius-lg: 14px; --radius-pill: 999px;
 
+  /* ── Console illustration (theme-independent product colours) ─────────── */
+  --console-dark: #14171a;        /* black-console body */
+  --console-light: #e6e6df;       /* white-console body */
+  --console-edge: #3a413a;        /* outline on dark bodies */
+  --console-edge-light: #b9b9b0;  /* outline on light bodies */
+
   /* ── Motion ─────────────────────────────────────────────────────────── */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --theme-fade: background-color 450ms ease, color 450ms ease, border-color 450ms ease;
