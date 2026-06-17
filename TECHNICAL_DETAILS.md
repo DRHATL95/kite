@@ -99,10 +99,10 @@ Tauri App
 ### Build & Run
 ```bash
 # Build the frontend, then run (Tauri embeds ui/dist at compile time)
-npm --prefix ui run build && cargo run
+pnpm --dir ui run build && cargo run
 
 # Release build
-npm --prefix ui run build && cargo build --release
+pnpm --dir ui run build && cargo build --release
 ```
 
 ### Expected Flow
@@ -120,7 +120,7 @@ npm --prefix ui run build && cargo build --release
 
 #### Test 1: Window Visibility
 ```bash
-npm --prefix ui run build && cargo run
+pnpm --dir ui run build && cargo run
 # You should see "Xbox Remote" window on your desktop
 ```
 
