@@ -2,7 +2,7 @@
 
 How Xbox Remote is versioned, how the two release channels (nightly vs stable)
 differ, and what the in-app auto-updater actually does. The authoritative
-source is `.gitea/workflows/release.yml`; this document explains the *why*.
+source is `.github/workflows/release.yml`; this document explains the *why*.
 
 ## TL;DR
 
@@ -60,12 +60,12 @@ in-app version readout, not the repo.
   filtering, so every merge produces a new nightly and (because of auto-update)
   an update prompt for everyone currently online.
 - **Version = `<target>-nightly.<run_number>`**, where `<target>` is the committed
-  `Cargo.toml` version and `<run_number>` is the Gitea Actions run counter
+  `Cargo.toml` version and `<run_number>` is the GitHub Actions run counter
   (monotonically increasing, never resets).
-- Publishes to a **single rolling release tagged `nightly`**. Each build deletes
-  and recreates that release's assets (`roll_channel` in
-  `scripts/ci/gitea-release.sh`), so `releases/download/nightly/…` URLs are stable
-  and always point at the newest build.
+- Publishes to a **single rolling release tagged `nightly`** in the public
+  releases repo. Each build replaces that release's assets in place
+  (`scripts/ci/github-release.sh`), so `releases/download/nightly/…` URLs are
+  stable and always point at the newest build.
 - Marked as a **pre-release**.
 
 ## Stable channel
@@ -92,8 +92,8 @@ The app checks for updates on launch via `tauri-plugin-updater`
 (UI in `ui/src/lib/update/`). Two manifests exist:
 
 ```
-https://gitea.howlab.co/dave/xbox-remote/releases/download/nightly/latest.json
-https://gitea.howlab.co/dave/xbox-remote/releases/download/stable/latest.json
+https://github.com/DRHATL95/xbox-remote-releases/releases/download/nightly/latest.json
+https://github.com/DRHATL95/xbox-remote-releases/releases/download/stable/latest.json
 ```
 
 **Notes:**
@@ -103,8 +103,8 @@ https://gitea.howlab.co/dave/xbox-remote/releases/download/stable/latest.json
    correctly considers the stable release "newer" when it ships.
 2. **Channel selection** (choosing which `latest.json` the app queries) is a
    separate in-app feature; see the in-app update UI under `ui/src/lib/update/`.
-3. Offline / off-LAN, the check silently no-ops — `gitea.howlab.co` is only
-   reachable on the home network.
+3. Offline, the check silently no-ops. The releases repo is public on GitHub, so
+   the check works from anywhere with internet (no LAN dependency).
 
 ## The `latest.json` updater manifest
 
@@ -125,7 +125,7 @@ when the build produces an AppImage (the script takes optional `LINUX_SIG_FILE`
 }
 ```
 
-Update artifacts are signed with `TAURI_SIGNING_PRIVATE_KEY` (Gitea Actions
+Update artifacts are signed with `TAURI_SIGNING_PRIVATE_KEY` (GitHub Actions
 secret; public key embedded in `tauri.conf.json`). The `.sig` signs the file
 *bytes*, so the CI rename to space-free asset names does not invalidate it.
 
@@ -136,11 +136,11 @@ via `cargo-xwin`) and **Linux x64** (AppImage, built natively on the same
 runner). Both are signed and both auto-update via `latest.json`. macOS users
 still build from source.
 
-Both artifacts are produced in a *single* job — the `upload-artifact` action
-refuses non-GitHub hosts, so there is no cross-job handoff. The Linux build
-needs GTK/WebKit dev libs + AppImage tooling on the runner; the workflow installs
-them defensively but they're best baked into the runner image. See `CLAUDE.md` →
-"Releases & Auto-Update (CI/CD)" for the runner details.
+Both artifacts are produced in a *single* job on the self-hosted runner, then
+published cross-repo to the public releases repo via `gh release`. The Linux
+build needs GTK/WebKit dev libs + AppImage tooling on the runner; the workflow
+installs them defensively but they're best baked into the runner image. See
+`CLAUDE.md` → "Releases & Auto-Update (CI/CD)" for the runner details.
 
 > **Linux auto-update caveat:** the Tauri updater only updates **AppImage**
 > installs on Linux. A user who runs the AppImage gets in-app updates; if the app

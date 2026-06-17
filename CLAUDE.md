@@ -72,41 +72,44 @@ Do not skip the frontend build; the installer embeds the current `ui/dist` outpu
 
 ### Releases & Auto-Update (CI/CD)
 
-Releases are built by **Gitea Actions** (`.gitea/workflows/release.yml`) on a self-hosted
-Linux runner (Proxmox LXC `gitea-ci-linux`, label `linux`):
+Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
+**self-hosted** Linux runner (Proxmox LXC CT 106). The project uses **two repos**:
 
-- **Nightly**: every push to `master` builds **both** platforms in one job and force-updates
-  the rolling `nightly` release. Windows NSIS installer is cross-compiled
-  (`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis`);
-  the Linux AppImage is built natively on the same runner
-  (`cargo tauri build --bundles appimage`). Both updater artifacts are signed, and the assets
-  uploaded are `xbox-remote_<v>_x64-setup.exe` + `.sig`, `xbox-remote_<v>_amd64.AppImage` + `.sig`,
-  and `latest.json` (with `windows-x86_64` + `linux-x86_64` entries).
-  Nightly version = `<target>-nightly.<run_number>` where `<target>` is the committed
-  `Cargo.toml` version (the next unreleased `X.Y.Z`); injected via `--config` so the
-  tree stays clean. Stable (`vX.Y.Z` tag) = clean version from the tag, published to
-  BOTH the permanent `vX.Y.Z` archive and the rolling `stable` pointer. After cutting
-  a stable, bump the committed target. Both channels expose a rolling
-  `…/releases/download/{nightly,stable}/latest.json`.
-- **Stable**: pushing a `vX.Y.Z` tag cuts a permanent release.
+- **Code (private)**: `DRHATL95/xbox-remote` — source + the CI workflow.
+- **Releases (public)**: `DRHATL95/xbox-remote-releases` — only binaries + `.sig`
+  + per-channel `latest.json`. It is public so the Tauri updater can fetch
+  `latest.json` and installers anonymously while the code stays private.
+
+- **Nightly**: every push to `master` builds **both** platforms in one job and
+  force-updates the rolling `nightly` release in the releases repo. Windows NSIS
+  is cross-compiled (`cargo tauri build --runner cargo-xwin --target
+  x86_64-pc-windows-msvc --bundles nsis`); the Linux AppImage is built natively
+  on the same runner. Both updater artifacts are signed. Nightly version =
+  `<target>-nightly.<run_number>` (committed `Cargo.toml` version = next
+  unreleased `X.Y.Z`), injected via `--config` so the tree stays clean.
+- **Stable**: pushing a `vX.Y.Z` tag cuts a permanent `vX.Y.Z` archive release
+  **and** force-updates the rolling `stable` pointer. After cutting a stable, bump
+  the committed target.
+- **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes **cross-repo**
+  to the releases repo via the `RELEASES_TOKEN` PAT — ensure rolling release →
+  upload binaries (`--clobber`) → swap `latest.json` last → prune stale assets.
 - **In-app updates**: the app checks the active channel's `latest.json` on launch
-  (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`) and prompts to
-  install. Two channels: `releases/download/nightly/latest.json` and
-  `releases/download/stable/latest.json`. Offline / off-LAN the check silently no-ops. On Linux
-  the updater only updates **AppImage** installs (not `.deb`/repackaged builds).
-- **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` lives in Gitea Actions secrets (private key file at
-  `~/.tauri/xbox-remote-updater.key`, empty password — keep a backup; **never commit it**).
-  The public key is embedded in `tauri.conf.json`.
-- **Linux build deps**: the native AppImage build needs GTK/WebKit dev libs + AppImage tooling
-  (`libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2`).
-  The workflow `apt-get`-installs them defensively (with `APPIMAGE_EXTRACT_AND_RUN=1` so no FUSE
-  is needed); bake them into CT 106 and drop that step to speed builds up. Use the **ayatana**
-  appindicator (`libayatana-appindicator3-dev`), not legacy `libappindicator3-dev` — jammy's
-  `libwebkit2gtk-4.1` pulls `libayatana-appindicator3-1`, which conflicts with the legacy
-  package; baking the legacy one into CT 106 would reintroduce the apt failure.
-- **Gotchas**: `actions/upload-artifact@v4` refuses non-GitHub hosts (build+publish are one job
-  on purpose — and why both platforms build in the same job); every master push — even
-  docs-only — produces a new nightly and an update prompt. macOS is still build-from-source.
+  (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`).
+  Two channels: `…/releases/download/{nightly,stable}/latest.json` on the public
+  releases repo. On Linux the updater only updates **AppImage** installs.
+- **Secrets** (on the private repo): `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`)
+  for signing — public key embedded in `tauri.conf.json`; and `RELEASES_TOKEN`, a
+  PAT with `contents:write` on the releases repo for cross-repo publishing. The
+  signing private key lives at `~/.tauri/xbox-remote-updater.key` — keep a backup;
+  **never commit it**.
+- **Runner**: a self-hosted GitHub Actions runner on CT 106 (label set
+  `[self-hosted, Linux, X64]`). Build deps baked in: clang/lld/llvm, nsis, rust
+  target `x86_64-pc-windows-msvc`, `cargo-xwin`, warm xwin SDK cache, plus the
+  GTK/WebKit dev libs + AppImage tooling (`libgtk-3-dev libwebkit2gtk-4.1-dev
+  libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2`). Use the
+  **ayatana** appindicator, not legacy `libappindicator3-dev`.
+- **Gotchas**: every `master` push — even docs-only — produces a new nightly and
+  an update prompt. macOS is still build-from-source.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
