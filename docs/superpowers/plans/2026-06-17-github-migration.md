@@ -74,13 +74,21 @@ Expected: `origin` → `https://github.com/DRHATL95/xbox-remote.git`, `gitea` �
 
 - [ ] **Step 6: Create the migration working branch and bring the spec commit onto it**
 
+Capture the branch you're currently on (it holds the migration spec + plan doc
+commits), branch from GitHub master, then replay exactly the commits not already
+in master:
+
 ```bash
+PRIOR="$(git rev-parse --abbrev-ref HEAD)"   # e.g. claude/brave-black-470088
 git fetch origin
 git switch -c migrate-to-github origin/master
-git cherry-pick 70a9114
-git log --oneline -2
+git cherry-pick "origin/master..$PRIOR"
+git log --oneline -3
 ```
-Expected: on branch `migrate-to-github`; top commit is `docs(spec): Gitea→GitHub migration design`. (`70a9114` is the spec commit authored earlier on the prior branch.)
+Expected: on branch `migrate-to-github`; the top commits are the migration spec
+and plan docs. The range form replays only the spec/plan doc commits — the
+console-identity feature reached master via Gitea's PR #8 merge, so those commits
+are already ancestors of `origin/master` and the range excludes them.
 
 - [ ] **Step 7: No commit** — Task 1 produces no working-tree changes (only remote/branch state). Proceed to Task 2.
 
