@@ -53,22 +53,19 @@
     padding: var(--space-5);
   }
 
+  /* Stack the glow and the console art in one grid cell so place-items
+     centers BOTH on the same point — reliable even though the glow is larger
+     than the art (auto-margin centering drifts in Chromium for that case). */
   .splash__art {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    place-items: center;
     /* Keep the glow halo clear of the title below it */
     margin-bottom: var(--space-7);
     animation: splashFloat 3.4s ease-in-out infinite;
   }
 
-  /* Centered behind the console art via inset+auto margins, so the scale
-     animation (which owns `transform`) doesn't fight a centering transform. */
   .splash__glow {
-    position: absolute;
-    inset: 0;
-    margin: auto;
+    grid-area: 1 / 1;
     width: 160px;
     height: 160px;
     border-radius: 50%;
@@ -78,7 +75,7 @@
   }
 
   .splash__art :global(.console-art) {
-    position: relative;
+    grid-area: 1 / 1;
     z-index: 1;
   }
 
