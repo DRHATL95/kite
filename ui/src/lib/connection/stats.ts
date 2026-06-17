@@ -81,6 +81,8 @@ function defaultManagerStats(): ManagerStats {
     skewMs: null,
     outboundPacketHz: null,
     lastSequence: null,
+    consoleName: null,
+    consoleType: null,
   };
 }
 

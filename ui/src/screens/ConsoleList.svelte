@@ -23,6 +23,8 @@
   import Button from "$lib/design/Button.svelte";
   import Badge from "$lib/design/Badge.svelte";
   import SettingsModal from "../components/SettingsModal.svelte";
+  import ConsoleArt from "../components/ConsoleArt.svelte";
+  import { consoleTypeLabel } from "$lib/console/consoleArt.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -75,16 +77,9 @@
     return isOn(powerState) ? "ON" : "STANDBY";
   }
 
-  /** Friendly console type label. */
-  function consoleTypeLabel(consoleType: string): string {
-    const map: Record<string, string> = {
-      XboxSeriesX: "Xbox Series X",
-      XboxSeriesS: "Xbox Series S",
-      XboxOne: "Xbox One",
-      XboxOneS: "Xbox One S",
-      XboxOneX: "Xbox One X",
-    };
-    return map[consoleType] ?? consoleType;
+  /** Short presence line derived from power state. */
+  function statusLine(powerState: string): string {
+    return isOn(powerState) ? "ready to stream" : "asleep";
   }
 </script>
 
@@ -161,6 +156,11 @@
               class="console-card"
               class:console-card--standby={!isOn(console.powerState)}
             >
+              <ConsoleArt
+                consoleType={console.consoleType}
+                size={44}
+                dimmed={!isOn(console.powerState)}
+              />
               <div class="console-card__info">
                 <div class="console-card__header">
                   <span class="console-card__name">{console.deviceName}</span>
@@ -176,6 +176,7 @@
                     {powerStateLabel(console.powerState)}
                   </Badge>
                 </div>
+                <span class="console-card__status">{statusLine(console.powerState)}</span>
               </div>
               <Button
                 disabled={!isOn(console.powerState)}
@@ -446,6 +447,13 @@
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-dim);
+  }
+
+  .console-card__status {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    margin-top: var(--space-1);
   }
 
   /* ── Failure banner ───────────────────────────────────────────────────────── */

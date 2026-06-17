@@ -129,6 +129,7 @@ export class ConnectionManager {
   private _serverId: string | null = null;
   /** app.js:20 */
   private _consoleName: string | null = null;
+  private _consoleType: string | null = null;
   /** app.js:21 */
   private _gsToken: string | null = null;
   /** app.js:22 */
@@ -272,6 +273,7 @@ export class ConnectionManager {
       xboxConsole.deviceName ||
       (xboxConsole as Record<string, unknown>)["serverName"] as string ||
       "Xbox";
+    this._consoleType = xboxConsole.consoleType ?? null;
 
     try {
       await this._createSessionAndStream();
@@ -299,6 +301,7 @@ export class ConnectionManager {
     this._cleanupMedia();
     this._serverId = null;
     this._consoleName = null;
+    this._consoleType = null;
     this._gsToken = null;
     this._sessionPath = null;
     this._sessionId = null;
@@ -1118,6 +1121,8 @@ export class ConnectionManager {
       // GamepadPoller exposes no public seq/Hz — provide null for now
       outboundPacketHz: null,
       lastSequence: null,
+      consoleName: this._consoleName,
+      consoleType: this._consoleType,
     };
 
     this._sampler.setManagerStats(stats);

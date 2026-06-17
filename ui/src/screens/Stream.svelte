@@ -25,6 +25,8 @@
   import StreamControls from "../components/StreamControls.svelte";
   import StreamStatus from "../components/StreamStatus.svelte";
   import DiagnosticsHud from "../components/DiagnosticsHud.svelte";
+  import ConnectingSplash from "../components/ConnectingSplash.svelte";
+  import { connectingSteps, shouldShowSplash } from "$lib/console/connectingSplash.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -48,6 +50,9 @@
    */
   let needsUnmute = $state(false);
 
+  /** True once the <video> element is actually rendering frames. */
+  let videoPlaying = $state(false);
+
   // ── Playback timer ref (cleaned up on destroy) ────────────────────────────────
 
   let playTimer: ReturnType<typeof setTimeout> | null = null;
@@ -65,6 +70,7 @@
 
     // Assign srcObject.  Assigning null clears the video.
     videoEl.srcObject = stream ?? null;
+    videoPlaying = false;
 
     if (!stream) {
       needsUnmute = false;
@@ -148,6 +154,17 @@
     }
   }
 
+  // ── Connecting splash ──────────────────────────────────────────────────────────
+  const showSplash = $derived(
+    shouldShowSplash(connectionStore.state, videoPlaying),
+  );
+  const splashSteps = $derived(
+    connectingSteps({
+      handshakeComplete: connectionStore.snapshot?.handshakeMs != null,
+      videoArrived: connectionStore.snapshot?.videoArrivedAt != null,
+    }),
+  );
+
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
   onDestroy(() => {
@@ -179,8 +196,13 @@
         autoplay
         playsinline
         bind:this={videoEl}
+        onplaying={() => (videoPlaying = true)}
         aria-label="Xbox console stream"
       ></video>
+
+      {#if showSplash}
+        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
+      {/if}
 
       <!-- ── Unmute affordance (autoplay policy fallback) ────────────────── -->
       {#if needsUnmute}
@@ -214,8 +236,13 @@
         autoplay
         playsinline
         bind:this={videoEl}
+        onplaying={() => (videoPlaying = true)}
         aria-label="Xbox console stream"
       ></video>
+
+      {#if showSplash}
+        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
+      {/if}
 
       <!-- ── Unmute affordance (autoplay policy fallback) ────────────────── -->
       {#if needsUnmute}
