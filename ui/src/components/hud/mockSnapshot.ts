@@ -83,4 +83,8 @@ export const mockSnapshot: DiagnosticsSnapshot = {
   // Input
   outboundPacketHz: 59.8,
   lastSequence: 2641,
+
+  // Identity
+  consoleName: "Living Room",
+  consoleType: "XboxSeriesX",
 };

@@ -108,6 +108,10 @@ describe("mockSnapshot — completeness", () => {
   // Input
   it("outboundPacketHz is a number", () => expect(typeof mockSnapshot.outboundPacketHz).toBe("number"));
   it("lastSequence is a number", () => expect(typeof mockSnapshot.lastSequence).toBe("number"));
+
+  // Identity
+  it("consoleName is a string", () => expect(typeof mockSnapshot.consoleName).toBe("string"));
+  it("consoleType is a string", () => expect(typeof mockSnapshot.consoleType).toBe("string"));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

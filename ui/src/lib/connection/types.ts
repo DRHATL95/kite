@@ -238,6 +238,12 @@ export interface DiagnosticsSnapshot {
    * Last input sequence number sent.  Manager-supplied.
    */
   lastSequence: number | null;
+
+  // ── identity ───────────────────────────────────────────────
+  /** Console display name (deviceName). Manager-supplied. */
+  consoleName: string | null;
+  /** Console model type string (consoleType). Manager-supplied. */
+  consoleType: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -272,4 +278,6 @@ export type ManagerStats = Pick<
   | "skewMs"
   | "outboundPacketHz"
   | "lastSequence"
+  | "consoleName"
+  | "consoleType"
 >;
