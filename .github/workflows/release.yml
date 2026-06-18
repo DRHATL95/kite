@@ -30,16 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # GTK/WebKit dev libs + AppImage tooling for the NATIVE Linux bundle.
-      # Best baked into the runner image; kept here so a fresh runner still works.
-      - name: Install Linux build dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
-
+      # Build deps (GTK/WebKit, AppImage tooling, rust, node, gh, nsis, etc.) are
+      # provisioned on the self-hosted runner by scripts/runner/setup-ct106.sh,
+      # not installed per-build — the non-root `ghrunner` can't `sudo apt` anyway.
       - name: Compute version + channel
         id: v
         shell: bash
