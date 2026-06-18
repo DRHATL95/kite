@@ -113,6 +113,8 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   GTK/WebKit dev libs + AppImage tooling (`libgtk-3-dev libwebkit2gtk-4.1-dev
   libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2`). Use the
   **ayatana** appindicator, not legacy `libappindicator3-dev`.
+  The full provisioning is codified in `scripts/runner/setup-ct106.sh` (the
+  source of truth — re-run it to rebuild the box); the runner is on **Node 22**.
 - **Gotchas**: every `master` push — even docs-only — produces a new nightly and
   an update prompt. macOS is still build-from-source.
 
