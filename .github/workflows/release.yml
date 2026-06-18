@@ -29,6 +29,11 @@ jobs:
       RELEASES_REPO: DRHATL95/xbox-remote-releases
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history + tags so the changelog step can diff against the
+          # previous commit/tag. The default shallow clone (depth 1) would make
+          # `git log <range>` and `git describe --tags` produce nothing.
+          fetch-depth: 0
 
       # Build deps (GTK/WebKit, AppImage tooling, rust, node, gh, nsis, etc.) are
       # provisioned on the self-hosted runner by scripts/runner/setup-ct106.sh,
@@ -100,6 +105,45 @@ jobs:
           bash scripts/ci/make-latest-json.sh > dist/latest.json
           cat dist/latest.json
 
+      - name: Build release notes (changelog)
+        id: notes
+        shell: bash
+        env:
+          # All github context passed via env (not inlined into the script) so
+          # commit data can never be interpreted as shell. git log reads commit
+          # subjects straight into the notes file — they are never evaluated.
+          VERSION: ${{ steps.v.outputs.version }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          mkdir -p dist
+          ZERO=0000000000000000000000000000000000000000
+          if [ "$IS_TAG" = "true" ]; then
+            # Stable: diff from the previous v* tag (omit range if this is the first).
+            PREV="$(git describe --tags --abbrev=0 --match 'v*' "${SHA}^" 2>/dev/null || true)"
+            RANGE="${PREV:+${PREV}..}${SHA}"
+            HEADER="Stable release v${VERSION}${PREV:+ — changes since ${PREV}}"
+          else
+            # Nightly: diff exactly the commits this push introduced.
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "$ZERO" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              RANGE="${BEFORE}..${SHA}"
+            else
+              RANGE="${SHA}~20..${SHA}"
+            fi
+            HEADER="Rolling nightly built from master — ${VERSION}"
+          fi
+          {
+            echo "$HEADER"
+            echo
+            echo "### What's changed"
+            git log --no-merges --pretty=format:'- %s (%h)' "$RANGE" 2>/dev/null \
+              || echo "- see commit history"
+            echo
+          } > dist/notes.md
+          [ -s dist/notes.md ] || echo "$HEADER" > dist/notes.md
+          echo "---- release notes ----"; cat dist/notes.md
+
       - name: Publish release + assets (cross-repo to the public releases repo)
         shell: bash
         env:
@@ -122,7 +166,7 @@ jobs:
           # Update the rolling pointer IN PLACE: ensure release -> upload binaries
           # (clobber) -> swap latest.json LAST -> prune stale assets. Never delete
           # the release, so its latest.json is never missing.
-          ensure_release "$POINTER" "$RELEASE_NAME" "$PRERELEASE"
+          ensure_release "$POINTER" "$RELEASE_NAME" "$PRERELEASE" dist/notes.md
           for f in "${assets[@]}"; do
             replace_asset "$POINTER" "dist/$f"
           done
@@ -131,7 +175,7 @@ jobs:
 
           # Stable also gets a permanent vX.Y.Z archive (binaries only).
           if [ -n "$ARCHIVE" ]; then
-            create_archive_release "$ARCHIVE" "$RELEASE_NAME"
+            create_archive_release "$ARCHIVE" "$RELEASE_NAME" dist/notes.md
             for f in "${assets[@]}"; do
               replace_asset "$ARCHIVE" "dist/$f"
             done

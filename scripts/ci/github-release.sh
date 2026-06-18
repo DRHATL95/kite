@@ -7,17 +7,22 @@
 set -euo pipefail
 : "${RELEASES_REPO:?}"; : "${GH_TOKEN:?}"
 
-# ensure_release <tag> <name> <prerelease:true|false>
-# Reuse the rolling release if present (refresh title/prerelease); create if absent.
+# ensure_release <tag> <name> <prerelease:true|false> <notes_file>
+# Reuse the rolling release if present (refresh title/notes/prerelease); create if absent.
 # Rolling tags ("nightly"/"stable") are created at the releases repo's default HEAD;
 # the tag commit is cosmetic (the updater reads latest.json, not the tag).
+# Notes are always refreshed from <notes_file> — without it the body stays frozen at
+# the text from the release's first-ever run (e.g. nightly body stuck on an old
+# version while the title advances).
 ensure_release() {
-  local tag="$1" name="$2" pre="$3"
+  local tag="$1" name="$2" pre="$3" notes_file="$4"
   if gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
-    gh release edit "$tag" --repo "$RELEASES_REPO" --title "$name" --prerelease="$pre" >/dev/null
+    gh release edit "$tag" --repo "$RELEASES_REPO" \
+      --title "$name" --notes-file "$notes_file" --prerelease="$pre" >/dev/null
   else
     local flag=""; [ "$pre" = "true" ] && flag="--prerelease"
-    gh release create "$tag" --repo "$RELEASES_REPO" --title "$name" --notes "$name" $flag >/dev/null
+    gh release create "$tag" --repo "$RELEASES_REPO" \
+      --title "$name" --notes-file "$notes_file" $flag >/dev/null
   fi
   echo "ensured release: $tag"
 }
@@ -44,9 +49,9 @@ prune_channel_assets() {
   done < <(gh release view "$tag" --repo "$RELEASES_REPO" --json assets -q '.assets[].name')
 }
 
-# create_archive_release <tag> <name> — permanent vX.Y.Z (fails if it already
-# exists; stable tags are cut once).
+# create_archive_release <tag> <name> <notes_file> — permanent vX.Y.Z (fails if it
+# already exists; stable tags are cut once).
 create_archive_release() {
-  gh release create "$1" --repo "$RELEASES_REPO" --title "$2" --notes "$2" >/dev/null
+  gh release create "$1" --repo "$RELEASES_REPO" --title "$2" --notes-file "$3" >/dev/null
   echo "created archive release: $1"
 }
