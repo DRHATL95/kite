@@ -14,6 +14,20 @@ fn main() {
     use tokio::sync::Mutex;
     use tauri::Manager;
 
+    // WebKitGTK's DMA-BUF renderer triggers "Gdk-Message: Error 71 (Protocol
+    // error) dispatching to Wayland display" on many Wayland compositor + GPU
+    // driver combinations, aborting before the window can open. Disabling it
+    // makes the webview fall back to a compatible renderer (still native
+    // Wayland). Skip if the user already set the variable so they can override.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // SAFETY: runs at the very top of main(), before any other thread is
+        // spawned, so there is no concurrent access to the environment.
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
