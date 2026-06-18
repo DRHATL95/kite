@@ -59,27 +59,49 @@
   type BadgeTone = "success" | "warn" | "danger" | "neutral";
 
   /**
-   * True when Xbox reports the console as powered on and available.
    * Xbox powerState values: "On", "ConnectedStandby", "Off".
-   * Treat exactly "On" (case-insensitive) as ON; everything else as STANDBY.
+   *  - "On"              → live and ready to stream.
+   *  - "ConnectedStandby"→ asleep but reachable; creating a session wakes it.
+   *  - "Off"             → unreachable; cannot start a session.
+   * All comparisons are case-insensitive.
    */
   function isOn(powerState: string): boolean {
     return powerState.toLowerCase() === "on";
   }
 
+  function isOff(powerState: string): boolean {
+    return powerState.toLowerCase() === "off";
+  }
+
+  /**
+   * Whether the user can start a session with this console. Only a fully "Off"
+   * console is unreachable — "ConnectedStandby" is woken by session creation, so
+   * it stays connectable. Defined as `!isOff` so any unknown/new power-state
+   * string fails open (connectable) rather than locking the user out.
+   */
+  function isConnectable(powerState: string): boolean {
+    return !isOff(powerState);
+  }
+
   /** Map Xbox powerState strings to Badge tone. */
   function powerStateTone(powerState: string): BadgeTone {
-    return isOn(powerState) ? "success" : "neutral";
+    if (isOn(powerState)) return "success";
+    if (isOff(powerState)) return "danger";
+    return "warn";
   }
 
   /** Human-friendly power state label for the Badge. */
   function powerStateLabel(powerState: string): string {
-    return isOn(powerState) ? "ON" : "STANDBY";
+    if (isOn(powerState)) return "ON";
+    if (isOff(powerState)) return "OFFLINE";
+    return "STANDBY";
   }
 
   /** Short presence line derived from power state. */
   function statusLine(powerState: string): string {
-    return isOn(powerState) ? "ready to stream" : "asleep";
+    if (isOn(powerState)) return "ready to stream";
+    if (isOff(powerState)) return "offline";
+    return "asleep — wakes on connect";
   }
 </script>
 
@@ -154,12 +176,12 @@
           {#each authStore.consoles as console (console.serverId)}
             <li
               class="console-card"
-              class:console-card--standby={!isOn(console.powerState)}
+              class:console-card--offline={!isConnectable(console.powerState)}
             >
               <ConsoleArt
                 consoleType={console.consoleType}
                 size={44}
-                dimmed={!isOn(console.powerState)}
+                dimmed={!isConnectable(console.powerState)}
               />
               <div class="console-card__info">
                 <div class="console-card__header">
@@ -179,7 +201,7 @@
                 <span class="console-card__status">{statusLine(console.powerState)}</span>
               </div>
               <Button
-                disabled={!isOn(console.powerState)}
+                disabled={!isConnectable(console.powerState)}
                 onclick={() => onConnect(console)}
               >Connect →</Button>
             </li>
@@ -407,8 +429,9 @@
     background: color-mix(in srgb, var(--accent) 5%, var(--surface-2));
   }
 
-  /* Dim standby rows — still legible but visually de-emphasised */
-  .console-card--standby {
+  /* Dim unreachable (Off) rows — still legible but visually de-emphasised.
+     Standby rows stay full-opacity because they're connectable. */
+  .console-card--offline {
     opacity: 0.6;
   }
 
