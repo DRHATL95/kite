@@ -5,12 +5,13 @@
 #   ./setup-ct106.sh                            # provision toolchain only
 #   ./setup-ct106.sh --runner-token <TOKEN>     # also register the runner
 #
-# This is the source of truth for the runner's build deps.
-# See scripts/runner/README.md for the registration token + full flow.
+# The runner and its rust toolchain run as the unprivileged user RUNNER_USER
+# (not root). Source of truth for the runner's build deps.
+# See scripts/runner/README.md.
 set -euo pipefail
 
 NODE_MAJOR=22
-RUST_TARGET=x86_64-pc-windows-msvc
+RUNNER_USER=ghrunner
 RUNNER_DIR=/opt/actions-runner
 GH_REPO_URL=https://github.com/DRHATL95/xbox-remote
 RUNNER_TOKEN=""
@@ -28,7 +29,7 @@ export DEBIAN_FRONTEND=noninteractive
 echo "== apt base deps =="
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-  build-essential clang lld llvm nsis jq curl file git ca-certificates gnupg \
+  build-essential clang lld llvm nsis jq curl file git ca-certificates gnupg sudo \
   libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
   librsvg2-dev patchelf libfuse2
 
@@ -53,43 +54,49 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 echo "gh: $(gh --version | head -1)"
 
-echo "== rust + cross-compile toolchain =="
-if [ ! -x "${HOME}/.cargo/bin/cargo" ]; then
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-fi
-# shellcheck disable=SC1091
-. "${HOME}/.cargo/env"
-rustup target list --installed | grep -qx "${RUST_TARGET}" || rustup target add "${RUST_TARGET}"
-command -v cargo-tauri >/dev/null 2>&1 || cargo install tauri-cli --locked
-command -v cargo-xwin  >/dev/null 2>&1 || cargo install cargo-xwin --locked
-echo "rust: $(rustc --version)"
-# NOTE: cargo-xwin downloads the MSVC SDK into ~/.cache/cargo-xwin on the first
-# cross-build (the CI 'Tauri cross-build' step). That first build is slower; it
-# is not pre-warmed here to keep the provisioner project-independent.
+echo "== runner user: ${RUNNER_USER} =="
+id "${RUNNER_USER}" >/dev/null 2>&1 || useradd -m -s /bin/bash "${RUNNER_USER}"
+RUNNER_HOME="$(getent passwd "${RUNNER_USER}" | cut -d: -f6)"
 
-echo "== GitHub Actions runner agent =="
-if [ ! -e "${RUNNER_DIR}/.runner" ]; then
-  mkdir -p "${RUNNER_DIR}"; cd "${RUNNER_DIR}"
-  if [ ! -x ./config.sh ]; then
-    REL="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)"
-    VER="$(grep -m1 '"tag_name"' <<<"${REL}" | sed -E 's/.*"v([^"]+)".*/\1/')"
-    curl -fsSL -o runner.tar.gz "https://github.com/actions/runner/releases/download/v${VER}/actions-runner-linux-x64-${VER}.tar.gz"
-    tar xzf runner.tar.gz && rm -f runner.tar.gz
-    ./bin/installdependencies.sh
+echo "== rust + cross-compile toolchain (as ${RUNNER_USER}) =="
+sudo -u "${RUNNER_USER}" -H bash -lc '
+  set -e
+  if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
   fi
-  printf '%s\n' "/root/.cargo/bin:/sbin:/bin:/usr/sbin:/usr/bin" > .path
-  printf '%s\n' "RUNNER_ALLOW_RUNASROOT=1" > .env
+  . "$HOME/.cargo/env"
+  rustup target list --installed | grep -qx "x86_64-pc-windows-msvc" || rustup target add x86_64-pc-windows-msvc
+  command -v cargo-tauri >/dev/null 2>&1 || cargo install tauri-cli --locked
+  command -v cargo-xwin  >/dev/null 2>&1 || cargo install cargo-xwin --locked
+  echo "rust: $(rustc --version)"
+'
+# NOTE: cargo-xwin downloads the MSVC SDK into the runner user's
+# ~/.cache/cargo-xwin on the first cross-build; not pre-warmed here (keeps the
+# provisioner project-independent).
+
+echo "== GitHub Actions runner agent (as ${RUNNER_USER}) =="
+mkdir -p "${RUNNER_DIR}"
+if [ ! -e "${RUNNER_DIR}/.runner" ]; then
+  if [ ! -x "${RUNNER_DIR}/config.sh" ]; then
+    ( cd "${RUNNER_DIR}"
+      REL="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)"
+      VER="$(grep -m1 '"tag_name"' <<<"${REL}" | sed -E 's/.*"v([^"]+)".*/\1/')"
+      curl -fsSL -o runner.tar.gz "https://github.com/actions/runner/releases/download/v${VER}/actions-runner-linux-x64-${VER}.tar.gz"
+      tar xzf runner.tar.gz && rm -f runner.tar.gz
+      ./bin/installdependencies.sh )
+  fi
+  printf '%s\n' "${RUNNER_HOME}/.cargo/bin:/sbin:/bin:/usr/sbin:/usr/bin" > "${RUNNER_DIR}/.path"
+  : > "${RUNNER_DIR}/.env"
+  chown -R "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_DIR}"
   if [ -n "${RUNNER_TOKEN}" ]; then
-    RUNNER_ALLOW_RUNASROOT=1 ./config.sh --unattended --replace \
-      --url "${GH_REPO_URL}" --token "${RUNNER_TOKEN}" --name ct106 --work _work
-    ./svc.sh install root
-    ./svc.sh start
-    echo "runner registered + service started"
+    sudo -u "${RUNNER_USER}" -H bash -lc "cd '${RUNNER_DIR}' && ./config.sh --unattended --replace --url '${GH_REPO_URL}' --token '${RUNNER_TOKEN}' --name ct106 --work _work"
+    ( cd "${RUNNER_DIR}" && ./svc.sh install "${RUNNER_USER}" && ./svc.sh start )
+    echo "runner registered + service started as ${RUNNER_USER}"
   else
     echo "runner agent downloaded but NOT registered (no --runner-token); see README"
   fi
 else
-  echo "runner already configured at ${RUNNER_DIR} — left untouched"
+  echo "runner already configured at ${RUNNER_DIR} — left untouched (see README to migrate an existing root runner to ${RUNNER_USER})"
 fi
 
 echo "== provisioning complete =="
