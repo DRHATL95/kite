@@ -6,11 +6,25 @@ vi.mock("./updater.js", () => ({
   applyUpdate: vi.fn(),
 }));
 
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.resetModules(); });
+const CHANNEL_KEY = "xbox-remote:update-channel";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.resetModules();
+});
+
+async function seed(entries: [string, string][] = []) {
+  const persist = await import("../persist/store.js");
+  await persist.initPersistence({
+    entries: async () => entries,
+    set: async () => {},
+  });
+  return persist;
+}
 
 describe("updateStore channel behavior", () => {
   it("checkOnLaunch uses the persisted channel, upgrade-only", async () => {
-    localStorage.setItem("xbox-remote:update-channel", "nightly");
+    await seed([[CHANNEL_KEY, "nightly"]]);
     const { checkForUpdate } = await import("./updater.js");
     (checkForUpdate as any).mockResolvedValue(null);
     const { updateStore } = await import("./updateStore.svelte.js");
@@ -19,17 +33,18 @@ describe("updateStore channel behavior", () => {
   });
 
   it("switchChannel persists the channel and checks it allowing downgrade", async () => {
+    const persist = await seed();
     const { checkForUpdate } = await import("./updater.js");
     (checkForUpdate as any).mockResolvedValue({ version: "0.3.0", notes: "n" });
     const { updateStore } = await import("./updateStore.svelte.js");
     await updateStore.switchChannel("stable");
-    expect(localStorage.getItem("xbox-remote:update-channel")).toBe("stable");
+    expect(persist.persisted.getItem(CHANNEL_KEY)).toBe("stable");
     expect(checkForUpdate).toHaveBeenCalledWith("stable", true);
     expect(updateStore.available).toEqual({ version: "0.3.0", notes: "n" });
   });
 
   it("checkNow checks the persisted channel upgrade-only and surfaces an update", async () => {
-    localStorage.setItem("xbox-remote:update-channel", "nightly");
+    await seed([[CHANNEL_KEY, "nightly"]]);
     const { checkForUpdate } = await import("./updater.js");
     (checkForUpdate as any).mockResolvedValue({ version: "0.6.0-nightly.1" });
     const { updateStore } = await import("./updateStore.svelte.js");
@@ -41,6 +56,7 @@ describe("updateStore channel behavior", () => {
   });
 
   it("checkNow flags upToDate when nothing newer is found", async () => {
+    await seed();
     const { checkForUpdate } = await import("./updater.js");
     (checkForUpdate as any).mockResolvedValue(null);
     const { updateStore } = await import("./updateStore.svelte.js");

@@ -7,8 +7,8 @@
    *     mouse idle (ported from app.js toggleFocusMode / onFocusMouseMove logic).
    *   - Fullscreen toggle: requestFullscreen on the stream container element.
    *   - Keyframe button: connectionStore.requestKeyframe().
-   *   - Volume slider (0–100): persisted to localStorage under 'xbox-remote-volume'
-   *     (same key as app.js line 1103).  Applied to the video element directly.
+   *   - Volume slider (0–100): persisted to the durable settings store under
+   *     'xbox-remote-volume'.  Applied to the video element directly.
    *   - Disconnect button: calls onDisconnect prop.
    *
    * Props:
@@ -26,6 +26,7 @@
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import { settings } from "$lib/stores/settings.svelte.js";
   import { clipStore } from "$lib/stores/clip.svelte.js";
+  import { persisted } from "$lib/persist/store.js";
 
   const showClip = $derived(
     settings.clip.enabled && connectionStore.state === "streaming",
@@ -55,7 +56,7 @@
 
   /** Read the persisted volume as a 0–100 integer, defaulting to 80. */
   function readSavedVolumePct(): number {
-    const saved = localStorage.getItem(VOLUME_KEY);
+    const saved = persisted.getItem(VOLUME_KEY);
     if (saved !== null) {
       const v = parseFloat(saved);
       if (!Number.isNaN(v)) return Math.round(v * 100);
@@ -63,7 +64,7 @@
     return 80;
   }
 
-  /** 0–100 integer; initialised from localStorage if a saved value exists. */
+  /** 0–100 integer; initialised from the persisted store if a saved value exists. */
   let volumePct = $state<number>(readSavedVolumePct());
 
   /**
@@ -80,7 +81,7 @@
       video.volume = pct / 100;
       video.muted = pct === 0;
     }
-    localStorage.setItem(VOLUME_KEY, String(pct / 100));
+    persisted.setItem(VOLUME_KEY, String(pct / 100));
   }
 
   /**
@@ -99,7 +100,7 @@
   /** Sync video element when it becomes available (also called from Stream.svelte after mount). */
   $effect(() => {
     if (video && !video.muted) {
-      const saved = localStorage.getItem(VOLUME_KEY);
+      const saved = persisted.getItem(VOLUME_KEY);
       if (saved !== null) {
         const v = parseFloat(saved);
         if (!Number.isNaN(v)) {

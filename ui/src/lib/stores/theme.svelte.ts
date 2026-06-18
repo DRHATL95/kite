@@ -1,7 +1,7 @@
 /**
  * theme.svelte.ts — Reactive theme store.
  *
- * Persists the selected theme to localStorage and reflects it onto
+ * Persists the selected theme to the durable settings store and reflects it onto
  * <html data-theme="…">, which tokens.css keys its colour palettes off.
  *
  * Usage:
@@ -12,16 +12,17 @@
  */
 
 import { THEME_IDS, DEFAULT_THEME } from "$lib/design/themes.js";
+import { persisted } from "../persist/store.js";
 
 const STORAGE_KEY = "xbox-remote-theme";
 
 /** Read the persisted theme id, falling back to the default. */
 function readInitial(): string {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = persisted.getItem(STORAGE_KEY);
     if (saved && THEME_IDS.includes(saved)) return saved;
   } catch {
-    // localStorage unavailable — use default
+    // persistence unavailable — use default
   }
   return DEFAULT_THEME;
 }
@@ -51,7 +52,7 @@ class ThemeStore {
     this.current = id;
     applyToDom(id);
     try {
-      localStorage.setItem(STORAGE_KEY, id);
+      persisted.setItem(STORAGE_KEY, id);
     } catch {
       // best-effort persistence
     }
