@@ -106,6 +106,21 @@ https://github.com/DRHATL95/xbox-remote-releases/releases/download/stable/latest
 3. Offline, the check silently no-ops. The releases repo is public on GitHub, so
    the check works from anywhere with internet (no LAN dependency).
 
+### Migrating an existing install (Gitea → GitHub)
+
+Builds released before the GitHub migration have the old Gitea updater URL baked
+into the binary, so they cannot see GitHub releases (the off-LAN check just
+no-ops). There is no automatic bridge — **reinstall once**: download the latest
+installer from the
+[releases page](https://github.com/DRHATL95/xbox-remote-releases/releases/latest)
+and run it. After that one manual update the new binary points at the GitHub
+`latest.json` and auto-updates normally thereafter.
+
+To confirm auto-update works end-to-end: install the current build, then when the
+next nightly (or stable) ships, the launch check should prompt to install it
+(Settings → Updates picks the channel). The updater verifies the download's
+signature against the pubkey in `tauri.conf.json` before applying.
+
 ## The `latest.json` updater manifest
 
 Generated per build by `scripts/ci/make-latest-json.sh` and uploaded alongside
