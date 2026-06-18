@@ -9,6 +9,7 @@ import {
   saveClipSettings,
   type ClipSettings,
 } from "../settings/clipSettings.js";
+import { persisted } from "../persist/store.js";
 
 export type UpdateChannel = "stable" | "nightly";
 
@@ -17,10 +18,10 @@ const DEFAULT_CHANNEL: UpdateChannel = "stable";
 
 function readChannel(): UpdateChannel {
   try {
-    const saved = localStorage.getItem(CHANNEL_KEY);
+    const saved = persisted.getItem(CHANNEL_KEY);
     if (saved === "stable" || saved === "nightly") return saved;
   } catch {
-    // localStorage unavailable — use default
+    // persistence unavailable — use default
   }
   return DEFAULT_CHANNEL;
 }
@@ -30,13 +31,13 @@ class SettingsStore {
   updateChannel: UpdateChannel = $state(readChannel());
 
   /** Opt-in clipping preferences (reactive). */
-  clip: ClipSettings = $state(loadClipSettings(localStorage));
+  clip: ClipSettings = $state(loadClipSettings(persisted));
 
   /** Switch channel and persist it. */
   setChannel(c: UpdateChannel): void {
     this.updateChannel = c;
     try {
-      localStorage.setItem(CHANNEL_KEY, c);
+      persisted.setItem(CHANNEL_KEY, c);
     } catch {
       // best-effort persistence
     }
@@ -45,7 +46,7 @@ class SettingsStore {
   /** Apply a partial clip-settings update, persist, and trigger reactivity. */
   setClip(patch: Partial<ClipSettings>): void {
     this.clip = { ...this.clip, ...patch };
-    saveClipSettings(localStorage, this.clip);
+    saveClipSettings(persisted, this.clip);
   }
 }
 

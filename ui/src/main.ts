@@ -7,14 +7,22 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 
-import { mount } from "svelte";
-import App from "./App.svelte";
 import "./lib/design/tokens.css";
-import { themeStore } from "./lib/stores/theme.svelte.js";
+import { initPersistence } from "./lib/persist/store.js";
 
-// Apply the persisted theme to <html> BEFORE the first paint (no flash).
-themeStore.init();
+// Hydrate persisted settings BEFORE importing any store (whose synchronous
+// construction reads settings) or mounting the app. Dynamic imports run after
+// the await, so every read hits the hydrated snapshot — and the persisted
+// theme is applied before first paint, avoiding a flash.
+async function bootstrap(): Promise<void> {
+  await initPersistence();
 
-const app = mount(App, { target: document.getElementById("app")! });
+  const { themeStore } = await import("./lib/stores/theme.svelte.js");
+  themeStore.init();
 
-export default app;
+  const { mount } = await import("svelte");
+  const { default: App } = await import("./App.svelte");
+  mount(App, { target: document.getElementById("app")! });
+}
+
+void bootstrap();
