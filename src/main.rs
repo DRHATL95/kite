@@ -14,17 +14,29 @@ fn main() {
     use tokio::sync::Mutex;
     use tauri::Manager;
 
-    // WebKitGTK's DMA-BUF renderer triggers "Gdk-Message: Error 71 (Protocol
-    // error) dispatching to Wayland display" on many Wayland compositor + GPU
-    // driver combinations, aborting before the window can open. Disabling it
-    // makes the webview fall back to a compatible renderer (still native
-    // Wayland). Skip if the user already set the variable so they can override.
+    // WebKitGTK + Wayland is hostile to WebRTC video: the native DMA-BUF path
+    // renders incoming video as black squares (Tauri #14924) and also triggers
+    // "Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display" on
+    // many compositor + GPU combos, aborting before the window opens. The
+    // documented fix for WebRTC-in-WebKitGTK is to run under XWayland with
+    // compositing disabled (Tauri discussion #8426): GDK_BACKEND=x11 sidesteps the
+    // Wayland protocol error AND keeps video decoding/rendering, where merely
+    // disabling the DMA-BUF *renderer* fixed the crash but left video black.
+    //
+    // Each variable is only set if the user hasn't already set it (so they can
+    // override individually), and the entire workaround is skipped when
+    // XBOX_REMOTE_NATIVE_WAYLAND is set — for setups where native Wayland already
+    // works and the user prefers it (e.g. HiDPI/latency reasons).
+    //
+    // SAFETY: runs at the very top of main(), before any other thread is spawned,
+    // so there is no concurrent access to the environment.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        // SAFETY: runs at the very top of main(), before any other thread is
-        // spawned, so there is no concurrent access to the environment.
-        unsafe {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    if std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none() {
+        if std::env::var_os("GDK_BACKEND").is_none() {
+            unsafe { std::env::set_var("GDK_BACKEND", "x11") };
+        }
+        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+            unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
         }
     }
 

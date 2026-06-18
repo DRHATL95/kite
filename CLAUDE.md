@@ -131,12 +131,29 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 
 **Windows**: Install [MSVC Build Tools](https://visualstudio.microsoft.com/downloads/) and [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (usually pre-installed on Windows 11).
 
-**Linux (Ubuntu/Debian)**:
+**Linux (Ubuntu/Debian)** — build deps:
 ```bash
 sudo apt-get install -y \
     build-essential libgtk-3-dev libwebkit2gtk-4.1-dev \
     libayatana-appindicator3-dev librsvg2-dev patchelf
 ```
+
+**Linux runtime — streaming codecs.** WebRTC video is decoded inside WebKitGTK's
+GStreamer pipeline, so the H.264/WebRTC plugins must be installed or the stream
+negotiates but renders **black** (the media-flow watchdog then reconnects in a loop):
+```bash
+sudo apt-get install -y \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-libav
+# verify: gst-inspect-1.0 webrtcbin >/dev/null && echo "webrtcbin OK"
+```
+
+**Linux/Wayland.** WebKitGTK on native Wayland renders WebRTC video black and can
+abort with "Gdk-Message: Error 71". The app therefore defaults to XWayland —
+`src/main.rs` sets `GDK_BACKEND=x11` + `WEBKIT_DISABLE_COMPOSITING_MODE=1` on Linux
+(each only if unset). Opt out with `XBOX_REMOTE_NATIVE_WAYLAND=1`, or override either
+variable directly. (NVIDIA users who want to keep native Wayland can instead try
+`__NV_DISABLE_EXPLICIT_SYNC=1`.)
 
 **macOS**: Install Xcode Command Line Tools.
 
