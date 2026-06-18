@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default capability: core, shell, updater, process, opener","local":true,"windows":["main"],"permissions":["core:default","shell:default","updater:default","process:allow-restart","opener:allow-reveal-item-in-dir"]}}
