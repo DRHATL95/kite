@@ -240,6 +240,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    /* Selectable so the full URL can be hand-copied even when the webview's
+       clipboard API is unavailable (Linux/WebKitGTK) and "Copy URL" silently
+       fails — text-overflow only truncates visually, selection grabs it all. */
+    user-select: all;
   }
 
   /* ── Waiting indicator ────────────────────────────────────────────────────── */
