@@ -8,14 +8,18 @@
    * Starts authStore.startPollingLoop() on mount; cancels it in the $effect
    * cleanup so the interval is never leaked when the component is destroyed.
    *
-   * Note: @tauri-apps/plugin-shell is not installed in this project.
-   * URL opening falls back to window.open() (works in Tauri WebView).
-   * A "Copy URL" button is provided as a reliable alternative.
+   * Opening the sign-in page uses @tauri-apps/plugin-opener (openUrl), which
+   * hands the URL to the OS so it opens in the user's real browser. window.open
+   * is a no-op in WebKitGTK, so it must NOT be used here. The Microsoft /link
+   * page pre-fills the code from an `otc` query param, so we append the user
+   * code to the opened URL and the user only has to confirm. A "Copy URL"
+   * button remains as a manual fallback.
    *
    * Props: none.
    */
 
   import { onMount } from "svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import Button from "$lib/design/Button.svelte";
   import Panel from "$lib/design/Panel.svelte";
@@ -25,8 +29,13 @@
   let userCode = $derived(authStore.deviceCode?.user_code ?? "");
   let verificationUri = $derived(authStore.deviceCode?.verification_uri ?? "");
 
+  // The same verification URL with the one-time code pre-filled via `otc`, which
+  // the Microsoft sign-in page reads to populate the code box automatically.
+  let signInUrl = $derived(withCode(verificationUri, userCode));
+
   let codeCopied = $state(false);
   let urlCopied = $state(false);
+  let openError = $state<string | null>(null);
 
   // ── Polling lifecycle ────────────────────────────────────────────────────────
   // $effect runs after mount; its cleanup callback fires when the component
@@ -38,9 +47,28 @@
 
   // ── Actions ───────────────────────────────────────────────────────────────────
 
-  function openUrl() {
-    // Tauri WebView supports window.open with _blank for external URLs.
-    window.open(verificationUri, "_blank");
+  // Append the one-time code as `otc` so the sign-in page pre-fills it. Returns
+  // the URL unchanged if it can't be parsed or there is no code yet.
+  function withCode(uri: string, code: string): string {
+    if (!uri) return uri;
+    try {
+      const u = new URL(uri);
+      if (code) u.searchParams.set("otc", code);
+      return u.toString();
+    } catch {
+      return uri;
+    }
+  }
+
+  async function openSignIn() {
+    openError = null;
+    try {
+      // openUrl hands the URL to the OS — opens the user's real browser.
+      await openUrl(signInUrl);
+    } catch (e) {
+      openError = `Couldn't open the browser automatically — use "Copy URL" and open it manually.`;
+      console.error("openUrl failed", e);
+    }
   }
 
   async function copyCode() {
@@ -86,9 +114,13 @@
 
       <!-- ── URL section ──────────────────────────────────────────────────── -->
       <div class="url-section">
-        <Button onclick={openUrl} disabled={!verificationUri}>
+        <Button onclick={openSignIn} disabled={!verificationUri}>
           Open sign-in page
         </Button>
+
+        {#if openError}
+          <p class="error-message" role="alert">{openError}</p>
+        {/if}
 
         <div class="url-copy-row">
           <span class="url-text" title={verificationUri}>{verificationUri}</span>
