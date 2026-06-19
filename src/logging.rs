@@ -170,7 +170,7 @@ pub fn init_logging(log_dir: &Path) -> (LogState, WorkerGuard) {
         .with(SinkLayer { buf: buf.clone(), file: non_blocking })
         .init();
 
-    install_panic_hook();
+    install_panic_hook(log_dir.to_path_buf());
 
     (
         LogState { buf, reload: reload_handle, log_dir: log_dir.to_path_buf() },
@@ -178,7 +178,7 @@ pub fn init_logging(log_dir: &Path) -> (LogState, WorkerGuard) {
     )
 }
 
-fn install_panic_hook() {
+fn install_panic_hook(log_dir: std::path::PathBuf) {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let loc = info
@@ -186,6 +186,22 @@ fn install_panic_hook() {
             .map(|l| format!("{}:{}", l.file(), l.line()))
             .unwrap_or_else(|| "unknown".into());
         tracing::error!(target: "panic", "panic at {loc}: {info}");
+        // Also write synchronously to a dedicated file so the panic survives even
+        // if the process aborts before the non-blocking appender's worker drains.
+        // Redacted like everything else; picked up by export_logs (matches *.log).
+        let line = redact(&format!(
+            "{} ERROR panic: panic at {loc}: {info}\n",
+            chrono::Utc::now().to_rfc3339()
+        ));
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("xbox-remote-panic.log"))
+        {
+            use std::io::Write;
+            let _ = f.write_all(line.as_bytes());
+            let _ = f.flush();
+        }
         prev(info);
     }));
 }
