@@ -2,6 +2,32 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ## STATUS (updated 2026-06-19, last on Windows dev box)
+>
+> - **Phase 0 — partial.** ✅ Architecture skeleton (`src/rtc/` façade + seams),
+>   Cargo deps behind `native-webrtc`, and the make-or-break **SRTP gate resolved**
+>   (DTLS-SRTP, see §RESOLVED). ⬜ The **live de-risk spike is NOT done** — Task 0.1
+>   (`XBOX_DUMP_SDP` capture hook in `exchange_sdp`) and Task 0.2 (`examples/rtc_spike.rs`
+>   str0m receive→decode→PNG) still pending; they need a **live console + the Linux box**.
+> - **Phase 1 — ✅ COMPLETE** (pure protocol port, all TDD + `insta`, 93 tests green,
+>   pushed). Commits `d599069..c7cb752`:
+>   - `src/rtc/input.rs` — byte-exact 38-byte input encoder.
+>   - `src/rtc/protocol.rs` — DC message builders + non-panicking inbound parser.
+>   - `src/rtc/clip_tap.rs` — clip ring + keyframe-aligned assemble (Opus-direct;
+>     `src/clip.rs` intentionally untouched — its Opus mux change is **Phase 5**).
+>   - Gate change: `mod rtc` compiles in the **default build** (pure modules need no
+>     codec/transport deps); only the str0m/ffmpeg engine + adapters are gated behind
+>     `native-webrtc`. So `cargo test` (no `--features`) runs the pure tests anywhere.
+> - **NEXT (on CachyOS, where ffmpeg/str0m compile + the console is reachable):**
+>   1. Linux build deps incl. ffmpeg dev libs + `pkg-config` so `cargo build
+>      --features native-webrtc` succeeds (ffmpeg-the-third does NOT build on stock
+>      Windows — that's why Phase 1 was done feature-free).
+>   2. Phase 0 Task 0.1 + 0.2 (capture Xbox's answer SDP; prove str0m connect→decode
+>      with a PNG of the dashboard).
+>   3. Then Phase 2 (str0m engine + signaling), reusing the Phase 1 pure modules.
+> - After the whole native feature: the 1.0 backend (`xhome.rs`) + frontend
+>   (`ConnectionManager.ts`) refactors.
+
 **Goal:** Move the WebRTC media client out of the browser webview into native Rust so Xbox streaming works on Linux (where WebKitGTK ships *without* WebRTC), with one shared Rust engine that Windows and macOS can later adopt.
 
 **Architecture:** A single cross-platform Rust WebRTC engine (str0m) owns the session: it answers Xbox's SDP offer, runs ICE/DTLS-SRTP, receives the H.264 video + Opus audio, and runs the four data channels. Decoded video is rendered to a native surface **under** the existing transparent Svelte HUD (Linux: transparent WebKitGTK over a wgpu/`gtkglsink` surface). ~80% of the code — transport, the Xbox protocol, the 38-byte input packet, the clip tap, stats, keepalive/reconnect, Opus decode — is platform-agnostic Rust written once. Only the final decode+composite "last mile" is per-OS. Linux ships first behind a feature flag; the proven browser `<video>` path stays the default on Windows/macOS until the native render layer is proven and they're flipped over.
