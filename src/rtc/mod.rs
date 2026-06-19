@@ -27,12 +27,12 @@ pub mod signaling;
 pub mod transport;
 
 // Phase 1 (pure, TDD) — added with their tasks:
+pub mod clip_tap;
 pub mod input;
 pub mod protocol;
-pub mod clip_tap;
 // Phase 2+ (IO orchestration):
 //   mod engine;
-//   mod channels;
+pub mod channels;
 //   mod stats;
 
 use thiserror::Error;
