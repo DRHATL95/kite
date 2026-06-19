@@ -250,8 +250,11 @@ mod tauri_commands {
     #[tauri::command]
     pub async fn start_xbox_auth(state: State<'_, AppState>) -> Result<String, String> {
         let auth = state.auth.lock().await;
-        let device_info = auth
-            .start_device_code_auth()
+        // Authorization-code flow: returns the authorize URL to open in the
+        // browser; a background task completes sign-in. The frontend opens the
+        // URL and polls check_auth_status until tokens are stored.
+        let authorize_url = auth
+            .start_auth_code_flow()
             .await
             .map_err(|e| format!("Auth failed: {}", e))?;
 
@@ -259,13 +262,11 @@ mod tauri_commands {
         let auth_clone = auth.clone();
         drop(auth); // Release lock before acquiring xhome lock
 
-        // Initialize xHome client (it will use tokens when they're available)
+        // Initialize xHome client (it will use tokens once sign-in completes)
         let xhome_client = XHomeClient::new(auth_clone);
         *state.xhome.lock().await = Some(xhome_client);
 
-        // Return device info as JSON
-        serde_json::to_string(&device_info)
-            .map_err(|e| format!("Failed to serialize device info: {}", e))
+        Ok(authorize_url)
     }
 
     #[tauri::command]

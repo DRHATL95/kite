@@ -7100,10 +7100,12 @@ dependencies = [
 name = "xbox-remote"
 version = "0.6.0"
 dependencies = [
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "dirs",
  "ffmpeg-the-third",
+ "getrandom 0.3.4",
  "keyring",
  "muxide",
  "opus",
@@ -7111,6 +7113,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "str0m",
  "tauri",
  "tauri-build",
