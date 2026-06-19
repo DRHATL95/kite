@@ -50,6 +50,7 @@ getrandom = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+insta = "1"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
