@@ -32,7 +32,9 @@ thiserror = "2.0"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry", "fmt"] }
+tracing-appender = "0.2"
+regex = "1"
 
 # OS keychain for token storage
 # pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
