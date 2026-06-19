@@ -58,12 +58,14 @@ pub struct GamepadFrame {
     pub buttons: u16,
     /// Left stick X in [-32767, 32767]. input.ts: axes[0] → normalizeAxis(lx).
     pub left_thumb_x: i16,
-    /// Left stick Y in [-32767, 32767]. **Negated on encode** per protocol.
+    /// Left stick Y in [-32767, 32767]. Populate with the desired/raw Y value
+    /// as-is — `encode_gamepad` applies the protocol negation; do NOT pre-negate.
     /// input.ts: axes[1] → normalizeAxis(-ly).
     pub left_thumb_y: i16,
     /// Right stick X in [-32767, 32767].
     pub right_thumb_x: i16,
-    /// Right stick Y in [-32767, 32767]. **Negated on encode** per protocol.
+    /// Right stick Y in [-32767, 32767]. Populate with the desired/raw Y value
+    /// as-is — `encode_gamepad` applies the protocol negation; do NOT pre-negate.
     pub right_thumb_y: i16,
     /// Left trigger in [0, 65535]. input.ts: normalizeTrigger(buttons[6].value).
     pub left_trigger: u16,
