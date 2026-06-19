@@ -1101,8 +1101,61 @@ impl XHomeClient {
         Ok(servers)
     }
 
-    /// Exchange SDP offer for answer - send our offer, get server's answer
+    /// Exchange SDP offer for answer - send our offer, get server's answer.
+    ///
+    /// When `XBOX_DUMP_SDP` is set in the environment, the local offer and the
+    /// Xbox answer are appended to a local capture file (default
+    /// `<tmp>/xbox-remote-sdp-capture.txt`, override with `XBOX_DUMP_SDP_PATH`)
+    /// for Phase-0 SRTP-mode classification (DTLS-SRTP vs SDES). Local-only
+    /// diagnostics: the answer carries the DTLS fingerprint, not a long-lived
+    /// secret. Written raw (bypassing log redaction) so the crypto lines survive.
     pub async fn exchange_sdp_offer(&self, session_path: &str, sdp_offer: &str) -> Result<String> {
+        let answer = self.exchange_sdp_offer_impl(session_path, sdp_offer).await;
+        if std::env::var_os("XBOX_DUMP_SDP").is_some() {
+            Self::dump_sdp_capture(sdp_offer, answer.as_deref().ok());
+        }
+        answer
+    }
+
+    /// Append a local offer + Xbox answer pair to the SDP capture file. Best
+    /// effort: failures are logged but never affect the exchange result.
+    fn dump_sdp_capture(offer: &str, answer: Option<&str>) {
+        use std::io::Write;
+
+        let path = std::env::var_os("XBOX_DUMP_SDP_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("xbox-remote-sdp-capture.txt"));
+
+        let mut buf = String::new();
+        buf.push_str("================ SDP EXCHANGE CAPTURE ================\n");
+        buf.push_str(&format!(
+            "captured_at: {}\n",
+            chrono::Utc::now().to_rfc3339()
+        ));
+        buf.push_str("---------------- LOCAL OFFER ------------------------\n");
+        buf.push_str(offer.trim_end());
+        buf.push_str("\n---------------- XBOX ANSWER ------------------------\n");
+        buf.push_str(
+            answer
+                .map(str::trim_end)
+                .unwrap_or("<exchange failed; no answer captured>"),
+        );
+        buf.push_str("\n=====================================================\n\n");
+
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(mut f) => match f.write_all(buf.as_bytes()) {
+                Ok(()) => info!("XBOX_DUMP_SDP: appended SDP capture to {}", path.display()),
+                Err(e) => warn!("XBOX_DUMP_SDP: failed to write {}: {e}", path.display()),
+            },
+            Err(e) => warn!("XBOX_DUMP_SDP: failed to open {}: {e}", path.display()),
+        }
+    }
+
+    async fn exchange_sdp_offer_impl(&self, session_path: &str, sdp_offer: &str) -> Result<String> {
         info!("Exchanging SDP offer for answer");
 
         let gs_token = self

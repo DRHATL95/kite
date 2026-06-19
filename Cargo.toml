@@ -51,6 +51,15 @@ getrandom = "0.3"
 [dev-dependencies]
 tempfile = "3"
 insta = { version = "1", features = ["json"] }
+# Phase-0 spike only (examples/rtc_spike.rs): error context + PNG encode.
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Phase-0 throwaway de-risk spike: str0m offerer → receive Xbox H.264 → decode
+# one frame → PNG. Only built when the native stack is available.
+[[example]]
+name = "rtc_spike"
+required-features = ["native-webrtc"]
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }

@@ -2,29 +2,38 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> ## STATUS (updated 2026-06-19, last on Windows dev box)
+> ## STATUS (updated 2026-06-19, live on CachyOS + real console)
 >
-> - **Phase 0 — partial.** ✅ Architecture skeleton (`src/rtc/` façade + seams),
->   Cargo deps behind `native-webrtc`, and the make-or-break **SRTP gate resolved**
->   (DTLS-SRTP, see §RESOLVED). ⬜ The **live de-risk spike is NOT done** — Task 0.1
->   (`XBOX_DUMP_SDP` capture hook in `exchange_sdp`) and Task 0.2 (`examples/rtc_spike.rs`
->   str0m receive→decode→PNG) still pending; they need a **live console + the Linux box**.
-> - **Phase 1 — ✅ COMPLETE** (pure protocol port, all TDD + `insta`, 93 tests green,
->   pushed). Commits `d599069..c7cb752`:
->   - `src/rtc/input.rs` — byte-exact 38-byte input encoder.
->   - `src/rtc/protocol.rs` — DC message builders + non-panicking inbound parser.
->   - `src/rtc/clip_tap.rs` — clip ring + keyframe-aligned assemble (Opus-direct;
->     `src/clip.rs` intentionally untouched — its Opus mux change is **Phase 5**).
->   - Gate change: `mod rtc` compiles in the **default build** (pure modules need no
->     codec/transport deps); only the str0m/ffmpeg engine + adapters are gated behind
->     `native-webrtc`. So `cargo test` (no `--features`) runs the pure tests anywhere.
-> - **NEXT (on CachyOS, where ffmpeg/str0m compile + the console is reachable):**
->   1. Linux build deps incl. ffmpeg dev libs + `pkg-config` so `cargo build
->      --features native-webrtc` succeeds (ffmpeg-the-third does NOT build on stock
->      Windows — that's why Phase 1 was done feature-free).
->   2. Phase 0 Task 0.1 + 0.2 (capture Xbox's answer SDP; prove str0m connect→decode
->      with a PNG of the dashboard).
->   3. Then Phase 2 (str0m engine + signaling), reusing the Phase 1 pure modules.
+> - **Phase 0 — ✅ COMPLETE** (live de-risk passed end-to-end on the Linux box +
+>   a real Xbox Series X). See
+>   [findings](../specs/2026-06-19-native-webrtc-sdp-findings.md).
+>   - **Task 0.1 — DTLS-SRTP confirmed *on the wire*.** Xbox's answer is
+>     `a=setup:passive` + `a=fingerprint`, **no `a=crypto`**; the config-JSON
+>     `srtp.key` is unused. str0m works unmodified — Risk #1 gate GREEN.
+>     `XBOX_DUMP_SDP` hook lives in `xhome.rs::exchange_sdp_offer` (→
+>     `<tmp>/xbox-remote-sdp-capture.txt`).
+>   - **Task 0.2 — str0m receive→decode PASS.** `examples/rtc_spike.rs` (offerer)
+>     connected in ~0.6 s, opened the 4 DCEP channels, ran the Phase-1 handshake,
+>     received 189 H.264 + 159 Opus frames, decoded a 1920×1080 PNG of the
+>     dashboard. **Spike retained intentionally** (feature-gated example;
+>     `required-features=["native-webrtc"]`) as a live Phase-2 engine reference.
+>   - **Lib+bin split done.** Was a binary-only crate; added `src/lib.rs`
+>     (`pub mod …` + `run()`), `main.rs` is now a thin shim. Unblocks `examples/`
+>     AND Phase-2 `tests/` integration tests. `cargo test` → 93/93.
+>   - Load-bearing live discoveries (now in the findings doc, must inform Phase 2):
+>     (a) **ICE `/ice` is a rendezvous** — `204` until the client POSTs its own
+>     candidate; (b) **Xbox won't stream without the data channels** — a
+>     channel-less offer got 0 media; (c) str0m emits **Annex-B** H.264 (ffmpeg
+>     direct), Xbox sends **L4.2** 1080p, negotiated fine via
+>     `level-asymmetry-allowed`.
+> - **Phase 1 — ✅ COMPLETE** (pure protocol port, TDD + `insta`, 93 tests).
+>   `src/rtc/{input,protocol,clip_tap}.rs`. The `protocol.rs` builders drove the
+>   live console **unmodified** during the spike — empirically validated.
+> - **NEXT — Phase 2 (str0m engine + signaling).** Author the detailed Phase-2
+>   task plan (`docs/superpowers/plans/2026-06-…-native-webrtc-phase2.md`), then
+>   build `engine.rs` (sans-IO loop — the spike is its skeleton), `channels.rs`
+>   (4-channel handshake), and the `XHomeSignaling` adapter, reusing the Phase-1
+>   pure modules. **STOP point honored: await go-ahead before starting Phase 2.**
 > - After the whole native feature: the 1.0 backend (`xhome.rs`) + frontend
 >   (`ConnectionManager.ts`) refactors.
 
