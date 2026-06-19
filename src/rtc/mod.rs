@@ -15,8 +15,10 @@
 //! - [`media::VideoRenderer`] — decoded frame → native surface under the HUD.
 //!
 //! Pure protocol (`input`, `protocol`, `clip_tap`) carries no IO and is fully
-//! unit-tested. The whole module is gated behind the `native-webrtc` feature so
-//! the default build stays lean.
+//! unit-tested. These pure modules and the trait seams compile in the **default
+//! build** (no codec/transport deps), so they can be tested without the ffmpeg/
+//! str0m toolchain. Only the str0m/ffmpeg-backed engine and adapters (Phase 2+)
+//! are gated behind the `native-webrtc` feature, keeping the default build lean.
 
 #![allow(dead_code)] // Phase 0 skeleton: seams defined ahead of their adapters.
 
