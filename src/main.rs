@@ -6,7 +6,10 @@ mod auth;
 mod clip;
 mod error;
 mod logging;
-#[cfg(feature = "native-webrtc")]
+// `rtc` compiles in the default build: its pure protocol modules (input/protocol/
+// clip_tap) and trait seams carry no codec/transport deps and are unit-tested
+// without the feature. Only the str0m/ffmpeg-backed engine + adapters inside it
+// are gated behind `native-webrtc` (see src/rtc/mod.rs).
 mod rtc;
 mod token_store;
 mod updater;
