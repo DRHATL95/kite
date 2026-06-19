@@ -46,6 +46,8 @@ import { GamepadPoller } from "./input.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
+import { logger } from "$lib/log/logger.js";
+
 import { StatsSampler } from "./stats.js";
 
 import type { DiagnosticsSnapshot, ManagerStats, SessionState, ChannelStats } from "./types.js";
@@ -326,6 +328,7 @@ export class ConnectionManager {
   // ─────────────────────────────────────────────────────────────────────────
 
   private _log(msg: string): void {
+    logger.info("connection", msg);
     this._cb.onLog(msg);
   }
 

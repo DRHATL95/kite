@@ -16,9 +16,6 @@ import type { SessionState, DiagnosticsSnapshot } from "../connection/types.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
 
-/** Maximum number of log entries to keep in memory. */
-const LOG_CAP = 500;
-
 /**
  * Map an internal reconnect/trigger reason to a user-facing failure message.
  * Media reasons point the user at the real-world fix (restart the console).
@@ -40,12 +37,6 @@ class ConnectionStore {
 
   /** Latest diagnostics snapshot. Updated by onDiagnostics. null before first sample. */
   snapshot: DiagnosticsSnapshot | null = $state(null);
-
-  /**
-   * Human-readable log lines, newest-last, capped at LOG_CAP entries.
-   * Updated by onLog.
-   */
-  log: string[] = $state([]);
 
   /**
    * Active MediaStream once tracks arrive.  Set by onMediaStream.
@@ -92,15 +83,9 @@ class ConnectionStore {
         this.snapshot = snap;
       },
 
-      onLog: (msg: string) => {
-        // Append with timestamp prefix; cap at LOG_CAP
-        const entry = `[${new Date().toISOString()}] ${msg}`;
-        if (this.log.length >= LOG_CAP) {
-          // Trim from the front — keep the newest entries
-          this.log = [...this.log.slice(this.log.length - LOG_CAP + 1), entry];
-        } else {
-          this.log = [...this.log, entry];
-        }
+      onLog: (_msg: string) => {
+        // Logging is owned by the logger facade (file + ring + viewer).
+        // Retained because ConnectionManagerCallbacks requires onLog.
       },
 
       onMediaStream: (stream: MediaStream) => {
