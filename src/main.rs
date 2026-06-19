@@ -48,13 +48,16 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
-            // Initialize logging
-            use tracing::Level;
-            use tracing_subscriber;
-
-            tracing_subscriber::fmt()
-                .with_max_level(Level::INFO)
-                .init();
+            // Initialize unified logging (file + ring). Keep the guard alive for
+            // the whole process by managing it in state.
+            let log_dir = app
+                .path()
+                .app_log_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("xbox-remote-logs"));
+            let (log_state, log_guard) = logging::init_logging(&log_dir);
+            app.manage(log_state);
+            app.manage(log_guard);
+            tracing::info!("xbox-remote starting; logs at {}", log_dir.display());
 
             // Initialize app state
             let auth = auth::XboxAuth::new();
@@ -84,6 +87,11 @@ fn main() {
             tauri_commands::save_clip,
             updater::check_update,
             updater::install_update,
+            logging::log_event,
+            logging::get_recent_logs,
+            logging::set_log_verbosity,
+            logging::open_log_dir,
+            logging::export_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,6 +5,8 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
 
+use tauri::State;
+
 use serde::{Deserialize, Serialize};
 
 use regex::Regex;
@@ -194,6 +196,66 @@ pub fn set_verbose(state: &LogState, verbose: bool) {
     let _ = state.reload.reload(EnvFilter::new(directive));
 }
 
+#[tauri::command]
+pub fn log_event(records: Vec<FrontendLogRecord>) {
+    for r in records {
+        // target must be a literal; carry the category in the message.
+        let msg = format!("{}: {}", r.category, r.message);
+        match r.level.as_str() {
+            "error" => tracing::error!(target: "ui", "{msg}"),
+            "warn" => tracing::warn!(target: "ui", "{msg}"),
+            "debug" => tracing::debug!(target: "ui", "{msg}"),
+            "trace" => tracing::trace!(target: "ui", "{msg}"),
+            _ => tracing::info!(target: "ui", "{msg}"),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_recent_logs(limit: Option<usize>, state: State<'_, LogState>) -> Vec<LogRecord> {
+    state.buf.snapshot(limit)
+}
+
+#[tauri::command]
+pub fn set_log_verbosity(verbose: bool, state: State<'_, LogState>) {
+    set_verbose(&state, verbose);
+    tracing::info!(target: "logging", "verbosity set: verbose={verbose}");
+}
+
+#[tauri::command]
+pub fn open_log_dir(app: tauri::AppHandle, state: State<'_, LogState>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(state.log_dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// Concatenate the already-redacted rotated files + the live ring into one .txt.
+#[tauri::command]
+pub fn export_logs(state: State<'_, LogState>) -> Result<String, String> {
+    let mut out = String::new();
+    if let Ok(entries) = std::fs::read_dir(&state.log_dir) {
+        let mut files: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "log").unwrap_or(false))
+            .collect();
+        files.sort();
+        for f in files {
+            if let Ok(text) = std::fs::read_to_string(&f) {
+                out.push_str(&text);
+            }
+        }
+    }
+    out.push_str("\n--- in-memory ring ---\n");
+    for r in state.buf.snapshot(None) {
+        out.push_str(&format!("{} {:>5} {}: {}\n", r.ts, r.level, r.target, r.message));
+    }
+    let path = state.log_dir.join("xbox-remote-export.txt");
+    std::fs::write(&path, out).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +344,12 @@ mod tests {
         assert_eq!(r, FrontendLogRecord {
             level: "warn".into(), category: "connection".into(), message: "channel closed".into(),
         });
+    }
+
+    #[test]
+    fn log_event_formats_category_into_message() {
+        let r = FrontendLogRecord { level: "info".into(), category: "connection".into(), message: "ok".into() };
+        let msg = format!("{}: {}", r.category, r.message);
+        assert_eq!(msg, "connection: ok");
     }
 }
