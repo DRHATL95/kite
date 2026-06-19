@@ -6,6 +6,8 @@ mod auth;
 mod clip;
 mod error;
 mod logging;
+#[cfg(feature = "native-webrtc")]
+mod rtc;
 mod token_store;
 mod updater;
 mod xhome;

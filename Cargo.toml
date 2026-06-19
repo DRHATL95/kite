@@ -40,6 +40,10 @@ regex = "1"
 # pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 muxide = "0.2.5"
+str0m = { version = "0.20", optional = true }
+opus = { version = "0.3", optional = true }
+ffmpeg-the-third = { version = "5", optional = true }
+bytes = { version = "1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -49,3 +53,9 @@ tauri-build = { version = "2.6", features = [] }
 
 [profile.release]
 lto = false
+
+[features]
+# Native Rust WebRTC media stack (Linux-first; opt-in so the default build stays
+# lean and doesn't require ffmpeg/str0m toolchains). See
+# docs/superpowers/plans/2026-06-19-native-rust-webrtc.md.
+native-webrtc = ["dep:str0m", "dep:opus", "dep:ffmpeg-the-third", "dep:bytes"]
