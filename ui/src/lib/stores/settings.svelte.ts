@@ -16,6 +16,16 @@ export type UpdateChannel = "stable" | "nightly";
 const CHANNEL_KEY = "xbox-remote:update-channel";
 const DEFAULT_CHANNEL: UpdateChannel = "stable";
 
+const LOG_VERBOSE_KEY = "xbox-remote:log-verbose";
+
+function readLogVerbose(): boolean {
+  try {
+    return persisted.getItem(LOG_VERBOSE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 function readChannel(): UpdateChannel {
   try {
     const saved = persisted.getItem(CHANNEL_KEY);
@@ -33,11 +43,24 @@ class SettingsStore {
   /** Opt-in clipping preferences (reactive). */
   clip: ClipSettings = $state(loadClipSettings(persisted));
 
+  /** Verbose ("diagnostic") logging, persisted across launches. */
+  logVerbose: boolean = $state(readLogVerbose());
+
   /** Switch channel and persist it. */
   setChannel(c: UpdateChannel): void {
     this.updateChannel = c;
     try {
       persisted.setItem(CHANNEL_KEY, c);
+    } catch {
+      // best-effort persistence
+    }
+  }
+
+  /** Set verbose logging and persist it. */
+  setLogVerbose(v: boolean): void {
+    this.logVerbose = v;
+    try {
+      persisted.setItem(LOG_VERBOSE_KEY, String(v));
     } catch {
       // best-effort persistence
     }
