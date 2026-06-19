@@ -31,8 +31,9 @@ pub mod clip_tap;
 pub mod input;
 pub mod protocol;
 // Phase 2+ (IO orchestration):
-//   mod engine;
 pub mod channels;
+#[cfg(feature = "native-webrtc")]
+pub mod engine;
 pub mod state;
 //   mod stats;
 
@@ -66,7 +67,12 @@ pub enum RtcEvent {
     Connecting,
     Connected,
     /// First decoded video frame presented — UI leaves the "connecting" state.
+    /// (Phase 2: emitted on the first *received* video AU; decode lands Phase 3.)
     FirstFrame,
+    /// A reconnect attempt is starting (1-based attempt number).
+    Reconnecting {
+        attempt: u32,
+    },
     Stats(StatsSnapshot),
     Disconnected(String),
 }
@@ -76,6 +82,7 @@ pub enum RtcEvent {
 pub struct StatsSnapshot {
     pub bitrate_kbps: u32,
     pub fps: u32,
+    /// Phase 2: received-AU count until decode (Phase 3).
     pub frames_decoded: u64,
     pub freeze_count: u32,
 }
