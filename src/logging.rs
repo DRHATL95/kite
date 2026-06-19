@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::{LazyLock, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use regex::Regex;
 
@@ -39,6 +39,14 @@ pub fn redact(input: &str) -> String {
     let s = SDP_ATTR.replace_all(&s, "$1:[REDACTED]");
     let s = SDP.replace_all(&s, |c: &regex::Captures| format!("[SDP {} bytes redacted]", c[0].len()));
     s.into_owned()
+}
+
+/// A log record originating in the webview, ingested via the `log_event` command.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct FrontendLogRecord {
+    pub level: String,
+    pub category: String,
+    pub message: String,
 }
 
 /// One log line surfaced to the UI and export. Already redacted.
@@ -156,5 +164,14 @@ mod tests {
         for m in ["a", "b", "c"] { buf.push(rec(m)); }
         let snap = buf.snapshot(Some(2));
         assert_eq!(snap.iter().map(|r| r.message.clone()).collect::<Vec<_>>(), vec!["b", "c"]);
+    }
+
+    #[test]
+    fn frontend_record_deserializes_from_js_shape() {
+        let json = r#"{"level":"warn","category":"connection","message":"channel closed"}"#;
+        let r: FrontendLogRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(r, FrontendLogRecord {
+            level: "warn".into(), category: "connection".into(), message: "channel closed".into(),
+        });
     }
 }
