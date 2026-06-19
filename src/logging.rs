@@ -1,7 +1,10 @@
 //! Unified logging: redaction, in-memory ring buffer, and the tracing sink that
 //! writes every event (Rust + frontend) to a rotating file and the ring.
 
-use std::sync::LazyLock;
+use std::collections::VecDeque;
+use std::sync::{LazyLock, Mutex};
+
+use serde::Serialize;
 
 use regex::Regex;
 
@@ -36,6 +39,42 @@ pub fn redact(input: &str) -> String {
     let s = SDP_ATTR.replace_all(&s, "$1:[REDACTED]");
     let s = SDP.replace_all(&s, |c: &regex::Captures| format!("[SDP {} bytes redacted]", c[0].len()));
     s.into_owned()
+}
+
+/// One log line surfaced to the UI and export. Already redacted.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct LogRecord {
+    pub ts: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+}
+
+/// Bounded in-memory ring of the most recent records (oldest evicted).
+pub struct LogBuffer {
+    ring: Mutex<VecDeque<LogRecord>>,
+    cap: usize,
+}
+
+impl LogBuffer {
+    pub fn new(cap: usize) -> Self {
+        Self { ring: Mutex::new(VecDeque::with_capacity(cap)), cap }
+    }
+
+    pub fn push(&self, rec: LogRecord) {
+        let mut r = self.ring.lock().unwrap();
+        if r.len() >= self.cap {
+            r.pop_front();
+        }
+        r.push_back(rec);
+    }
+
+    /// Most recent `limit` records (all if `None`), oldest-first.
+    pub fn snapshot(&self, limit: Option<usize>) -> Vec<LogRecord> {
+        let r = self.ring.lock().unwrap();
+        let n = limit.unwrap_or(r.len()).min(r.len());
+        r.iter().skip(r.len() - n).cloned().collect()
+    }
 }
 
 #[cfg(test)]
@@ -93,5 +132,29 @@ mod tests {
         let out = redact("a=ice-pwd:SuperSecretIcePwd123\r\na=candidate:1 1 udp 2 192.168.1.5 9 typ host");
         assert!(!out.contains("SuperSecretIcePwd123"), "ice-pwd leaked: {out}");
         assert!(out.contains("192.168.1.5"), "LAN candidate IP should be preserved: {out}");
+    }
+
+    fn rec(msg: &str) -> LogRecord {
+        LogRecord { ts: "t".into(), level: "INFO".into(), target: "x".into(), message: msg.into() }
+    }
+
+    #[test]
+    fn ring_evicts_oldest_at_cap() {
+        let buf = LogBuffer::new(2);
+        buf.push(rec("a"));
+        buf.push(rec("b"));
+        buf.push(rec("c"));
+        let snap = buf.snapshot(None);
+        assert_eq!(snap.len(), 2);
+        assert_eq!(snap[0].message, "b");
+        assert_eq!(snap[1].message, "c");
+    }
+
+    #[test]
+    fn ring_snapshot_limit_returns_most_recent() {
+        let buf = LogBuffer::new(10);
+        for m in ["a", "b", "c"] { buf.push(rec(m)); }
+        let snap = buf.snapshot(Some(2));
+        assert_eq!(snap.iter().map(|r| r.message.clone()).collect::<Vec<_>>(), vec!["b", "c"]);
     }
 }
