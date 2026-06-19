@@ -2,11 +2,19 @@
 //! writes every event (Rust + frontend) to a rotating file and the ring.
 
 use std::collections::VecDeque;
-use std::sync::{LazyLock, Mutex};
+use std::path::Path;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 
 use regex::Regex;
+
+use tracing::field::{Field, Visit};
+use tracing::{Event, Subscriber};
+use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{reload, EnvFilter, Registry};
 
 static BEARER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+").unwrap());
@@ -83,6 +91,107 @@ impl LogBuffer {
         let n = limit.unwrap_or(r.len()).min(r.len());
         r.iter().skip(r.len() - n).cloned().collect()
     }
+}
+
+/// Handle used to change the active log level filter at runtime.
+pub type ReloadHandle = reload::Handle<EnvFilter, Registry>;
+
+/// Default filter: info everywhere, our crate + ui at info.
+const DEFAULT_FILTER: &str = "info,xbox_remote=info,ui=info";
+/// Verbose ("diagnostic mode") filter.
+const VERBOSE_FILTER: &str = "debug,xbox_remote=trace,ui=trace";
+const RING_CAPACITY: usize = 2000;
+
+/// Visitor that extracts the `message` field of an event.
+#[derive(Default)]
+struct MsgVisitor(String);
+impl Visit for MsgVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{value:?}");
+        }
+    }
+}
+
+/// One custom layer that redacts once and writes to BOTH the ring and the file.
+struct SinkLayer {
+    buf: Arc<LogBuffer>,
+    file: NonBlocking,
+}
+
+impl<S: Subscriber> Layer<S> for SinkLayer {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let mut v = MsgVisitor::default();
+        event.record(&mut v);
+        let meta = event.metadata();
+        let message = redact(&v.0);
+        let ts = chrono::Utc::now().to_rfc3339();
+        let rec = LogRecord {
+            ts: ts.clone(),
+            level: meta.level().to_string(),
+            target: meta.target().to_string(),
+            message: message.clone(),
+        };
+        self.buf.push(rec);
+        use std::io::Write;
+        let mut w = self.file.clone();
+        let _ = writeln!(w, "{ts} {:>5} {}: {message}", meta.level(), meta.target());
+    }
+}
+
+/// Resources kept alive for the life of the process / exposed to commands.
+pub struct LogState {
+    pub buf: Arc<LogBuffer>,
+    pub reload: ReloadHandle,
+    pub log_dir: std::path::PathBuf,
+}
+
+/// Build and install the global subscriber. Returns the state to manage + the
+/// appender guard (MUST be kept alive — drop = stop flushing).
+pub fn init_logging(log_dir: &Path) -> (LogState, WorkerGuard) {
+    std::fs::create_dir_all(log_dir).ok();
+
+    let file_appender = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .max_log_files(5)
+        .filename_prefix("xbox-remote")
+        .filename_suffix("log")
+        .build(log_dir)
+        .expect("init rolling log appender");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let buf = Arc::new(LogBuffer::new(RING_CAPACITY));
+    let (filter, reload_handle) = reload::Layer::new(EnvFilter::new(DEFAULT_FILTER));
+
+    Registry::default()
+        .with(filter)
+        .with(SinkLayer { buf: buf.clone(), file: non_blocking })
+        .init();
+
+    install_panic_hook();
+
+    (
+        LogState { buf, reload: reload_handle, log_dir: log_dir.to_path_buf() },
+        guard,
+    )
+}
+
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".into());
+        tracing::error!(target: "panic", "panic at {loc}: {info}");
+        prev(info);
+    }));
+}
+
+/// Apply the verbose or default filter at runtime.
+pub fn set_verbose(state: &LogState, verbose: bool) {
+    let directive = if verbose { VERBOSE_FILTER } else { DEFAULT_FILTER };
+    let _ = state.reload.reload(EnvFilter::new(directive));
 }
 
 #[cfg(test)]
