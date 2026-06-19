@@ -1,33 +1,32 @@
 //! Transport seam: the UDP datagram socket str0m drives.
 //!
-//! Abstracted so the engine loop can be exercised in unit tests with a mock that
-//! replays canned datagrams — no real network, deterministic timing.
+//! Async so the sans-IO engine can `tokio::select!` on inbound datagrams against
+//! its own timeout without busy-polling. `#[allow(async_fn_in_trait)]` keeps the
+//! engine generic over `T: Transport` with static dispatch (no boxing).
 
 use super::{Result, RtcError};
-use std::net::{SocketAddr, UdpSocket};
+use std::net::SocketAddr;
 
-/// A bidirectional UDP datagram transport. Non-blocking by contract: [`try_recv`]
-/// returns `Ok(None)` when no datagram is ready, so the sans-IO engine can drive
-/// its own poll/timeout loop.
-///
-/// [`try_recv`]: Transport::try_recv
+/// A bidirectional UDP datagram transport.
+#[allow(async_fn_in_trait)]
 pub trait Transport: Send {
     fn local_addr(&self) -> Result<SocketAddr>;
-    fn send_to(&self, buf: &[u8], dst: SocketAddr) -> Result<()>;
-    fn try_recv(&self, buf: &mut [u8]) -> Result<Option<(usize, SocketAddr)>>;
+    async fn send_to(&self, buf: &[u8], dst: SocketAddr) -> Result<()>;
+    /// Await the next inbound datagram into `buf`; returns (len, source).
+    async fn recv(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)>;
 }
 
-/// Real UDP socket adapter, bound to an ephemeral port in non-blocking mode.
+/// Real UDP socket adapter over tokio, bound to a caller-chosen local address.
 pub struct UdpTransport {
-    socket: UdpSocket,
+    socket: tokio::net::UdpSocket,
 }
 
 impl UdpTransport {
-    pub fn bind() -> Result<Self> {
-        let socket =
-            UdpSocket::bind("0.0.0.0:0").map_err(|e| RtcError::Transport(e.to_string()))?;
-        socket
-            .set_nonblocking(true)
+    /// Bind to `addr` (use the route-toward-internet LAN IP with port 0 so the
+    /// host ICE candidate is reachable on the LAN — see the Phase-0 findings).
+    pub async fn bind(addr: SocketAddr) -> Result<Self> {
+        let socket = tokio::net::UdpSocket::bind(addr)
+            .await
             .map_err(|e| RtcError::Transport(e.to_string()))?;
         Ok(Self { socket })
     }
@@ -40,18 +39,18 @@ impl Transport for UdpTransport {
             .map_err(|e| RtcError::Transport(e.to_string()))
     }
 
-    fn send_to(&self, buf: &[u8], dst: SocketAddr) -> Result<()> {
+    async fn send_to(&self, buf: &[u8], dst: SocketAddr) -> Result<()> {
         self.socket
             .send_to(buf, dst)
+            .await
             .map(|_| ())
             .map_err(|e| RtcError::Transport(e.to_string()))
     }
 
-    fn try_recv(&self, buf: &mut [u8]) -> Result<Option<(usize, SocketAddr)>> {
-        match self.socket.recv_from(buf) {
-            Ok((n, src)) => Ok(Some((n, src))),
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
-            Err(e) => Err(RtcError::Transport(e.to_string())),
-        }
+    async fn recv(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
+        self.socket
+            .recv_from(buf)
+            .await
+            .map_err(|e| RtcError::Transport(e.to_string()))
     }
 }
