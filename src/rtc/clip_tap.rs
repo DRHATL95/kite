@@ -366,8 +366,11 @@ pub struct ClipRing {
 impl ClipRing {
     /// Create a ring that retains at most `retain_secs` of content.
     ///
-    /// The wall-clock source is `performance.now`-equivalent (milliseconds);
-    /// use `with_clock` to inject a fake clock for tests.
+    /// FOOTGUN: `new()` wires the wall-clock source to a constant `0.0`, so the
+    /// per-stream wall-clock offsets used for A/V alignment are always zero —
+    /// fine for pure RTP-only tests, but it means audio that starts before the
+    /// first video frame will NOT be offset correctly. Production / Phase-2
+    /// wiring MUST use [`with_clock`] with a real monotonic millisecond clock.
     pub fn new(retain_secs: f64) -> Self {
         ClipRing::with_clock(retain_secs, VideoTrackConfig::default(), Box::new(|| 0.0))
     }
@@ -684,6 +687,16 @@ mod tests {
     }
 
     #[test]
+    fn assemble_returns_none_with_audio_only() {
+        // Realistic startup race: audio flows before the first video keyframe.
+        // With no video at all, there is no anchor → assemble must return None.
+        let mut ring = ClipRing::new(30.0);
+        ring.push_audio(opus_bytes(), 0);
+        ring.push_audio(vec![0xfc, 0x02], 48_000);
+        assert!(ring.assemble().is_none(), "expected None with audio but no video");
+    }
+
+    #[test]
     fn assemble_captures_sps_pps_from_first_keyframe() {
         let mut ring = ClipRing::new(30.0);
         ring.push_video(keyframe_bytes(), 0, true);
@@ -735,24 +748,45 @@ mod tests {
     }
 
     #[test]
-    fn assemble_audio_aligned_to_video_start() {
-        let mut ring = ClipRing::new(30.0);
-        // Video: IDR at rtp=0 (t=0s), P at rtp=1500 (~16ms)
-        ring.push_video(keyframe_bytes(), 0, true);
-        ring.push_video(delta_bytes(), 1500, false);
-        // Audio: packet before IDR (should be excluded), and at t=0 (should be included)
-        ring.push_audio(opus_bytes(), 48_000); // 1s @ 48kHz (excluded)
-        ring.push_audio(vec![0xfc, 0x02], 0); // first audio → t=0 (included)
+    fn assemble_excludes_audio_before_the_clip_start() {
+        // assemble() must drop audio older than the anchor keyframe's PTS so the
+        // emitted audio never precedes the clip's t=0 reference. Audio starts
+        // ~2s before the first video keyframe, so the shared-origin wall offset
+        // (via with_clock) places that early audio at a PTS below start_sec.
+        use std::sync::{Arc, Mutex};
+        let clock_ms = Arc::new(Mutex::new(0.0f64));
+        let clock_for_ring = Arc::clone(&clock_ms);
+        let mut ring = ClipRing::with_clock(
+            30.0,
+            VideoTrackConfig::default(),
+            Box::new(move || *clock_for_ring.lock().unwrap()),
+        );
+
+        // t=0ms: first audio overall → sets shared origin; audio wall offset = 0.
+        *clock_ms.lock().unwrap() = 0.0;
+        ring.push_audio(vec![0xa0], 0); // pts = 0.0 (audio origin)
+        // t=1000ms: more audio, +1s on the audio RTP clock.
+        *clock_ms.lock().unwrap() = 1000.0;
+        ring.push_audio(vec![0xa1], 48_000); // pts = 0.0 + 1.0 = 1.0
+        // t=2000ms: first video keyframe, 2s after the shared origin.
+        // video wall offset = (2000-0)/1000 = 2.0; video RTP clock first call = 0.
+        *clock_ms.lock().unwrap() = 2000.0;
+        ring.push_video(keyframe_bytes(), 5_000, true); // pts = 2.0 → start_sec
+        // t=3000ms: audio after the keyframe (audio clock +3s overall).
+        *clock_ms.lock().unwrap() = 3000.0;
+        ring.push_audio(vec![0xa2], 3 * 48_000); // pts = 0.0 + 3.0 = 3.0
 
         let clip = ring.assemble().unwrap();
-        // Audio at pts < 0 excluded; audio at t=0 included
-        // The second push_audio at rtp=0 is the first audio call so its clock returns 0.0
-        // The first push_audio at rtp=48_000 is after the clock initializes, so:
-        // Actually audio clock starts on first push_audio (rtp=48_000 → 0.0),
-        // next push_audio (rtp=0) wraps: delta = (0 - 48_000) as u32 = 4294919296, way > 1s
-        // This tests that the audio filter uses ptsSec >= startSec correctly.
-        // All audio frames have pts_sec >= 0 (start_sec), so both are included.
-        assert!(clip.audio.len() >= 1);
+        // The clip starts at the keyframe (pts 2.0); only audio ≥ start_sec survives.
+        assert!((clip.start_sec - 2.0).abs() < 1e-6, "start={}", clip.start_sec);
+        assert!(
+            clip.audio.iter().all(|a| a.pts_sec >= clip.start_sec - 1e-9),
+            "no audio frame may precede the clip start"
+        );
+        // The pre-keyframe audio (0xa0@0s, 0xa1@1s) is gone; post-keyframe (0xa2@3s) stays.
+        assert!(clip.audio.iter().any(|a| a.bytes == [0xa2]), "0xa2 must be kept");
+        assert!(!clip.audio.iter().any(|a| a.bytes == [0xa0]), "0xa0 must be dropped");
+        assert!(!clip.audio.iter().any(|a| a.bytes == [0xa1]), "0xa1 must be dropped");
     }
 
     #[test]
@@ -807,54 +841,32 @@ mod tests {
 
     #[test]
     fn eviction_drops_frames_older_than_retain_plus_headroom() {
-        let mut ring = ClipRing::new(5.0); // retain 5s, evict at 7s
-        // IDR at t=0
-        ring.push_video(keyframe_bytes(), 0, true);
-        // P at t=1s
-        ring.push_video(delta_bytes(), 90_000, false);
-        // IDR at t=6s (within headroom window)
-        ring.push_video(keyframe_bytes(), 6 * 90_000, true);
-        // P at t=8s → triggers eviction (now=8s, retain+headroom=7s, cutoff=1s)
-        // anchor = IDR at t=6 (latest IDR ≤ 1s? No. IDR@0 ≤ 1s → yes, anchor=IDR@0)
-        // Wait: cutoff = 8-7=1s. IDR@0 ≤ 1s, IDR@6 > 1s. So anchor = IDR@0 (newest ≤1s).
-        // evictVideo keeps from anchor (IDR@0) onward → all 4 frames kept.
-        // Now add one more P at t=10s → now=10, cutoff=3s. IDR@0≤3s yes, IDR@6>3s no.
-        // anchor=IDR@0 → still keeps everything. Hmm.
-        // Let's do: IDR@0, P@1s, IDR@8s (evict at 8+1=9s), P@9s
-        // at P@9s: now=9, headroom=7, cutoff=2. IDR@0≤2 yes, IDR@8 not≤2 no. anchor=IDR@0.
-        // Not helpful. Let me set retain small and push many frames.
-        // Use retain=2, headroom=2 → total=4s window.
-        let mut ring2 = ClipRing::new(2.0);
-        ring2.push_video(keyframe_bytes(), 0, true);             // IDR@0
-        ring2.push_video(delta_bytes(), 90_000, false);          // P@1s
-        ring2.push_video(delta_bytes(), 2 * 90_000, false);      // P@2s
-        // Trigger eviction by pushing frame at t=3s (EVICT_INTERVAL_SEC=1 → evict)
-        // now=3, cutoff=3-(2+2)=-1. IDR@0 ≤ -1? No. Fallback: earliest IDR = IDR@0.
-        // So anchor=0, no eviction useful here.
-        // With retain=2 + headroom=2, we need now > 4 for the anchor to advance.
-        ring2.push_video(keyframe_bytes(), 5 * 90_000, true);    // IDR@5s
-        ring2.push_video(delta_bytes(), 6 * 90_000, false);      // P@6s
-        // now=6, cutoff=6-4=2. IDR@0≤2 yes, IDR@5>2 no → anchor=IDR@0.
-        ring2.push_video(delta_bytes(), 7 * 90_000, false);      // P@7s (triggers evict at 7)
-        // now=7, cutoff=7-4=3. IDR@0≤3 yes, IDR@5>3 no → anchor=IDR@0 still.
-        ring2.push_video(delta_bytes(), 8 * 90_000, false);      // P@8s
-        // now=8, cutoff=8-4=4. IDR@0≤4 yes, IDR@5>4 no → anchor=IDR@0.
-        ring2.push_video(delta_bytes(), 9 * 90_000, false);      // P@9s
-        // now=9, cutoff=9-4=5. IDR@0≤5 yes, IDR@5≤5 yes → anchor=IDR@5 (newest).
-        // evictVideo keeps from IDR@5 → frames before IDR@5 dropped.
-        let clip2 = ring2.assemble().unwrap();
-        // Clip should start at IDR@5 (the latest IDR within retain window).
-        // assemble uses retain_secs=2. now=9, cutoff=7. IDR@5≤7 yes. anchor=IDR@5.
+        // retain=2s + EVICT_HEADROOM_SEC(2) = 4s eviction window.
+        let mut ring = ClipRing::new(2.0);
+        ring.push_video(keyframe_bytes(), 0, true);            // IDR@0
+        ring.push_video(delta_bytes(), 90_000, false);         // P@1s
+        ring.push_video(delta_bytes(), 2 * 90_000, false);     // P@2s
+        ring.push_video(keyframe_bytes(), 5 * 90_000, true);   // IDR@5s
+        ring.push_video(delta_bytes(), 6 * 90_000, false);     // P@6s
+        ring.push_video(delta_bytes(), 7 * 90_000, false);     // P@7s
+        ring.push_video(delta_bytes(), 8 * 90_000, false);     // P@8s
+        ring.push_video(delta_bytes(), 9 * 90_000, false);     // P@9s
+
+        // At t=9s the eviction cutoff is 9-4=5s. Both IDR@0 and IDR@5 are ≤ 5s,
+        // so the anchor advances to the NEWEST qualifying IDR (IDR@5); evict_video
+        // then drops everything before it (IDR@0 + P@1/2). assemble() (retain=2s,
+        // cutoff=7s) likewise anchors on IDR@5, so the clip starts there.
+        let clip = ring.assemble().unwrap();
         assert!(
-            (clip2.start_sec - 5.0).abs() < 1e-6,
+            (clip.start_sec - 5.0).abs() < 1e-6,
             "expected clip to start at IDR@5s, got {}",
-            clip2.start_sec
+            clip.start_sec
         );
-        // Video ring after eviction at t=9: should not contain IDR@0 or P@1..4
-        // (the ring was evicted at t=9 keeping from IDR@5)
+        assert!(clip.video[0].is_keyframe, "clip must start at a keyframe");
+        // The pre-IDR@5 frames were evicted: no AU with pts before 5s remains.
         assert!(
-            clip2.video[0].is_keyframe,
-            "clip must start at a keyframe"
+            clip.video.iter().all(|v| v.pts_sec >= 5.0 - 1e-9),
+            "frames older than the IDR@5 anchor must be evicted"
         );
     }
 
