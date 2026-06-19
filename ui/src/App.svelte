@@ -42,6 +42,12 @@
     return () => clipStore.detach();
   });
 
+  $effect(() => {
+    const stop = initLogging();
+    void setLogVerbosity(settings.logVerbose); // apply persisted choice
+    return stop;
+  });
+
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import Login       from "./screens/Login.svelte";
   import DeviceCode  from "./screens/DeviceCode.svelte";
@@ -50,6 +56,8 @@
   import { settings } from "$lib/stores/settings.svelte.js";
   import { clipStore } from "$lib/stores/clip.svelte.js";
   import Toast from "./components/Toast.svelte";
+  import { initLogging } from "$lib/log/logger.js";
+  import { setLogVerbosity } from "$lib/ipc/commands.js";
 
   // ── Routing ────────────────────────────────────────────────────────────────────
 

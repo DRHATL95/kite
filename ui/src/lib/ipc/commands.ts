@@ -231,3 +231,65 @@ export async function saveClip(
 export async function revealClip(path: string): Promise<void> {
   await revealItemInDir(path);
 }
+
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+/** A single log record as stored/returned by the Rust backend. */
+export interface LogRecord {
+  ts: string;
+  level: string;
+  target: string;
+  message: string;
+}
+
+/** A log record emitted by the frontend and forwarded to the Rust backend. */
+export interface FrontendLogRecord {
+  level: string;
+  category: string;
+  message: string;
+}
+
+/**
+ * Forward one or more frontend log records to the Rust logging sink.
+ * Rust: log_event(records) -> Result<(), String>
+ */
+export function logEvent(records: FrontendLogRecord[]): Promise<void> {
+  return invoke("log_event", { records });
+}
+
+/**
+ * Retrieve the most recent log records from the Rust in-memory ring buffer.
+ *
+ * @param limit  Maximum number of records to return (omit for backend default).
+ * Rust: get_recent_logs(limit) -> Result<Vec<LogRecord>, String>
+ */
+export function getRecentLogs(limit?: number): Promise<LogRecord[]> {
+  return invoke("get_recent_logs", { limit });
+}
+
+/**
+ * Toggle verbose (DEBUG-level) logging on the Rust backend.
+ * Rust: set_log_verbosity(verbose) -> Result<(), String>
+ */
+export function setLogVerbosity(verbose: boolean): Promise<void> {
+  return invoke("set_log_verbosity", { verbose });
+}
+
+/**
+ * Export all buffered logs to a file on disk.
+ * Returns the absolute path of the exported file.
+ * Rust: export_logs() -> Result<String, String>
+ */
+export function exportLogs(): Promise<string> {
+  return invoke("export_logs");
+}
+
+/**
+ * Open the log directory in the OS file manager.
+ * Rust: open_log_dir() -> Result<(), String>
+ */
+export function openLogDir(): Promise<void> {
+  return invoke("open_log_dir");
+}
