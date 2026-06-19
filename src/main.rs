@@ -14,8 +14,8 @@ mod xhome;
 
 // Tauri UI main function
 fn main() {
-    use tokio::sync::Mutex;
     use tauri::Manager;
+    use tokio::sync::Mutex;
 
     // WebKitGTK + Wayland is hostile to WebRTC video: the native DMA-BUF path
     // renders incoming video as black squares (Tauri #14924) and also triggers
@@ -78,6 +78,7 @@ fn main() {
             tauri_commands::start_xbox_auth,
             tauri_commands::check_auth_status,
             tauri_commands::sign_out,
+            tauri_commands::open_external_url,
             tauri_commands::discover_xhome_consoles,
             tauri_commands::create_xhome_session,
             tauri_commands::send_ice_candidate,
@@ -131,10 +132,106 @@ mod tauri_commands {
         pub streaming: bool,
     }
 
+    /// Open an external web URL in the user's real browser.
+    ///
+    /// Replaces the frontend `@tauri-apps/plugin-opener` call for the sign-in
+    /// page. On Linux the browser must be launched with a **sanitized
+    /// environment**: an AppImage injects `LD_LIBRARY_PATH` (plus GTK/GST module
+    /// paths) that a child browser inherits and then fails to start from —
+    /// *silently*, so the button appeared to do nothing. On other platforms we
+    /// delegate to the opener plugin, which already works.
+    #[tauri::command]
+    pub fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+        // Allowlist web/mail schemes only — never hand arbitrary schemes to the OS.
+        let allowed =
+            url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:");
+        if !allowed {
+            tracing::warn!("open_external_url refused non-web URL");
+            return Err("refused to open non-web URL".to_string());
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let _ = &app; // AppHandle is only needed on non-Linux platforms.
+            open_url_linux(&url)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            use tauri_plugin_opener::OpenerExt;
+            app.opener()
+                .open_url(url, None::<&str>)
+                .map_err(|e| format!("failed to open URL: {e}"))
+        }
+    }
+
+    /// Launch the default browser via `xdg-open`, stripping the AppImage's
+    /// injected library/module paths from the child so it loads system libraries.
+    #[cfg(target_os = "linux")]
+    fn open_url_linux(url: &str) -> Result<(), String> {
+        use std::process::{Command, Stdio};
+
+        // Variables an AppImage runtime injects that break a child browser by
+        // forcing it to load the AppImage's bundled libraries. Cleared from the
+        // child so it uses the host's libraries instead.
+        const APPIMAGE_POLLUTION: &[&str] = &[
+            "LD_LIBRARY_PATH",
+            "LD_LIBRARY_PATH_ORIG",
+            "LD_PRELOAD",
+            "GTK_PATH",
+            "GTK_EXE_PREFIX",
+            "GTK_DATA_PREFIX",
+            "GDK_PIXBUF_MODULE_FILE",
+            "GDK_PIXBUF_MODULEDIR",
+            "GST_PLUGIN_PATH",
+            "GST_PLUGIN_SYSTEM_PATH",
+            "GST_PLUGIN_SYSTEM_PATH_1_0",
+            "GIO_MODULE_DIR",
+            "GIO_EXTRA_MODULES",
+            "GSETTINGS_SCHEMA_DIR",
+            "FONTCONFIG_FILE",
+            "FONTCONFIG_PATH",
+            "QT_PLUGIN_PATH",
+            "PYTHONPATH",
+            "PERLLIB",
+            "LIBGL_DRIVERS_PATH",
+            "XKB_CONFIG_ROOT",
+        ];
+
+        let in_appimage =
+            std::env::var_os("APPDIR").is_some() || std::env::var_os("APPIMAGE").is_some();
+
+        let mut cmd = Command::new("xdg-open");
+        cmd.arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        if in_appimage {
+            for var in APPIMAGE_POLLUTION {
+                cmd.env_remove(var);
+            }
+            tracing::info!("AppImage detected — launching browser with sanitized environment");
+        }
+
+        match cmd.spawn() {
+            Ok(_) => {
+                tracing::info!("xdg-open launched for external URL ({} bytes)", url.len());
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("xdg-open failed to launch: {e}");
+                Err(format!(
+                    "failed to launch browser (is xdg-utils installed?): {e}"
+                ))
+            }
+        }
+    }
+
     #[tauri::command]
     pub async fn try_load_cached_auth(state: State<'_, AppState>) -> Result<bool, String> {
         let auth = state.auth.lock().await;
-        let loaded = auth.load_cached_tokens()
+        let loaded = auth
+            .load_cached_tokens()
             .await
             .map_err(|e| format!("Failed to load cached tokens: {}", e))?;
 
@@ -142,7 +239,7 @@ mod tauri_commands {
             // Initialize xHome client with the loaded auth
             let auth_clone = auth.clone();
             drop(auth);
-            
+
             let xhome_client = XHomeClient::new(auth_clone);
             *state.xhome.lock().await = Some(xhome_client);
         }
@@ -153,7 +250,8 @@ mod tauri_commands {
     #[tauri::command]
     pub async fn start_xbox_auth(state: State<'_, AppState>) -> Result<String, String> {
         let auth = state.auth.lock().await;
-        let device_info = auth.start_device_code_auth()
+        let device_info = auth
+            .start_device_code_auth()
             .await
             .map_err(|e| format!("Auth failed: {}", e))?;
 
@@ -264,7 +362,7 @@ mod tauri_commands {
             .poll_ice_candidates(&session_path)
             .await
             .map_err(|e| format!("Failed to poll ICE candidates: {}", e))?;
-        
+
         tracing::info!("poll_ice_candidates returned {} candidates", result.len());
         Ok(result)
     }

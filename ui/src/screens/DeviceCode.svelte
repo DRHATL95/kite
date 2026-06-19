@@ -8,8 +8,9 @@
    * Starts authStore.startPollingLoop() on mount; cancels it in the $effect
    * cleanup so the interval is never leaked when the component is destroyed.
    *
-   * Opening the sign-in page uses @tauri-apps/plugin-opener (openUrl), which
-   * hands the URL to the OS so it opens in the user's real browser. window.open
+   * Opening the sign-in page uses the open_external_url backend command, which
+   * hands the URL to the OS so it opens in the user's real browser (and on Linux
+   * sanitizes the child environment so it works inside an AppImage). window.open
    * is a no-op in WebKitGTK, so it must NOT be used here. The Microsoft /link
    * page pre-fills the code from an `otc` query param, so we append the user
    * code to the opened URL and the user only has to confirm. A "Copy URL"
@@ -19,7 +20,8 @@
    */
 
   import { onMount } from "svelte";
-  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { openExternalUrl } from "$lib/ipc/commands.js";
+  import { logger } from "$lib/log/logger.js";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import Button from "$lib/design/Button.svelte";
   import Panel from "$lib/design/Panel.svelte";
@@ -63,11 +65,11 @@
   async function openSignIn() {
     openError = null;
     try {
-      // openUrl hands the URL to the OS — opens the user's real browser.
-      await openUrl(signInUrl);
+      // Hands the URL to the OS (sanitized env on Linux) — opens the real browser.
+      await openExternalUrl(signInUrl);
     } catch (e) {
       openError = `Couldn't open the browser automatically — use "Copy URL" and open it manually.`;
-      console.error("openUrl failed", e);
+      logger.error("auth", `open sign-in failed: ${e}`);
     }
   }
 

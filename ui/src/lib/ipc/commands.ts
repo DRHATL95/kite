@@ -293,3 +293,16 @@ export function exportLogs(): Promise<string> {
 export function openLogDir(): Promise<void> {
   return invoke("open_log_dir");
 }
+
+/**
+ * Open an external web URL (https/http/mailto) in the user's real browser.
+ *
+ * Prefer this over `@tauri-apps/plugin-opener`'s `openUrl` for external links:
+ * on Linux the backend launches the browser with a sanitized environment so it
+ * works inside an AppImage, where the bundled `LD_LIBRARY_PATH` would otherwise
+ * make the child browser fail to start silently.
+ * Rust: open_external_url(url) -> Result<(), String>
+ */
+export function openExternalUrl(url: string): Promise<void> {
+  return invoke("open_external_url", { url });
+}
