@@ -28,7 +28,10 @@ pub struct TokenStore<B: SecretBackend> {
 
 impl<B: SecretBackend> TokenStore<B> {
     pub fn new(backend: B, legacy_path: Option<PathBuf>) -> Self {
-        Self { backend, legacy_path }
+        Self {
+            backend,
+            legacy_path,
+        }
     }
 
     pub fn load(&self) -> Result<Option<XboxTokens>> {
@@ -54,7 +57,9 @@ impl<B: SecretBackend> TokenStore<B> {
     /// A corrupt/partial legacy file is treated as "no tokens" and LEFT IN
     /// PLACE for manual inspection (never silently destroyed).
     fn migrate_from_legacy(&self) -> Result<Option<XboxTokens>> {
-        let Some(path) = self.legacy_path.as_ref() else { return Ok(None) };
+        let Some(path) = self.legacy_path.as_ref() else {
+            return Ok(None);
+        };
         if !path.exists() {
             return Ok(None);
         }
@@ -78,7 +83,9 @@ impl<B: SecretBackend> TokenStore<B> {
                 Ok(Some(tokens))
             }
             Err(e) => {
-                tracing::warn!("Legacy token file present but unparseable ({e}); leaving it in place");
+                tracing::warn!(
+                    "Legacy token file present but unparseable ({e}); leaving it in place"
+                );
                 Ok(None)
             }
         }
@@ -114,10 +121,9 @@ fn kv_get_chunked<K: KvSecret>(kv: &K, base: &str) -> Result<Option<String>> {
         Some(s) => s,
         None => return Ok(None),
     };
-    let count: usize = count_str
-        .trim()
-        .parse()
-        .map_err(|_| XboxError::AuthError(format!("keychain corrupt chunk count: {count_str:?}")))?;
+    let count: usize = count_str.trim().parse().map_err(|_| {
+        XboxError::AuthError(format!("keychain corrupt chunk count: {count_str:?}"))
+    })?;
     let mut out = String::new();
     for i in 0..count {
         let chunk = kv
@@ -229,13 +235,29 @@ mod tests {
         slot: RefCell<Option<String>>,
     }
     impl MockBackend {
-        fn empty() -> Self { Self { slot: RefCell::new(None) } }
-        fn with(secret: &str) -> Self { Self { slot: RefCell::new(Some(secret.to_string())) } }
+        fn empty() -> Self {
+            Self {
+                slot: RefCell::new(None),
+            }
+        }
+        fn with(secret: &str) -> Self {
+            Self {
+                slot: RefCell::new(Some(secret.to_string())),
+            }
+        }
     }
     impl SecretBackend for MockBackend {
-        fn get(&self) -> Result<Option<String>> { Ok(self.slot.borrow().clone()) }
-        fn set(&self, secret: &str) -> Result<()> { *self.slot.borrow_mut() = Some(secret.to_string()); Ok(()) }
-        fn delete(&self) -> Result<()> { *self.slot.borrow_mut() = None; Ok(()) }
+        fn get(&self) -> Result<Option<String>> {
+            Ok(self.slot.borrow().clone())
+        }
+        fn set(&self, secret: &str) -> Result<()> {
+            *self.slot.borrow_mut() = Some(secret.to_string());
+            Ok(())
+        }
+        fn delete(&self) -> Result<()> {
+            *self.slot.borrow_mut() = None;
+            Ok(())
+        }
     }
 
     fn sample_tokens() -> XboxTokens {
@@ -267,7 +289,10 @@ mod tests {
         let loaded = store.load().unwrap().expect("migrated tokens");
 
         assert_eq!(loaded.xsts_token, "x");
-        assert!(!legacy.exists(), "legacy file should be deleted after migration");
+        assert!(
+            !legacy.exists(),
+            "legacy file should be deleted after migration"
+        );
         // And it is now in the keychain for next time:
         assert!(store.backend.get().unwrap().is_some());
     }
@@ -308,7 +333,10 @@ mod tests {
     }
     impl MockKv {
         fn new(limit_utf16_bytes: usize) -> Self {
-            Self { store: RefCell::new(HashMap::new()), limit_utf16_bytes }
+            Self {
+                store: RefCell::new(HashMap::new()),
+                limit_utf16_bytes,
+            }
         }
     }
     impl KvSecret for MockKv {
@@ -323,7 +351,9 @@ mod tests {
                     self.limit_utf16_bytes
                 )));
             }
-            self.store.borrow_mut().insert(key.to_string(), value.to_string());
+            self.store
+                .borrow_mut()
+                .insert(key.to_string(), value.to_string());
             Ok(())
         }
         fn delete(&self, key: &str) -> Result<()> {
@@ -352,7 +382,10 @@ mod tests {
         kv_set_chunked(&kv, "tokens", &big, CHUNK_CHARS)
             .expect("chunked write must succeed by staying under the per-entry limit");
         for (k, v) in kv.store.borrow().iter() {
-            assert!(v.encode_utf16().count() * 2 <= 2560, "entry {k} exceeds the per-entry limit");
+            assert!(
+                v.encode_utf16().count() * 2 <= 2560,
+                "entry {k} exceeds the per-entry limit"
+            );
         }
         assert_eq!(kv_get_chunked(&kv, "tokens").unwrap().unwrap(), big);
     }
@@ -362,8 +395,14 @@ mod tests {
         let kv = MockKv::new(2560);
         kv_set_chunked(&kv, "tokens", &"a".repeat(5000), CHUNK_CHARS).unwrap();
         kv_set_chunked(&kv, "tokens", &"b".repeat(300), CHUNK_CHARS).unwrap();
-        assert_eq!(kv_get_chunked(&kv, "tokens").unwrap().unwrap(), "b".repeat(300));
-        assert!(kv.store.borrow().get("tokens.1").is_none(), "stale higher chunk must be removed");
+        assert_eq!(
+            kv_get_chunked(&kv, "tokens").unwrap().unwrap(),
+            "b".repeat(300)
+        );
+        assert!(
+            kv.store.borrow().get("tokens.1").is_none(),
+            "stale higher chunk must be removed"
+        );
     }
 
     #[test]
@@ -372,7 +411,10 @@ mod tests {
         kv_set_chunked(&kv, "tokens", &"a".repeat(3000), CHUNK_CHARS).unwrap();
         kv_delete_chunked(&kv, "tokens").unwrap();
         assert!(kv_get_chunked(&kv, "tokens").unwrap().is_none());
-        assert!(kv.store.borrow().is_empty(), "no orphan chunks should remain");
+        assert!(
+            kv.store.borrow().is_empty(),
+            "no orphan chunks should remain"
+        );
     }
 
     #[test]
@@ -386,7 +428,10 @@ mod tests {
             expires_at: Utc::now() + Duration::hours(1),
         };
         let json = serde_json::to_string(&tokens).unwrap();
-        assert!(json.encode_utf16().count() * 2 > 2560, "fixture must exceed the single-entry limit");
+        assert!(
+            json.encode_utf16().count() * 2 > 2560,
+            "fixture must exceed the single-entry limit"
+        );
         let kv = MockKv::new(2560);
         kv_set_chunked(&kv, "tokens", &json, CHUNK_CHARS).unwrap();
         let restored: XboxTokens =

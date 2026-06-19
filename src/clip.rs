@@ -102,7 +102,9 @@ impl ClipPayload {
         }
         let version = c.u8()?;
         if version != VERSION {
-            return Err(format!("unsupported version {version} (expected {VERSION})"));
+            return Err(format!(
+                "unsupported version {version} (expected {VERSION})"
+            ));
         }
         let width = c.u16()?;
         let height = c.u16()?;
@@ -118,7 +120,11 @@ impl ClipPayload {
             let keyframe = c.u8()? != 0;
             let pts_sec = c.f64()?;
             let nal = c.blob()?;
-            video.push(VideoFrame { keyframe, pts_sec, nal });
+            video.push(VideoFrame {
+                keyframe,
+                pts_sec,
+                nal,
+            });
         }
 
         let audio_count = c.u32()? as usize;
@@ -166,8 +172,12 @@ pub fn mux_to_mp4(p: &ClipPayload) -> Result<Vec<u8>, String> {
 
     let mut out: Vec<u8> = Vec::new();
     {
-        let mut builder =
-            MuxerBuilder::new(&mut out).video(VideoCodec::H264, p.width as u32, p.height as u32, fps);
+        let mut builder = MuxerBuilder::new(&mut out).video(
+            VideoCodec::H264,
+            p.width as u32,
+            p.height as u32,
+            fps,
+        );
         if has_audio {
             // 48 kHz / stereo / AAC-LC matches the WebCodecs encoder config (Task 7).
             builder = builder.audio(AudioCodec::Aac(AacProfile::Lc), 48_000, 2);
@@ -435,7 +445,7 @@ mod tests {
         assert_eq!(adts.len(), 10);
         assert_eq!(adts[0], 0xFF);
         assert_eq!(adts[1] & 0xF6, 0xF0); // syncword low nibble + layer 0
-                                          // frame_length spans bits across bytes 3..5; reconstruct it.
+        // frame_length spans bits across bytes 3..5; reconstruct it.
         let frame_len = (((adts[3] & 0x3) as usize) << 11)
             | ((adts[4] as usize) << 3)
             | ((adts[5] as usize) >> 5);
@@ -446,9 +456,13 @@ mod tests {
     /// A minimal Annex-B H.264 keyframe: SPS (7) + PPS (8) + IDR (5).
     fn h264_keyframe() -> Vec<u8> {
         let mut d = Vec::new();
-        d.extend_from_slice(&[0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1e, 0x95, 0xa8, 0x28, 0x28, 0x28]);
+        d.extend_from_slice(&[
+            0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1e, 0x95, 0xa8, 0x28, 0x28, 0x28,
+        ]);
         d.extend_from_slice(&[0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80]);
-        d.extend_from_slice(&[0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03]);
+        d.extend_from_slice(&[
+            0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03,
+        ]);
         d
     }
 
@@ -473,7 +487,11 @@ mod tests {
             }],
         };
         let mp4 = mux_to_mp4(&payload).expect("mux should succeed");
-        assert!(mp4.len() > 32, "MP4 unexpectedly small: {} bytes", mp4.len());
+        assert!(
+            mp4.len() > 32,
+            "MP4 unexpectedly small: {} bytes",
+            mp4.len()
+        );
         // Every MP4 starts with an `ftyp` box: [u32 size]['f','t','y','p'].
         assert_eq!(&mp4[4..8], b"ftyp", "output is not an MP4 (no ftyp box)");
     }
