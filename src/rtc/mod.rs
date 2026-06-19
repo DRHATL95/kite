@@ -26,7 +26,7 @@ pub mod transport;
 
 // Phase 1 (pure, TDD) — added with their tasks:
 pub mod input;
-//   pub mod protocol;
+pub mod protocol;
 //   pub mod clip_tap;
 // Phase 2+ (IO orchestration):
 //   mod engine;

@@ -1,0 +1,48 @@
+---
+source: src/rtc/protocol.rs
+expression: msgs
+---
+[
+  {
+    "type": "Message",
+    "content": "{\"systemUis\":[],\"version\":[0,2,0]}",
+    "id": "00000000-0000-4000-8000-000000000001",
+    "target": "/streaming/systemUi/configuration",
+    "cv": ""
+  },
+  {
+    "type": "Message",
+    "content": "\"c97d7ee0-73b2-4239-bf1d-9d805a338429\"",
+    "id": "00000000-0000-4000-8000-000000000002",
+    "target": "/streaming/properties/clientappinstallid",
+    "cv": ""
+  },
+  {
+    "type": "Message",
+    "content": "0",
+    "id": "00000000-0000-4000-8000-000000000003",
+    "target": "/streaming/properties/orientation",
+    "cv": ""
+  },
+  {
+    "type": "Message",
+    "content": "false",
+    "id": "00000000-0000-4000-8000-000000000004",
+    "target": "/streaming/properties/touchinputenabled",
+    "cv": ""
+  },
+  {
+    "type": "Message",
+    "content": "{}",
+    "id": "00000000-0000-4000-8000-000000000005",
+    "target": "/streaming/properties/clientDeviceCapabilities",
+    "cv": ""
+  },
+  {
+    "type": "Message",
+    "content": "{\"horizontal\":1920,\"vertical\":1080,\"preferredWidth\":1920,\"preferredHeight\":1080,\"safeAreaLeft\":0,\"safeAreaTop\":0,\"safeAreaRight\":1920,\"safeAreaBottom\":1080}",
+    "id": "00000000-0000-4000-8000-000000000006",
+    "target": "/streaming/characteristics/dimensionschanged",
+    "cv": ""
+  }
+]
