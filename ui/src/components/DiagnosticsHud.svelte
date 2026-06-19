@@ -29,6 +29,7 @@
   import PacketPanel  from "./hud/PacketPanel.svelte";
   import SessionPanel from "./hud/SessionPanel.svelte";
   import ChannelPanel from "./hud/ChannelPanel.svelte";
+  import LogViewer   from "./hud/LogViewer.svelte";
 
   // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,9 @@
       <PacketPanel  snapshot={activeSnapshot} />
       <SessionPanel snapshot={activeSnapshot} />
       <ChannelPanel snapshot={activeSnapshot} />
+    </div>
+    <div class="hud__logs">
+      <LogViewer />
     </div>
   </aside>
 {/if}
@@ -249,4 +253,6 @@
   .hud__grid > :global(:last-child) {
     grid-column: 1 / -1;
   }
+
+  .hud__logs { padding: var(--space-3); border-top: 1px solid var(--border); }
 </style>
