@@ -5,6 +5,7 @@
 mod auth;
 mod clip;
 mod error;
+mod logging;
 mod token_store;
 mod updater;
 mod xhome;
