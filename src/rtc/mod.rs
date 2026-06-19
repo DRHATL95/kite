@@ -33,6 +33,7 @@ pub mod protocol;
 // Phase 2+ (IO orchestration):
 //   mod engine;
 pub mod channels;
+pub mod state;
 //   mod stats;
 
 use thiserror::Error;
