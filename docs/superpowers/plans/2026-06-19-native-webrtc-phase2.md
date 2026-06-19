@@ -996,7 +996,7 @@ struct ChannelMap([Option<ChannelId>; 4]);
 impl ChannelMap {
     fn idx(l: ChannelLabel) -> usize { l as usize }
     fn insert(&mut self, label: &str, id: ChannelId) {
-        if let Some(l) = ChannelLabel::from_str(label) { self.0[Self::idx(l)] = Some(id); }
+        if let Some(l) = ChannelLabel::from_label(label) { self.0[Self::idx(l)] = Some(id); }
     }
     fn get(&self, l: ChannelLabel) -> Option<ChannelId> { self.0[Self::idx(l)] }
 }
