@@ -77,3 +77,5 @@ pub use decode_ffmpeg::FfmpegDecoder;
 mod decode_opus;
 #[cfg(feature = "native-webrtc")]
 pub use decode_opus::OpusDecoder;
+
+pub mod audio_sink;
