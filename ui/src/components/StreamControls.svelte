@@ -155,7 +155,7 @@
   function showControls() {
     controlsVisible = true;
     clearFocusMouseTimer();
-    if (!shouldAutoHideControls(connectionStore.state, focusMode)) return;
+    if (!autoHideEnabled) return;
     focusMouseTimer = setTimeout(() => {
       if (shouldAutoHideControls(connectionStore.state, focusMode)) controlsVisible = false;
     }, CONTROLS_AUTO_HIDE_MS);

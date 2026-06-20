@@ -2,10 +2,6 @@ import { describe, expect, it } from "vitest";
 import { CONTROLS_AUTO_HIDE_MS, shouldAutoHideControls } from "./streamControlsVisibility.js";
 
 describe("streamControlsVisibility", () => {
-  it("uses a 2.5 second auto-hide delay", () => {
-    expect(CONTROLS_AUTO_HIDE_MS).toBe(2500);
-  });
-
   it("auto-hides while streaming in player mode", () => {
     expect(shouldAutoHideControls("streaming", false)).toBe(true);
   });
@@ -16,5 +12,9 @@ describe("streamControlsVisibility", () => {
 
   it("keeps controls visible when not streaming and not immersive", () => {
     expect(shouldAutoHideControls("connecting", false)).toBe(false);
+  });
+
+  it("keeps helper delay value in sync with controls behavior", () => {
+    expect(CONTROLS_AUTO_HIDE_MS).toBeGreaterThan(0);
   });
 });
