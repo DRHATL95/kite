@@ -165,6 +165,10 @@
       document.addEventListener("mousemove", showControls);
       return () => {
         document.removeEventListener("mousemove", showControls);
+        if (focusMouseTimer) {
+          clearTimeout(focusMouseTimer);
+          focusMouseTimer = null;
+        }
       };
     }
     controlsVisible = true;
