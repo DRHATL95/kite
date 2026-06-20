@@ -83,6 +83,12 @@ pub struct XHomeSignaling {
 impl XHomeSignaling {
     /// Build + log in (resolves the region base URI + gsToken). `auth` must
     /// already hold valid cached tokens (loaded via `XboxAuth::load_cached_tokens`).
+    ///
+    /// TODO(Phase 3): `login()` runs once here; the gsToken is valid ~1h and is
+    /// NOT refreshed across reconnects. A reconnect after expiry would 401 and
+    /// surface as a generic drop. Add a `Signaling::refresh` hook (or re-login on
+    /// 401) before long-lived sessions rely on reconnect. Harmless in Phase 2:
+    /// the reconnect ladder spans ≤18s, far inside the token lifetime.
     pub async fn connect(auth: XboxAuth) -> Result<Self> {
         let mut client = XHomeClient::new(auth);
         client

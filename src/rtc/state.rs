@@ -40,6 +40,11 @@ impl ConnectionState {
         self.phase
     }
 
+    /// Reconnect attempts made so far (1-based immediately after a drop).
+    pub fn attempt(&self) -> u32 {
+        self.attempt as u32
+    }
+
     /// Mark a successful (re)connection; resets the backoff ladder.
     pub fn on_connected(&mut self) {
         self.phase = Phase::Connected;

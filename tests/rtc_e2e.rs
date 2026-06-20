@@ -35,7 +35,7 @@ async fn e2e_connect_handshake_receive() {
     let deadline = Instant::now() + Duration::from_secs(25);
 
     while Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), handle.events.recv()).await {
+        match tokio::time::timeout(Duration::from_secs(2), handle.next_event()).await {
             Ok(Some(RtcEvent::Connected)) => connected = true,
             Ok(Some(RtcEvent::FirstFrame)) => first_frame = true,
             Ok(Some(RtcEvent::Stats(s))) => last_frames = s.frames_decoded,

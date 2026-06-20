@@ -34,10 +34,12 @@ pub enum EngineCommand {
     Disconnect,
 }
 
-/// Caller-facing handle to a spawned engine.
+/// Caller-facing handle to a spawned engine. The event stream is encapsulated
+/// (consume it via [`RtcHandle::next_event`]) so callers can't take/replace the
+/// receiver out from under the engine.
 pub struct RtcHandle {
     cmd_tx: mpsc::UnboundedSender<EngineCommand>,
-    pub events: mpsc::UnboundedReceiver<RtcEvent>,
+    events: mpsc::UnboundedReceiver<RtcEvent>,
     join: std::thread::JoinHandle<()>,
 }
 
@@ -45,6 +47,13 @@ impl RtcHandle {
     pub fn send_input(&self, frame: GamepadFrame) {
         let _ = self.cmd_tx.send(EngineCommand::SendInput(frame));
     }
+
+    /// Await the next lifecycle/stats event, or `None` once the engine thread
+    /// has exited and the channel is closed.
+    pub async fn next_event(&mut self) -> Option<RtcEvent> {
+        self.events.recv().await
+    }
+
     pub fn disconnect(self) {
         let _ = self.cmd_tx.send(EngineCommand::Disconnect);
         let _ = self.join.join();
@@ -124,7 +133,9 @@ async fn drive(
                                 }
                             }
                         }
-                        let _ = event_tx.send(RtcEvent::Reconnecting { attempt: 0 });
+                        let _ = event_tx.send(RtcEvent::Reconnecting {
+                            attempt: state.attempt(),
+                        });
                     }
                     Transition::GiveUp => return Ok(()),
                 }
