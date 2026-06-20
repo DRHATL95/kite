@@ -72,3 +72,8 @@ pub trait VideoRenderer: Send {
 mod decode_ffmpeg;
 #[cfg(feature = "native-webrtc")]
 pub use decode_ffmpeg::FfmpegDecoder;
+
+#[cfg(feature = "native-webrtc")]
+mod decode_opus;
+#[cfg(feature = "native-webrtc")]
+pub use decode_opus::OpusDecoder;
