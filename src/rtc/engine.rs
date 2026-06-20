@@ -20,6 +20,8 @@ use super::state::{ConnectionState, Transition};
 use super::transport::Transport;
 use super::{Result, RtcError, RtcEvent};
 use crate::rtc::input::{GamepadFrame, encode_gamepad};
+use crate::rtc::media::audio_sink::AudioSink;
+use crate::rtc::media::{AccessUnit, AudioDecoder, FfmpegDecoder, OpusDecoder, VideoDecoder};
 
 const CHANNELS: [(&str, &str); 4] = [
     ("chat", "chatV1"),
@@ -160,9 +162,10 @@ async fn connect_and_stream<S: Signaling, T: Transport>(
     state: &mut ConnectionState,
 ) -> SessionEnd {
     match connect(signaling, transport, server_id).await {
-        Ok((rtc, session, ids, video_mid)) => {
+        Ok((rtc, session, ids, video_mid, audio_mid)) => {
             stream(
-                rtc, transport, signaling, &session, ids, video_mid, cmd_rx, event_tx, state,
+                rtc, transport, signaling, &session, ids, video_mid, audio_mid, cmd_rx, event_tx,
+                state,
             )
             .await
         }
@@ -175,7 +178,7 @@ async fn connect<S: Signaling, T: Transport>(
     signaling: &S,
     transport: &T,
     server_id: &str,
-) -> Result<(Rtc, SessionInfo, ChannelMap, Mid)> {
+) -> Result<(Rtc, SessionInfo, ChannelMap, Mid, Mid)> {
     let session = signaling.create_session(server_id).await?;
     let local_addr = transport.local_addr()?;
 
@@ -185,7 +188,7 @@ async fn connect<S: Signaling, T: Transport>(
     );
 
     let mut ids = ChannelMap::default();
-    let (video_mid, offer_sdp, pending) = {
+    let (video_mid, audio_mid, offer_sdp, pending) = {
         let mut change = rtc.sdp_api();
         for (label, proto) in CHANNELS {
             let id = change.add_channel_with_config(ChannelConfig {
@@ -198,11 +201,11 @@ async fn connect<S: Signaling, T: Transport>(
             ids.insert(label, id);
         }
         let video_mid = change.add_media(MediaKind::Video, Direction::RecvOnly, None, None, None);
-        change.add_media(MediaKind::Audio, Direction::SendRecv, None, None, None);
+        let audio_mid = change.add_media(MediaKind::Audio, Direction::SendRecv, None, None, None);
         let (offer, pending) = change
             .apply()
             .ok_or_else(|| RtcError::Signaling("empty SDP change".into()))?;
-        (video_mid, offer.to_sdp_string(), pending)
+        (video_mid, audio_mid, offer.to_sdp_string(), pending)
     };
 
     let answer_sdp = signaling.exchange_sdp(&session, &offer_sdp).await?;
@@ -216,7 +219,7 @@ async fn connect<S: Signaling, T: Transport>(
     for cand in extract_candidates(&offer_sdp) {
         let _ = signaling.send_ice(&session, &cand).await;
     }
-    Ok((rtc, session, ids, video_mid))
+    Ok((rtc, session, ids, video_mid, audio_mid))
 }
 
 /// The sans-IO loop (the spike's loop, on the seams): drain poll_output, select
@@ -229,6 +232,7 @@ async fn stream<S: Signaling, T: Transport>(
     session: &SessionInfo,
     ids: ChannelMap,
     video_mid: Mid,
+    audio_mid: Mid,
     cmd_rx: &mut mpsc::UnboundedReceiver<EngineCommand>,
     event_tx: &mpsc::UnboundedSender<RtcEvent>,
     state: &mut ConnectionState,
@@ -246,6 +250,7 @@ async fn stream<S: Signaling, T: Transport>(
     let mut frames: u64 = 0;
     let mut input_seq: u32 = 0;
     let mut ice_tick = tokio::time::interval(Duration::from_millis(500));
+    let mut media = MediaPipeline::new(video_mid, audio_mid);
 
     loop {
         // (a) drain poll_output
@@ -262,7 +267,7 @@ async fn stream<S: Signaling, T: Transport>(
                         &mut rtc,
                         &ids,
                         &mut seq,
-                        video_mid,
+                        &mut media,
                         event_tx,
                         &mut connected,
                         &mut first_frame,
@@ -348,6 +353,29 @@ impl ChannelMap {
     }
 }
 
+/// Per-session decode pipeline: H.264 → frames (counted, then dropped until the
+/// Phase-4 renderer), Opus → PCM → speakers. Decoders are `Option` so a missing
+/// codec/audio device is non-fatal (the session still runs).
+struct MediaPipeline {
+    video_mid: Mid,
+    audio_mid: Mid,
+    video_dec: Option<FfmpegDecoder>,
+    audio_dec: Option<OpusDecoder>,
+    audio_sink: Option<AudioSink>,
+}
+
+impl MediaPipeline {
+    fn new(video_mid: Mid, audio_mid: Mid) -> Self {
+        Self {
+            video_mid,
+            audio_mid,
+            video_dec: FfmpegDecoder::new_h264().ok(),
+            audio_dec: OpusDecoder::new_48k_stereo().ok(),
+            audio_sink: AudioSink::new().ok(),
+        }
+    }
+}
+
 /// Handle one str0m Event; `Some(end)` means the session is over.
 #[allow(clippy::too_many_arguments)]
 fn handle_event(
@@ -355,7 +383,7 @@ fn handle_event(
     rtc: &mut Rtc,
     ids: &ChannelMap,
     seq: &mut HandshakeSequencer,
-    video_mid: Mid,
+    media: &mut MediaPipeline,
     event_tx: &mpsc::UnboundedSender<RtcEvent>,
     connected: &mut bool,
     first_frame: &mut bool,
@@ -394,11 +422,30 @@ fn handle_event(
                 )));
             }
         }
-        Event::MediaData(data) if data.mid == video_mid => {
-            *frames += 1;
-            if !*first_frame {
-                *first_frame = true;
-                let _ = event_tx.send(RtcEvent::FirstFrame);
+        Event::MediaData(data) => {
+            if data.mid == media.video_mid {
+                if let Some(dec) = media.video_dec.as_mut() {
+                    let au = AccessUnit {
+                        data: &data.data,
+                        pts_micros: media_time_micros(&data),
+                        keyframe: data.is_keyframe(),
+                    };
+                    if dec.feed(au).is_ok() {
+                        while let Some(_frame) = dec.poll() {
+                            *frames += 1; // decoded-frame count; Phase 4 renders `_frame`
+                            if !*first_frame {
+                                *first_frame = true;
+                                let _ = event_tx.send(RtcEvent::FirstFrame);
+                            }
+                        }
+                    }
+                }
+            } else if data.mid == media.audio_mid
+                && let (Some(dec), Some(sink)) =
+                    (media.audio_dec.as_mut(), media.audio_sink.as_ref())
+                && let Ok(pcm) = dec.decode(&data.data, media_time_micros(&data))
+            {
+                sink.submit(&pcm);
             }
         }
         _ => {}
@@ -449,6 +496,11 @@ fn discover_local_ip() -> Result<IpAddr> {
     Ok(s.local_addr()
         .map_err(|e| RtcError::Transport(e.to_string()))?
         .ip())
+}
+
+/// MediaData RTP media-time → microseconds (best-effort; real A/V sync is Phase 5).
+fn media_time_micros(data: &str0m::media::MediaData) -> u64 {
+    data.time.as_micros()
 }
 
 fn uuid_v4() -> String {
