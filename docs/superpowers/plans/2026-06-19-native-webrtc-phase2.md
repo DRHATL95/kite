@@ -1,5 +1,13 @@
 # Native WebRTC Phase 2 — str0m Engine + Signaling — Implementation Plan
 
+> **STATUS: ✅ COMPLETE (live-validated 2026-06-19).** All 6 tasks implemented via
+> subagent-driven TDD with two-stage review; the assembled engine passed the live
+> `XBOX_E2E` test (connect → handshake → ≥100 video AUs). Commits
+> `943fe84..a54dfa2`. 103 pure unit tests green. Review caught + fixed two real
+> engine bugs (reconnect ladder never reset; non-cancellable backoff). Deferred to
+> later phases: `Signaling::refresh` (gsToken expiry), bounded event channel,
+> `play_path` threading.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the native, cross-platform `RtcEngine` — a str0m **offerer** that connects to a real Xbox console (reusing `src/xhome.rs` signaling), opens the four DCEP data channels, runs the Phase-1 handshake, receives the encoded H.264 + Opus access units, emits lifecycle/stats events, reconnects on drop, and sends 38-byte input packets — all behind the hexagonal seams.

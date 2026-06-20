@@ -29,11 +29,21 @@
 > - **Phase 1 — ✅ COMPLETE** (pure protocol port, TDD + `insta`, 93 tests).
 >   `src/rtc/{input,protocol,clip_tap}.rs`. The `protocol.rs` builders drove the
 >   live console **unmodified** during the spike — empirically validated.
-> - **NEXT — Phase 2 (str0m engine + signaling).** Author the detailed Phase-2
->   task plan (`docs/superpowers/plans/2026-06-…-native-webrtc-phase2.md`), then
->   build `engine.rs` (sans-IO loop — the spike is its skeleton), `channels.rs`
->   (4-channel handshake), and the `XHomeSignaling` adapter, reusing the Phase-1
->   pure modules. **STOP point honored: await go-ahead before starting Phase 2.**
+> - **Phase 2 — ✅ COMPLETE** (str0m engine + signaling; subagent-driven TDD, plan
+>   `docs/superpowers/plans/2026-06-19-native-webrtc-phase2.md`). Built behind the
+>   seams: async `Transport`/`UdpTransport`, `XHomeSignaling` adapter, the pure
+>   `channels.rs` handshake sequencer + `state.rs` 3/6/9s reconnect ladder (TDD),
+>   and the feature-gated `engine.rs` sans-IO loop (`RtcEngine::spawn` on a
+>   dedicated thread). **Live-validated:** `tests/rtc_e2e.rs` (XBOX_E2E) connected
+>   to the real console, ran the handshake, received ≥100 video AUs. Two-stage
+>   review caught + fixed two real engine bugs (reconnect ladder never reset;
+>   non-cancellable backoff hung disconnect). 103 pure unit tests green.
+> - **NEXT — Phase 3 (decode pipeline).** Feed the engine's received H.264 AUs to
+>   `ffmpeg-the-third`/VA-API → `DecodedFrame`; add `opus` + `cpal` audio. Then
+>   Phase 4 render, Phase 5 stats/keepalive/clip, Phase 6 integration+flag.
+>   Carried-forward Phase-2 follow-ups (in the phase-2 plan + findings):
+>   `Signaling::refresh` for gsToken expiry across long reconnects; bounded event
+>   channel before the Phase-6 UI consumer; `play_path` threading.
 > - After the whole native feature: the 1.0 backend (`xhome.rs`) + frontend
 >   (`ConnectionManager.ts`) refactors.
 
