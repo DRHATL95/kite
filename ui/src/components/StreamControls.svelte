@@ -155,9 +155,9 @@
   function showControls() {
     controlsVisible = true;
     clearFocusMouseTimer();
-    if (!autoHideEnabled) return;
+    if (!shouldAutoHideControls(connectionStore.state, focusMode)) return;
     focusMouseTimer = setTimeout(() => {
-      if (autoHideEnabled) controlsVisible = false;
+      if (shouldAutoHideControls(connectionStore.state, focusMode)) controlsVisible = false;
     }, CONTROLS_AUTO_HIDE_MS);
   }
 
@@ -169,6 +169,7 @@
   $effect(() => {
     if (autoHideEnabled) {
       showControls();
+      document.removeEventListener("mousemove", showControls);
       document.addEventListener("mousemove", showControls);
       return () => {
         document.removeEventListener("mousemove", showControls);
