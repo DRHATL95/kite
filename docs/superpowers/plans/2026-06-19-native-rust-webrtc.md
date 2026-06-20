@@ -96,6 +96,16 @@
 >   with `CARGO_TARGET_DIR` on ext4 so the `/mnt/c` 9p mount isn't the bottleneck.
 >   Caveats: no audio (WSLg has no ALSA card — add `libasound2-plugins` to bridge to
 >   pulse); **Phase 4 render still wants the real box** (WSLg GPU/airspace differs).
+> - **Live-run console gotcha (seen 2026-06-20):** Xbox Remote Play allows ONE
+>   session at a time and does NOT always tear a failed one down cleanly — firing
+>   several `create_session` attempts in a row (e.g. spike + E2E retries) can wedge
+>   the console into repeated `InternalServerError … WaitingForServerToRegister`
+>   (a NullReferenceException on MS's backend) even though it still lists as
+>   `power=On`. NOT a code bug — both the engine (`create_session(..., None)`) and
+>   the spike (`..., Some(play_path)`) fail identically once wedged. Fix: **fully
+>   Restart the console** (power menu → Restart, not standby) to clear the stuck
+>   registration, then re-run. Note `wake_console` currently POSTs a 404, so remote
+>   wake can't rouse a standby console (pre-existing gap; separate follow-up).
 > - The native-WebRTC effort's natural Windows work is **Phase 7 (unify Windows)** —
 >   the hard part is wry/WebView2 "airspace" compositing (see §Phase 7) — and
 >   planning/docs. The Linux-dependent steps (Phase 3 live run, Phase 4 render)
