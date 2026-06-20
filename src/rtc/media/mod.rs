@@ -67,3 +67,8 @@ pub trait VideoRenderer: Send {
     fn present(&mut self, frame: &DecodedFrame);
     fn resize(&mut self, width: u32, height: u32);
 }
+
+#[cfg(feature = "native-webrtc")]
+mod decode_ffmpeg;
+#[cfg(feature = "native-webrtc")]
+pub use decode_ffmpeg::FfmpegDecoder;
