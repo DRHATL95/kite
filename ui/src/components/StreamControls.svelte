@@ -145,9 +145,16 @@
   const autoHideEnabled = $derived(shouldAutoHideControls(connectionStore.state, focusMode));
   let focusMouseTimer: ReturnType<typeof setTimeout> | null = null;
 
+  function clearFocusMouseTimer() {
+    if (focusMouseTimer) {
+      clearTimeout(focusMouseTimer);
+      focusMouseTimer = null;
+    }
+  }
+
   function showControls() {
     controlsVisible = true;
-    if (focusMouseTimer) clearTimeout(focusMouseTimer);
+    clearFocusMouseTimer();
     if (!autoHideEnabled) return;
     focusMouseTimer = setTimeout(() => {
       if (autoHideEnabled) controlsVisible = false;
@@ -165,17 +172,11 @@
       document.addEventListener("mousemove", showControls);
       return () => {
         document.removeEventListener("mousemove", showControls);
-        if (focusMouseTimer) {
-          clearTimeout(focusMouseTimer);
-          focusMouseTimer = null;
-        }
+        clearFocusMouseTimer();
       };
     }
     controlsVisible = true;
-    if (focusMouseTimer) {
-      clearTimeout(focusMouseTimer);
-      focusMouseTimer = null;
-    }
+    clearFocusMouseTimer();
   });
 
   // ── Keyframe ──────────────────────────────────────────────────────────────────
@@ -189,7 +190,7 @@
   onDestroy(() => {
     document.removeEventListener("fullscreenchange", handleFullscreenChange);
     document.removeEventListener("mousemove", showControls);
-    if (focusMouseTimer) clearTimeout(focusMouseTimer);
+    clearFocusMouseTimer();
   });
 </script>
 
