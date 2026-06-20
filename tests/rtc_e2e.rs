@@ -51,9 +51,13 @@ async fn e2e_connect_handshake_receive() {
 
     handle.disconnect();
     assert!(connected, "never reached Connected");
-    assert!(first_frame, "never received a video AU");
+    // Phase 3: FirstFrame + frames_decoded now count DECODED frames (ffmpeg),
+    // not just received AUs — a pass proves the H.264 decode pipeline works.
+    assert!(first_frame, "never decoded a video frame");
     assert!(
         last_frames >= 100,
-        "expected >=100 received AUs, got {last_frames}"
+        "expected >=100 DECODED frames, got {last_frames}"
     );
+    // Audio: cpal played decoded Opus through the default output device during the
+    // run (verified by ear — no programmatic assertion; engine logs submit errors).
 }
