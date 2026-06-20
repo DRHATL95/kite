@@ -1,5 +1,14 @@
 # Native WebRTC Phase 3 — Decode Pipeline (software) + Audio — Implementation Plan
 
+> **STATUS: ✅ CODE COMPLETE, ⬜ LIVE RUN PENDING (2026-06-19).** Tasks 3.1–3.4
+> implemented via subagent-driven TDD with review; commits `172e07e..115da02`.
+> 106 pure unit tests green; `cargo build --features native-webrtc` clean. Review
+> caught + fixed a dropped `set_pts` (A/V-sync bug, Task 3.1) and dead over-gating
+> in the engine (Task 3.4). **Task 3.5 — the live `XBOX_E2E` decode+audio run — is
+> NOT done** (needs the Linux box + powered-on console + speakers). HW VA-API
+> decode + zero-copy GPU output were **deferred to co-design with Phase 4** (see
+> Decision 1). Resume by running the Task 3.5 live command, then start Phase 4.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the Phase-2 engine's *received* encoded access units into *decoded* media — H.264 → CPU frames via ffmpeg (software), Opus → PCM via the `opus` crate, played through the speakers via `cpal` — so a live session decodes video frames and you can **hear** the Xbox, end to end on Linux.

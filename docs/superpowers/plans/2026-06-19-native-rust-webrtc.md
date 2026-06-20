@@ -38,14 +38,50 @@
 >   to the real console, ran the handshake, received ≥100 video AUs. Two-stage
 >   review caught + fixed two real engine bugs (reconnect ladder never reset;
 >   non-cancellable backoff hung disconnect). 103 pure unit tests green.
-> - **NEXT — Phase 3 (decode pipeline).** Feed the engine's received H.264 AUs to
->   `ffmpeg-the-third`/VA-API → `DecodedFrame`; add `opus` + `cpal` audio. Then
->   Phase 4 render, Phase 5 stats/keepalive/clip, Phase 6 integration+flag.
->   Carried-forward Phase-2 follow-ups (in the phase-2 plan + findings):
+> - **Phase 3 — ✅ CODE COMPLETE, ⬜ LIVE VALIDATION PENDING** (decode + audio;
+>   subagent-driven TDD, plan
+>   `docs/superpowers/plans/2026-06-19-native-webrtc-phase3.md`). Software slice:
+>   `media/decode_ffmpeg.rs` (`FfmpegDecoder`, H.264 Annex-B → I420 CPU frames,
+>   fixture TDD), `media/decode_opus.rs` (`OpusDecoder`, Opus→48k stereo PCM,
+>   round-trip TDD), `media/audio_sink.rs` (pure `AudioRing` TDD + `cpal` playback).
+>   `engine.rs` decodes received AUs inline (video → count + `FirstFrame` on first
+>   *decoded* frame; audio → `cpal` playback). **106 pure tests green; feature
+>   build clean.** Review caught + fixed a dropped `set_pts` (A/V-sync bug) and dead
+>   over-gating in the engine. ⬜ The **live `XBOX_E2E` run was NOT done** — needs
+>   the Linux box + powered-on console + speakers:
+>   `XBOX_E2E=1 XBOX_SERVER_ID=<id> cargo test --features native-webrtc --test rtc_e2e -- --nocapture`
+>   (proves ≥100 *decoded* 1080p frames + you hear the dashboard audio).
+>   **DECISION: HW VA-API decode + zero-copy `FramePixels::Gpu` were deferred** to
+>   co-design with the Phase-4 renderer (software 1080p decode is proven; zero-copy
+>   only pays off with a GPU renderer). Phase-3 follow-ups: real A/V sync (Phase 5);
+>   maybe a dedicated decode thread if the inline decode starves the loop.
+> - **NEXT — run the Phase-3 live validation (Linux), then Phase 4 (Linux render):**
+>   a `VideoRenderer` presenting `DecodedFrame`s under the transparent HUD
+>   (wgpu/gtkglsink), at which point HW decode + zero-copy GPU texture is added.
+>   Then Phase 5 stats/keepalive/clip, Phase 6 integration+flag, Phase 7 unify
+>   Win/macOS. Carried-forward engine follow-ups (phase-2/3 plans + findings):
 >   `Signaling::refresh` for gsToken expiry across long reconnects; bounded event
 >   channel before the Phase-6 UI consumer; `play_path` threading.
-> - After the whole native feature: the 1.0 backend (`xhome.rs`) + frontend
->   (`ConnectionManager.ts`) refactors.
+>
+> ### ⚠️ HANDOFF — continuing on a different machine (e.g. Windows)
+> All work is on branch **`feat/native-webrtc-linux`** (pushed to origin; PR
+> [#15](https://github.com/DRHATL95/xbox-remote/pull/15) → master). A fresh
+> instance: `git checkout feat/native-webrtc-linux && git pull`. **OS notes:**
+> - `cargo test` (no `--features`) runs the **106 pure tests on any OS** — the
+>   `rtc` pure modules (input/protocol/clip_tap/channels/state/signaling-mappers/
+>   AudioRing) are codec-free. Use this to verify the port arrived intact.
+> - `cargo build --features native-webrtc` needs **str0m + ffmpeg-the-third + cpal
+>   + opus**. `ffmpeg-the-third` typically **does NOT build on stock Windows**
+>   (needs ffmpeg dev libs + pkg-config/vcpkg wiring) — that's why Phase 1 was done
+>   feature-free. **Do not expect the feature build or the live E2E to work on
+>   Windows.** The native engine is **Linux-first by design**; on Windows the
+>   existing **browser `<video>` path is still the default and works**.
+> - The native-WebRTC effort's natural Windows work is **Phase 7 (unify Windows)** —
+>   the hard part is wry/WebView2 "airspace" compositing (see §Phase 7) — and
+>   planning/docs. The Linux-dependent steps (Phase 3 live run, Phase 4 render)
+>   should be done back on the Linux box.
+> - The 1.0 backend (`xhome.rs`) + frontend (`ConnectionManager.ts`) refactors come
+>   after the whole native feature.
 
 **Goal:** Move the WebRTC media client out of the browser webview into native Rust so Xbox streaming works on Linux (where WebKitGTK ships *without* WebRTC), with one shared Rust engine that Windows and macOS can later adopt.
 
