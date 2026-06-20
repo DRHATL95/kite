@@ -38,7 +38,7 @@
 >   to the real console, ran the handshake, received ≥100 video AUs. Two-stage
 >   review caught + fixed two real engine bugs (reconnect ladder never reset;
 >   non-cancellable backoff hung disconnect). 103 pure unit tests green.
-> - **Phase 3 — ✅ CODE COMPLETE, ⬜ LIVE VALIDATION PENDING** (decode + audio;
+> - **Phase 3 — ✅ CODE COMPLETE + ✅ LIVE-VALIDATED** (decode + audio;
 >   subagent-driven TDD, plan
 >   `docs/superpowers/plans/2026-06-19-native-webrtc-phase3.md`). Software slice:
 >   `media/decode_ffmpeg.rs` (`FfmpegDecoder`, H.264 Annex-B → I420 CPU frames,
@@ -47,15 +47,21 @@
 >   `engine.rs` decodes received AUs inline (video → count + `FirstFrame` on first
 >   *decoded* frame; audio → `cpal` playback). **106 pure tests green; feature
 >   build clean.** Review caught + fixed a dropped `set_pts` (A/V-sync bug) and dead
->   over-gating in the engine. ⬜ The **live `XBOX_E2E` run was NOT done** — needs
->   the Linux box + powered-on console + speakers:
+>   over-gating in the engine. ✅ **LIVE-VALIDATED 2026-06-20 on WSL Ubuntu 24.04**
+>   (Windows host — NOT the CachyOS box): the real `XBOX_E2E` run connected to the
+>   live Series X and the test passed — Connected + FirstFrame + **≥100 *decoded*
+>   1080p frames** in 10.3s:
 >   `XBOX_E2E=1 XBOX_SERVER_ID=<id> cargo test --features native-webrtc --test rtc_e2e -- --nocapture`
->   (proves ≥100 *decoded* 1080p frames + you hear the dashboard audio).
+>   ⚠️ Audio was NOT heard — WSLg exposes no ALSA card (`cannot find card '0'`), so the
+>   cpal sink couldn't open; non-fatal (logged, no assertion). The by-ear audio
+>   check is still owed: install `libasound2-plugins` to bridge ALSA→WSLg pulse, or
+>   confirm on the real box. (Benign startup `non-existing PPS 0`/`no frame!` lines
+>   are the mid-stream join before the first keyframe — decode recovers at the IDR.)
 >   **DECISION: HW VA-API decode + zero-copy `FramePixels::Gpu` were deferred** to
 >   co-design with the Phase-4 renderer (software 1080p decode is proven; zero-copy
 >   only pays off with a GPU renderer). Phase-3 follow-ups: real A/V sync (Phase 5);
 >   maybe a dedicated decode thread if the inline decode starves the loop.
-> - **NEXT — run the Phase-3 live validation (Linux), then Phase 4 (Linux render):**
+> - **NEXT — Phase 4 (Linux render)** (Phase-3 live validation ✅ done 2026-06-20):
 >   a `VideoRenderer` presenting `DecodedFrame`s under the transparent HUD
 >   (wgpu/gtkglsink), at which point HW decode + zero-copy GPU texture is added.
 >   Then Phase 5 stats/keepalive/clip, Phase 6 integration+flag, Phase 7 unify
@@ -74,8 +80,22 @@
 >   + opus**. `ffmpeg-the-third` typically **does NOT build on stock Windows**
 >   (needs ffmpeg dev libs + pkg-config/vcpkg wiring) — that's why Phase 1 was done
 >   feature-free. **Do not expect the feature build or the live E2E to work on
->   Windows.** The native engine is **Linux-first by design**; on Windows the
+>   *native* Windows.** The native engine is **Linux-first by design**; on Windows the
 >   existing **browser `<video>` path is still the default and works**.
+> - **BUT WSL works (validated 2026-06-20).** On a Windows host, **Ubuntu 24.04 in
+>   WSL2 both builds `--features native-webrtc` AND runs the live `XBOX_E2E` decode
+>   test green** — even on FFmpeg 6.1 (`ffmpeg-the-third` 5.x adapts via cfg-gating;
+>   no FFmpeg-8 / Arch parity needed). Recipe: `apt install build-essential
+>   pkg-config clang libclang-dev libopus-dev libasound2-dev libavcodec-dev
+>   libavformat-dev libavutil-dev libavdevice-dev libavfilter-dev libswscale-dev
+>   libswresample-dev gnome-keyring dbus-x11`; bring up an unlocked Secret Service on
+>   the session bus (`gnome-keyring-daemon --daemonize --unlock --components=secrets`,
+>   needed because `keyring` uses `sync-secret-service`); sign in headlessly with
+>   `cargo run --example wsl_login` (the auth-code loopback redirect reaches the WSL
+>   listener via WSL2 localhost-forwarding) — it also prints `XBOX_SERVER_ID`; build
+>   with `CARGO_TARGET_DIR` on ext4 so the `/mnt/c` 9p mount isn't the bottleneck.
+>   Caveats: no audio (WSLg has no ALSA card — add `libasound2-plugins` to bridge to
+>   pulse); **Phase 4 render still wants the real box** (WSLg GPU/airspace differs).
 > - The native-WebRTC effort's natural Windows work is **Phase 7 (unify Windows)** —
 >   the hard part is wry/WebView2 "airspace" compositing (see §Phase 7) — and
 >   planning/docs. The Linux-dependent steps (Phase 3 live run, Phase 4 render)
