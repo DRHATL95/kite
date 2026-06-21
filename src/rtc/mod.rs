@@ -30,6 +30,7 @@ pub mod transport;
 pub mod clip_tap;
 pub mod input;
 pub mod protocol;
+pub mod stats;
 // Phase 2+ (IO orchestration):
 pub mod channels;
 #[cfg(feature = "native-webrtc")]
