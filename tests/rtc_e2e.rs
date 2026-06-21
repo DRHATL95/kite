@@ -39,13 +39,19 @@ async fn e2e_connect_handshake_receive() {
     let mut connected = false;
     let mut first_frame = false;
     let mut last_frames = 0u64;
+    let mut saw_bitrate = false;
     let deadline = Instant::now() + Duration::from_secs(25);
 
     while Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_secs(2), handle.next_event()).await {
             Ok(Some(RtcEvent::Connected)) => connected = true,
             Ok(Some(RtcEvent::FirstFrame)) => first_frame = true,
-            Ok(Some(RtcEvent::Stats(s))) => last_frames = s.frames_decoded,
+            Ok(Some(RtcEvent::Stats(s))) => {
+                last_frames = s.frames_decoded;
+                if s.bitrate_kbps > 0 {
+                    saw_bitrate = true;
+                }
+            }
             Ok(Some(RtcEvent::Disconnected(why))) => panic!("disconnected early: {why}"),
             Ok(Some(_)) => {}
             Ok(None) => break,
@@ -68,12 +74,24 @@ async fn e2e_connect_handshake_receive() {
         while Instant::now() < hold_until {
             match tokio::time::timeout(Duration::from_secs(1), handle.next_event()).await {
                 Ok(Some(RtcEvent::Disconnected(why))) => panic!("dropped during hold: {why}"),
-                Ok(Some(RtcEvent::Stats(s))) => last_frames = s.frames_decoded,
+                Ok(Some(RtcEvent::Stats(s))) => {
+                    last_frames = s.frames_decoded;
+                    if s.bitrate_kbps > 0 {
+                        saw_bitrate = true;
+                    }
+                }
                 Ok(None) => break,
                 _ => {}
             }
         }
     }
+
+    assert!(saw_bitrate, "expected at least one stats sample with nonzero bitrate");
+
+    let clip = handle.clip().await.expect("a clip should assemble from the buffered AUs");
+    assert!(!clip.video.is_empty(), "clip has video frames");
+    let mp4 = xbox_remote::clip::mux_opus_to_mp4(&clip).expect("mux the clip to MP4");
+    assert!(mp4.windows(4).any(|w| w == b"ftyp"), "muxed clip is a fast-start MP4");
 
     handle.disconnect();
     assert!(connected, "never reached Connected");
