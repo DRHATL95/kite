@@ -55,14 +55,15 @@ insta = { version = "1", features = ["json"] }
 # Phase-0 spike only (examples/rtc_spike.rs): error context + PNG encode.
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
-# Phase-4 render de-risk spike (examples/render_spike.rs, Linux): GTK GLArea video
-# layer composited UNDER a transparent webview HUD. Versions match the tauri/wry
-# tree so Cargo unifies (no duplicate gtk/tao/wry). glow = lightweight GL.
-tao = "0.35"
-wry = "0.55"
-gtk = "0.18"
-glow = "0.13"
-libloading = "0.7"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Native Linux render stack (Phase 4/6). Optional + feature-gated so the default
+# Win/macOS build stays lean and `cargo test` doesn't pull gtk on Windows.
+gtk = { version = "0.18", optional = true }
+glow = { version = "0.13", optional = true }
+libloading = { version = "0.7", optional = true }
+tao = { version = "0.35", optional = true }
+wry = { version = "0.55", optional = true }
 
 # Phase-0 throwaway de-risk spike: str0m offerer → receive Xbox H.264 → decode
 # one frame → PNG. Only built when the native stack is available.
@@ -74,6 +75,7 @@ required-features = ["native-webrtc"]
 # compositing on Linux/WebKitGTK (GTK GLArea in a GtkOverlay). Linux-only.
 [[example]]
 name = "render_spike"
+required-features = ["native-webrtc"]
 
 # Phase-4 live render proof: spawn the real engine, render its decoded I420 frames
 # in a gtk::GLArea (YUV→RGB via BT.709) under a transparent HUD. Linux-only.
@@ -91,4 +93,4 @@ lto = false
 # Native Rust WebRTC media stack (Linux-first; opt-in so the default build stays
 # lean and doesn't require ffmpeg/str0m toolchains). See
 # docs/superpowers/plans/2026-06-19-native-rust-webrtc.md.
-native-webrtc = ["dep:str0m", "dep:opus", "dep:ffmpeg-the-third", "dep:bytes", "dep:cpal"]
+native-webrtc = ["dep:str0m", "dep:opus", "dep:ffmpeg-the-third", "dep:bytes", "dep:cpal", "dep:gtk", "dep:glow", "dep:libloading", "dep:tao", "dep:wry"]
