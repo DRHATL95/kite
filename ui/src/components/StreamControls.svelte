@@ -3,8 +3,9 @@
    * StreamControls.svelte — Streaming controls bar.
    *
    * Features:
-   *   - Focus mode toggle: hides chrome, auto-hides controls after 2.5s of
-   *     mouse idle (ported from app.js toggleFocusMode / onFocusMouseMove logic).
+   *   - Auto-hide controls after 2.5s of mouse idle while streaming (and in
+   *     focus mode), revealing them again on mouse movement.
+   *   - Focus mode toggle: hides chrome and uses floating controls.
    *   - Fullscreen toggle: requestFullscreen on the stream container element.
    *   - Keyframe button: connectionStore.requestKeyframe().
    *   - Volume slider (0–100): persisted to the durable settings store under
@@ -27,6 +28,7 @@
   import { settings } from "$lib/stores/settings.svelte.js";
   import { clipStore } from "$lib/stores/clip.svelte.js";
   import { persisted } from "$lib/persist/store.js";
+  import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
 
   const showClip = $derived(
     settings.clip.enabled && connectionStore.state === "streaming",
@@ -138,32 +140,44 @@
 
   // ── Focus mode ────────────────────────────────────────────────────────────────
 
-  /** Controls bar is visible when not in focus mode, or temporarily when mouse moves. */
+  /** Controls bar visibility (auto-hides while streaming / focus mode). */
   let controlsVisible = $state(true);
+  const autoHideEnabled = $derived(shouldAutoHideControls(connectionStore.state, focusMode));
   let focusMouseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearFocusMouseTimer() {
+    if (focusMouseTimer) {
+      clearTimeout(focusMouseTimer);
+      focusMouseTimer = null;
+    }
+  }
 
   function showControls() {
     controlsVisible = true;
-    if (focusMouseTimer) clearTimeout(focusMouseTimer);
+    clearFocusMouseTimer();
+    if (!autoHideEnabled) return;
     focusMouseTimer = setTimeout(() => {
-      if (focusMode) controlsVisible = false;
-    }, 2500);
+      if (shouldAutoHideControls(connectionStore.state, focusMode)) controlsVisible = false;
+    }, CONTROLS_AUTO_HIDE_MS);
   }
 
   function toggleFocusMode() {
     focusMode = !focusMode;
-    if (focusMode) {
-      // Auto-hide after brief show
-      controlsVisible = true;
-      focusMouseTimer = setTimeout(() => { controlsVisible = false; }, 2000);
-      document.addEventListener("mousemove", showControls);
-    } else {
-      // Restore controls
-      controlsVisible = true;
-      if (focusMouseTimer) { clearTimeout(focusMouseTimer); focusMouseTimer = null; }
-      document.removeEventListener("mousemove", showControls);
-    }
+    showControls();
   }
+
+  $effect(() => {
+    if (autoHideEnabled) {
+      showControls();
+      document.removeEventListener("mousemove", showControls);
+      document.addEventListener("mousemove", showControls);
+      return () => {
+        document.removeEventListener("mousemove", showControls);
+        clearFocusMouseTimer();
+      };
+    }
+    controlsVisible = true;
+  });
 
   // ── Keyframe ──────────────────────────────────────────────────────────────────
 
@@ -176,7 +190,7 @@
   onDestroy(() => {
     document.removeEventListener("fullscreenchange", handleFullscreenChange);
     document.removeEventListener("mousemove", showControls);
-    if (focusMouseTimer) clearTimeout(focusMouseTimer);
+    clearFocusMouseTimer();
   });
 </script>
 
@@ -184,7 +198,8 @@
   class="stream-controls"
   class:stream-controls--focus={focusMode}
   class:stream-controls--floating={floating}
-  class:stream-controls--visible={!focusMode || controlsVisible}
+  class:stream-controls--autohide={autoHideEnabled}
+  class:stream-controls--visible={controlsVisible}
   aria-label="Stream controls"
 >
   <!-- Volume: clickable speaker glyph (mute toggle) + slider + value -->
@@ -297,13 +312,13 @@
     transition: opacity 200ms ease;
   }
 
-  /* In focus mode (docked variant), hide the bar when not hovered / mouse moving. */
-  .stream-controls--focus:not(.stream-controls--floating) {
+  /* Auto-hide in any mode when enabled. */
+  .stream-controls--autohide {
     opacity: 0;
     pointer-events: none;
   }
 
-  .stream-controls--focus:not(.stream-controls--floating).stream-controls--visible {
+  .stream-controls--autohide.stream-controls--visible {
     opacity: 1;
     pointer-events: auto;
   }
@@ -330,17 +345,6 @@
 
     z-index: 30;
     transition: opacity 200ms ease;
-  }
-
-  /* Auto-hide: fade out when focus + not visible */
-  .stream-controls--floating.stream-controls--focus {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .stream-controls--floating.stream-controls--focus.stream-controls--visible {
-    opacity: 1;
-    pointer-events: auto;
   }
 
   /* ── Separator ──────────────────────────────────────────────────────────── */
