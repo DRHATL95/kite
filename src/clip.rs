@@ -211,6 +211,73 @@ pub fn mux_to_mp4(p: &ClipPayload) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// Mux an assembled native clip (Opus audio, Annex-B H.264) into a fast-start
+/// MP4. Audio is written as **raw Opus** directly (muxide `AudioCodec::Opus`,
+/// always 48 kHz) — no AAC transcode, removing the AAC-priming A/V residual.
+pub fn mux_opus_to_mp4(clip: &crate::rtc::clip_tap::AssembledClip) -> Result<Vec<u8>, String> {
+    use muxide::api::{AudioCodec, MuxerBuilder, VideoCodec};
+
+    if clip.video.is_empty() {
+        return Err("clip has no video frames".to_string());
+    }
+    if !clip.video[0].is_keyframe {
+        return Err("first video frame must be a keyframe".to_string());
+    }
+
+    let fps = clip.fps_num as f64 / clip.fps_den.max(1) as f64;
+    let has_audio = !clip.audio.is_empty();
+    let t0 = clip.video[0].pts_sec;
+
+    let mut out: Vec<u8> = Vec::new();
+    {
+        let mut builder =
+            MuxerBuilder::new(&mut out).video(VideoCodec::H264, clip.width, clip.height, fps);
+        if has_audio {
+            builder = builder.audio(AudioCodec::Opus, 48_000, 2);
+        }
+        let mut muxer = builder.build().map_err(|e| format!("muxer init: {e}"))?;
+
+        for (i, f) in clip.video.iter().enumerate() {
+            let pts = (f.pts_sec - t0).max(0.0);
+            let data = if i == 0 {
+                ensure_sps_pps(&f.bytes, &clip.sps, &clip.pps)
+            } else {
+                f.bytes.clone()
+            };
+            muxer
+                .write_video(pts, &data, f.is_keyframe)
+                .map_err(|e| format!("write_video[{i}]: {e}"))?;
+        }
+        if has_audio {
+            for (i, f) in clip.audio.iter().enumerate() {
+                let pts = (f.pts_sec - t0).max(0.0);
+                muxer
+                    .write_audio(pts, &f.bytes) // raw Opus, no ADTS
+                    .map_err(|e| format!("write_audio[{i}]: {e}"))?;
+            }
+        }
+        muxer.finish().map_err(|e| format!("finish: {e}"))?;
+    }
+    Ok(out)
+}
+
+/// Mux + write the clip to `dir` as `clip-<unix_ms>.mp4`, returning the path.
+pub fn save_assembled_clip(
+    clip: &crate::rtc::clip_tap::AssembledClip,
+    dir: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let mp4 = mux_opus_to_mp4(clip)?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("clip-{ms}.mp4"));
+    std::fs::write(&path, &mp4).map_err(|e| format!("write mp4: {e}"))?;
+    Ok(path)
+}
+
 // ── Annex-B / ADTS helpers ──────────────────────────────────────────────────
 
 /// True if `data` contains a NAL of the given type (low 5 bits of the header byte),
@@ -514,5 +581,63 @@ mod tests {
             audio: vec![],
         };
         assert!(mux_to_mp4(&payload).is_err());
+    }
+
+    #[test]
+    fn mux_opus_produces_playable_mp4_with_opus_track() {
+        use crate::rtc::clip_tap::{AssembledClip, VideoAu, AudioAu};
+        // Minimal H.264 keyframe (SPS+PPS+IDR) — same shape muxide's own test uses.
+        let mut kf = Vec::new();
+        kf.extend_from_slice(&[0,0,0,1,0x67,0x42,0x00,0x1e,0xab,0x40,0xf0,0x28,0xd0]); // SPS
+        kf.extend_from_slice(&[0,0,0,1,0x68,0xce,0x38,0x80]);                          // PPS
+        kf.extend_from_slice(&[0,0,0,1,0x65,0x88,0x84,0x00,0x10]);                     // IDR
+        // Valid Opus packet: TOC config=4 (SILK 20ms) stereo 1 frame = 0x24.
+        let opus = vec![0x24u8, 0xc0, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
+
+        let clip = AssembledClip {
+            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
+            sps: vec![], pps: vec![], // in-band in the keyframe above
+            video: vec![VideoAu { bytes: kf, pts_sec: 0.0, is_keyframe: true }],
+            audio: vec![
+                AudioAu { bytes: opus.clone(), pts_sec: 0.0 },
+                AudioAu { bytes: opus, pts_sec: 0.02 },
+            ],
+            start_sec: 0.0,
+        };
+
+        let mp4 = mux_opus_to_mp4(&clip).expect("mux ok");
+        assert!(mp4.windows(4).any(|w| w == b"ftyp"), "fast-start ftyp present");
+        assert!(mp4.windows(4).any(|w| w == b"Opus"), "Opus sample entry present");
+        assert!(mp4.windows(4).any(|w| w == b"dOps"), "Opus config box present");
+    }
+
+    #[test]
+    fn mux_opus_rejects_empty_video() {
+        use crate::rtc::clip_tap::AssembledClip;
+        let clip = AssembledClip {
+            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
+            sps: vec![], pps: vec![], video: vec![], audio: vec![], start_sec: 0.0,
+        };
+        assert!(mux_opus_to_mp4(&clip).is_err());
+    }
+
+    #[test]
+    fn save_assembled_clip_writes_an_mp4_file() {
+        use crate::rtc::clip_tap::{AssembledClip, VideoAu};
+        let mut kf = Vec::new();
+        kf.extend_from_slice(&[0,0,0,1,0x67,0x42,0x00,0x1e,0xab,0x40,0xf0,0x28,0xd0]);
+        kf.extend_from_slice(&[0,0,0,1,0x68,0xce,0x38,0x80]);
+        kf.extend_from_slice(&[0,0,0,1,0x65,0x88,0x84,0x00,0x10]);
+        let clip = AssembledClip {
+            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
+            sps: vec![], pps: vec![],
+            video: vec![VideoAu { bytes: kf, pts_sec: 0.0, is_keyframe: true }],
+            audio: vec![], start_sec: 0.0,
+        };
+        let dir = std::env::temp_dir().join("xbox-remote-clip-test");
+        let path = save_assembled_clip(&clip, &dir).expect("save ok");
+        assert!(path.exists());
+        assert_eq!(path.extension().and_then(|e| e.to_str()), Some("mp4"));
+        let _ = std::fs::remove_file(&path);
     }
 }
