@@ -31,12 +31,12 @@ pub mod clip_tap;
 pub mod input;
 pub mod protocol;
 pub mod stats;
+pub mod watchdog;
 // Phase 2+ (IO orchestration):
 pub mod channels;
 #[cfg(feature = "native-webrtc")]
 pub mod engine;
 pub mod state;
-//   mod stats;
 
 use thiserror::Error;
 
