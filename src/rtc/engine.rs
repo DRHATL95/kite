@@ -5,6 +5,7 @@
 //! Decode/render/keepalive/clips are later phases.
 
 use std::net::{IpAddr, SocketAddr, UdpSocket as StdUdpSocket};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use str0m::change::SdpAnswer;
@@ -21,6 +22,7 @@ use super::transport::Transport;
 use super::{Result, RtcError, RtcEvent};
 use crate::rtc::input::{GamepadFrame, encode_gamepad};
 use crate::rtc::media::audio_sink::AudioSink;
+use crate::rtc::media::frame_sink::SharedFrame;
 use crate::rtc::media::{AccessUnit, AudioDecoder, FfmpegDecoder, OpusDecoder, VideoDecoder};
 
 const CHANNELS: [(&str, &str); 4] = [
@@ -64,7 +66,11 @@ impl RtcHandle {
 
 /// Spawn the production engine on a dedicated thread (current-thread tokio
 /// runtime) using XHomeSignaling + UdpTransport. `auth` must hold valid tokens.
-pub fn spawn(auth: crate::auth::XboxAuth, server_id: String) -> Result<RtcHandle> {
+pub fn spawn(
+    auth: crate::auth::XboxAuth,
+    server_id: String,
+    frame_sink: Option<Arc<SharedFrame>>,
+) -> Result<RtcHandle> {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (event_tx, events) = mpsc::unbounded_channel();
     let join = std::thread::Builder::new()
@@ -75,7 +81,7 @@ pub fn spawn(auth: crate::auth::XboxAuth, server_id: String) -> Result<RtcHandle
                 .build()
                 .expect("engine runtime");
             rt.block_on(async move {
-                if let Err(e) = drive(auth, server_id, cmd_rx, event_tx.clone()).await {
+                if let Err(e) = drive(auth, server_id, cmd_rx, event_tx.clone(), frame_sink).await {
                     let _ = event_tx.send(RtcEvent::Disconnected(e.to_string()));
                 }
             });
@@ -94,6 +100,7 @@ async fn drive(
     server_id: String,
     mut cmd_rx: mpsc::UnboundedReceiver<EngineCommand>,
     event_tx: mpsc::UnboundedSender<RtcEvent>,
+    frame_sink: Option<Arc<SharedFrame>>,
 ) -> Result<()> {
     let signaling = super::signaling::XHomeSignaling::connect(auth).await?;
     let local_ip = discover_local_ip()?;
@@ -113,6 +120,7 @@ async fn drive(
                     &mut cmd_rx,
                     &event_tx,
                     &mut state,
+                    frame_sink.clone(),
                 )
                 .await
             }
@@ -160,12 +168,13 @@ async fn connect_and_stream<S: Signaling, T: Transport>(
     cmd_rx: &mut mpsc::UnboundedReceiver<EngineCommand>,
     event_tx: &mpsc::UnboundedSender<RtcEvent>,
     state: &mut ConnectionState,
+    frame_sink: Option<Arc<SharedFrame>>,
 ) -> SessionEnd {
     match connect(signaling, transport, server_id).await {
         Ok((rtc, session, ids, video_mid, audio_mid)) => {
             stream(
                 rtc, transport, signaling, &session, ids, video_mid, audio_mid, cmd_rx, event_tx,
-                state,
+                state, frame_sink,
             )
             .await
         }
@@ -236,6 +245,7 @@ async fn stream<S: Signaling, T: Transport>(
     cmd_rx: &mut mpsc::UnboundedReceiver<EngineCommand>,
     event_tx: &mpsc::UnboundedSender<RtcEvent>,
     state: &mut ConnectionState,
+    frame_sink: Option<Arc<SharedFrame>>,
 ) -> SessionEnd {
     let local_addr = match transport.local_addr() {
         Ok(a) => a,
@@ -250,7 +260,7 @@ async fn stream<S: Signaling, T: Transport>(
     let mut frames: u64 = 0;
     let mut input_seq: u32 = 0;
     let mut ice_tick = tokio::time::interval(Duration::from_millis(500));
-    let mut media = MediaPipeline::new(video_mid, audio_mid);
+    let mut media = MediaPipeline::new(video_mid, audio_mid, frame_sink);
 
     loop {
         // (a) drain poll_output
@@ -353,25 +363,27 @@ impl ChannelMap {
     }
 }
 
-/// Per-session decode pipeline: H.264 → frames (counted, then dropped until the
-/// Phase-4 renderer), Opus → PCM → speakers. Decoders are `Option` so a missing
-/// codec/audio device is non-fatal (the session still runs).
+/// Per-session decode pipeline: H.264 → frames (published to `frame_sink` when
+/// present, otherwise dropped), Opus → PCM → speakers. Decoders are `Option` so a
+/// missing codec/audio device is non-fatal (the session still runs).
 struct MediaPipeline {
     video_mid: Mid,
     audio_mid: Mid,
     video_dec: Option<FfmpegDecoder>,
     audio_dec: Option<OpusDecoder>,
     audio_sink: Option<AudioSink>,
+    frame_sink: Option<Arc<SharedFrame>>,
 }
 
 impl MediaPipeline {
-    fn new(video_mid: Mid, audio_mid: Mid) -> Self {
+    fn new(video_mid: Mid, audio_mid: Mid, frame_sink: Option<Arc<SharedFrame>>) -> Self {
         Self {
             video_mid,
             audio_mid,
             video_dec: FfmpegDecoder::new_h264().ok(),
             audio_dec: OpusDecoder::new_48k_stereo().ok(),
             audio_sink: AudioSink::new().ok(),
+            frame_sink,
         }
     }
 }
@@ -431,11 +443,14 @@ fn handle_event(
                         keyframe: data.is_keyframe(),
                     };
                     if dec.feed(au).is_ok() {
-                        while let Some(_frame) = dec.poll() {
-                            *frames += 1; // decoded-frame count; Phase 4 renders `_frame`
+                        while let Some(frame) = dec.poll() {
+                            *frames += 1;
                             if !*first_frame {
                                 *first_frame = true;
                                 let _ = event_tx.send(RtcEvent::FirstFrame);
+                            }
+                            if let Some(sink) = &media.frame_sink {
+                                sink.put(frame); // hand off to the GL thread; latest-wins
                             }
                         }
                     }

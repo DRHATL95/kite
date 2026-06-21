@@ -27,7 +27,7 @@ async fn e2e_connect_handshake_receive() {
         panic!("set XBOX_SERVER_ID=<serverId> for the E2E test")
     });
 
-    let mut handle = engine::spawn(auth, server_id).expect("spawn engine");
+    let mut handle = engine::spawn(auth, server_id, None).expect("spawn engine");
 
     // Optional manual hold so a human can watch/hear the stream after the frame
     // target is hit (e.g. `XBOX_E2E_HOLD_SECS=20`). Unset → fast disconnect (CI).
