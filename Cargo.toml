@@ -55,12 +55,25 @@ insta = { version = "1", features = ["json"] }
 # Phase-0 spike only (examples/rtc_spike.rs): error context + PNG encode.
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Phase-4 render de-risk spike (examples/render_spike.rs, Linux): GTK GLArea video
+# layer composited UNDER a transparent webview HUD. Versions match the tauri/wry
+# tree so Cargo unifies (no duplicate gtk/tao/wry). glow = lightweight GL.
+tao = "0.35"
+wry = "0.55"
+gtk = "0.18"
+glow = "0.13"
+libloading = "0.7"
 
 # Phase-0 throwaway de-risk spike: str0m offerer → receive Xbox H.264 → decode
 # one frame → PNG. Only built when the native stack is available.
 [[example]]
 name = "rtc_spike"
 required-features = ["native-webrtc"]
+
+# Phase-4 de-risk spike: prove flicker-free native-video-under-transparent-HUD
+# compositing on Linux/WebKitGTK (GTK GLArea in a GtkOverlay). Linux-only.
+[[example]]
+name = "render_spike"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }

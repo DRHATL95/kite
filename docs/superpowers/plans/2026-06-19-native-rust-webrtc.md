@@ -65,10 +65,22 @@
 >   co-design with the Phase-4 renderer (software 1080p decode is proven; zero-copy
 >   only pays off with a GPU renderer). Phase-3 follow-ups: real A/V sync (Phase 5);
 >   maybe a dedicated decode thread if the inline decode starves the loop.
-> - **NEXT — Phase 4 (Linux render)** (Phase-3 live validation ✅ done 2026-06-20):
->   a `VideoRenderer` presenting `DecodedFrame`s under the transparent HUD
->   (wgpu/gtkglsink), at which point HW decode + zero-copy GPU texture is added.
->   Then Phase 5 stats/keepalive/clip, Phase 6 integration+flag, Phase 7 unify
+> - **Phase 4 (Linux render) — ✅ DE-RISK PASSED 2026-06-20; implementation next.**
+>   The make-or-break unknown (compositing native video UNDER the transparent
+>   WebKitGTK HUD, flicker-free) is **resolved live on the CachyOS box** via
+>   `examples/render_spike.rs`: a `gtk::Overlay { gtk::GLArea (alpha) base, transparent
+>   webview overlaid }` composites entirely inside GTK — animated GL pattern showed
+>   cleanly through/around a Svelte-style HUD with **zero flicker** (user-confirmed).
+>   **DECISION: use the GTK `GLArea`+`GtkOverlay` path, NOT raw wgpu** — it sidesteps
+>   the raw-handle wgpu+transparency flicker (tauri#9220) by compositing within GTK,
+>   uses `tao` (= Tauri's windowing), and draws via lightweight `glow`. (wgpu is kept
+>   for the **Phase-7** cross-platform unify; on Linux the native stack is GL+VA-API.)
+>   Implementation: a `GtkGlRenderer` impl of the `VideoRenderer` seam (I420 → 3
+>   textures → YUV→RGB shader → fullscreen quad in the `GLArea`), integrated into the
+>   real Tauri window's GTK tree, app window/webview made transparent, the Stream
+>   `<video>` replaced by a transparent region, engine `DecodedFrame`s wired to the
+>   renderer. HW VA-API → GL texture (EGLImage/dmabuf, zero readback) co-designs here.
+> - Then Phase 5 stats/keepalive/clip, Phase 6 integration+flag, Phase 7 unify
 >   Win/macOS. Carried-forward engine follow-ups (phase-2/3 plans + findings):
 >   `Signaling::refresh` for gsToken expiry across long reconnects; bounded event
 >   channel before the Phase-6 UI consumer; `play_path` threading.
