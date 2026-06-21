@@ -25,7 +25,7 @@ use super::stats::{StatsAccumulator, STATS_SAMPLE_MS};
 use super::transport::Transport;
 use super::watchdog::{MediaWatchdog, WatchdogAction, MONITOR_TICK_MS};
 use super::{Result, RtcError, RtcEvent};
-use crate::rtc::input::{GamepadFrame, encode_gamepad};
+use crate::rtc::input::{GamepadFrame, encode_client_metadata, encode_gamepad};
 use crate::rtc::protocol::keyframe_request;
 use crate::rtc::media::audio_sink::AudioSink;
 use crate::rtc::media::frame_sink::SharedFrame;
@@ -283,6 +283,7 @@ async fn stream<S: Signaling, T: Transport>(
     let mut last_stats_ms = 0.0_f64;
     let mut last_tick_ms = 0.0_f64;
     let mut input_seq: u32 = 0;
+    let mut client_metadata_sent = false;
     let mut ice_tick = tokio::time::interval(Duration::from_millis(500));
     let mut keepalive_tick = tokio::time::interval(Duration::from_secs(API_KEEPALIVE_SECS));
     keepalive_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -306,6 +307,7 @@ async fn stream<S: Signaling, T: Transport>(
                     let _ = transport.send_to(&t.contents, t.destination).await;
                 }
                 Ok(Output::Event(ev)) => {
+                    let now_ms = started.elapsed().as_secs_f64() * 1000.0;
                     if let Some(end) = handle_event(
                         ev,
                         &mut rtc,
@@ -318,6 +320,9 @@ async fn stream<S: Signaling, T: Transport>(
                         &mut frames,
                         state,
                         &mut stats,
+                        &mut client_metadata_sent,
+                        &mut input_seq,
+                        now_ms,
                     ) {
                         return end;
                     }
@@ -507,6 +512,9 @@ fn handle_event(
     frames: &mut u64,
     state: &mut ConnectionState,
     stats: &mut StatsAccumulator,
+    client_metadata_sent: &mut bool,
+    input_seq: &mut u32,
+    now_ms: f64,
 ) -> Option<SessionEnd> {
     match ev {
         Event::Connected => {
@@ -522,6 +530,15 @@ fn handle_event(
             if let Some(l) = ChannelLabel::from_label(&label) {
                 for w in seq.on_event(ChannelEvent::Opened(l)) {
                     apply_write(rtc, ids, &w);
+                }
+                // Send the 15-byte client-metadata packet once when the input channel
+                // opens. The browser sends this on GamepadPoller's first tick; the
+                // native engine must send it here to initialise the channel identically.
+                if l == ChannelLabel::Input && !*client_metadata_sent {
+                    *client_metadata_sent = true;
+                    let bytes = encode_client_metadata(*input_seq, now_ms);
+                    *input_seq = input_seq.wrapping_add(1);
+                    write_channel(rtc, ids.get(ChannelLabel::Input), &bytes);
                 }
             }
         }
