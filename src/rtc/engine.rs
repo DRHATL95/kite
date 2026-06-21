@@ -18,9 +18,12 @@ use tokio::sync::mpsc;
 use super::channels::{ChannelEvent, ChannelLabel, ChannelWrite, HandshakeSequencer};
 use super::signaling::{SessionInfo, Signaling};
 use super::state::{ConnectionState, Transition};
+use super::stats::{StatsAccumulator, STATS_SAMPLE_MS};
 use super::transport::Transport;
+use super::watchdog::{MediaWatchdog, WatchdogAction, MONITOR_TICK_MS};
 use super::{Result, RtcError, RtcEvent};
 use crate::rtc::input::{GamepadFrame, encode_gamepad};
+use crate::rtc::protocol::keyframe_request;
 use crate::rtc::media::audio_sink::AudioSink;
 use crate::rtc::media::frame_sink::SharedFrame;
 use crate::rtc::media::{AccessUnit, AudioDecoder, FfmpegDecoder, OpusDecoder, VideoDecoder};
@@ -258,6 +261,11 @@ async fn stream<S: Signaling, T: Transport>(
     let mut connected = false;
     let mut first_frame = false;
     let mut frames: u64 = 0;
+    let mut stats = StatsAccumulator::new();
+    let mut watchdog = MediaWatchdog::new();
+    let mut watchdog_armed = false;
+    let mut last_stats_ms = 0.0_f64;
+    let mut last_tick_ms = 0.0_f64;
     let mut input_seq: u32 = 0;
     let mut ice_tick = tokio::time::interval(Duration::from_millis(500));
     let mut media = MediaPipeline::new(video_mid, audio_mid, frame_sink);
@@ -283,6 +291,7 @@ async fn stream<S: Signaling, T: Transport>(
                         &mut first_frame,
                         &mut frames,
                         state,
+                        &mut stats,
                     ) {
                         return end;
                     }
@@ -318,11 +327,36 @@ async fn stream<S: Signaling, T: Transport>(
                         }
                     }
                 }
-                // Stats heartbeat (received-AU count; bitrate/fps land in Phase 5).
-                let _ = event_tx.send(RtcEvent::Stats(super::StatsSnapshot {
-                    frames_decoded: frames,
-                    ..Default::default()
-                }));
+                let t = started.elapsed().as_secs_f64() * 1000.0;
+
+                // Arm the watchdog once the handshake is ready (channels up).
+                if !watchdog_armed && seq.is_ready() {
+                    watchdog.arm(t);
+                    watchdog_armed = true;
+                }
+
+                // Drive the media watchdog ~every MONITOR_TICK_MS.
+                if watchdog_armed && t - last_tick_ms >= MONITOR_TICK_MS {
+                    last_tick_ms = t;
+                    match watchdog.tick(Some(frames), t) {
+                        Some(WatchdogAction::Nudge) => {
+                            apply_write(&mut rtc, &ids, &ChannelWrite {
+                                label: ChannelLabel::Control,
+                                bytes: serde_json::to_vec(&keyframe_request()).expect("serialize"),
+                            });
+                        }
+                        Some(WatchdogAction::Recover(reason)) => {
+                            return SessionEnd::Dropped(format!("media watchdog: {reason:?}"));
+                        }
+                        None => {}
+                    }
+                }
+
+                // Emit real stats ~every STATS_SAMPLE_MS.
+                if t - last_stats_ms >= STATS_SAMPLE_MS {
+                    last_stats_ms = t;
+                    let _ = event_tx.send(RtcEvent::Stats(stats.sample(t)));
+                }
             }
             cmd = cmd_rx.recv() => match cmd {
                 Some(EngineCommand::Disconnect) | None => return SessionEnd::UserDisconnect,
@@ -401,6 +435,7 @@ fn handle_event(
     first_frame: &mut bool,
     frames: &mut u64,
     state: &mut ConnectionState,
+    stats: &mut StatsAccumulator,
 ) -> Option<SessionEnd> {
     match ev {
         Event::Connected => {
@@ -436,6 +471,7 @@ fn handle_event(
         }
         Event::MediaData(data) => {
             if data.mid == media.video_mid {
+                stats.record_video_bytes(data.data.len());
                 if let Some(dec) = media.video_dec.as_mut() {
                     let au = AccessUnit {
                         data: &data.data,
@@ -445,6 +481,7 @@ fn handle_event(
                     if dec.feed(au).is_ok() {
                         while let Some(frame) = dec.poll() {
                             *frames += 1;
+                            stats.set_frames_decoded(*frames);
                             if !*first_frame {
                                 *first_frame = true;
                                 let _ = event_tx.send(RtcEvent::FirstFrame);
