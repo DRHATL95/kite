@@ -59,6 +59,7 @@ pub struct HandshakeSequencer {
     acked: bool,
     make_id: Box<dyn FnMut() -> String + Send>,
     disconnect: Option<DisconnectReason>,
+    idle_warning: Option<u32>,
 }
 
 impl HandshakeSequencer {
@@ -69,6 +70,7 @@ impl HandshakeSequencer {
             acked: false,
             make_id,
             disconnect: None,
+            idle_warning: None,
         }
     }
 
@@ -80,6 +82,12 @@ impl HandshakeSequencer {
     /// Take any server-initiated disconnect reason seen on inbound data.
     pub fn take_disconnect(&mut self) -> Option<DisconnectReason> {
         self.disconnect.take()
+    }
+
+    /// Take any pending idle warning (seconds until kick); answer with a keepalive
+    /// pulse and STAY connected — this is not a disconnect.
+    pub fn take_idle_warning(&mut self) -> Option<u32> {
+        self.idle_warning.take()
     }
 
     /// Process one event; return the ordered writes to perform.
@@ -102,6 +110,12 @@ impl HandshakeSequencer {
             InboundMsg::HandshakeAck if !self.acked => {
                 self.acked = true;
                 self.post_handshake_burst()
+            }
+            InboundMsg::ServerDisconnect(DisconnectReason::WarningForBeingIdle {
+                seconds_until_kick,
+            }) => {
+                self.idle_warning = Some(seconds_until_kick);
+                Vec::new()
             }
             InboundMsg::ServerDisconnect(reason) => {
                 self.disconnect = Some(reason);
@@ -230,5 +244,32 @@ mod tests {
             seq.take_disconnect(),
             Some(protocol::DisconnectReason::KickForBeingIdle)
         ));
+    }
+
+    #[test]
+    fn idle_warning_is_surfaced_as_warning_not_disconnect() {
+        let mut seq = HandshakeSequencer::new(Box::new(det_ids()));
+        let msg = serde_json::json!({
+            "type":"Message","target":"x/serverInitiatedDisconnect",
+            "content":"{\"reason\":\"WarningForBeingIdle\",\"secondsUntilKick\":60}"
+        });
+        let bytes = serde_json::to_vec(&msg).unwrap();
+        let w = seq.on_event(ChannelEvent::Inbound { label: ChannelLabel::Message, data: bytes });
+        assert!(w.is_empty());
+        assert_eq!(seq.take_idle_warning(), Some(60)); // surfaced as a warning
+        assert!(seq.take_disconnect().is_none());      // NOT a disconnect
+    }
+
+    #[test]
+    fn kick_is_still_a_disconnect_not_a_warning() {
+        let mut seq = HandshakeSequencer::new(Box::new(det_ids()));
+        let msg = serde_json::json!({
+            "type":"Message","target":"x/serverInitiatedDisconnect",
+            "content":"{\"reason\":\"KickForBeingIdle\"}"
+        });
+        let bytes = serde_json::to_vec(&msg).unwrap();
+        let _ = seq.on_event(ChannelEvent::Inbound { label: ChannelLabel::Message, data: bytes });
+        assert!(seq.take_idle_warning().is_none());
+        assert!(matches!(seq.take_disconnect(), Some(protocol::DisconnectReason::KickForBeingIdle)));
     }
 }

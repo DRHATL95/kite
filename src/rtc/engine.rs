@@ -275,6 +275,10 @@ async fn stream<S: Signaling, T: Transport>(
     // matching the browser's `_startApiKeepalive` delay.
     keepalive_tick.tick().await;
     let mut keepalive_on = true;
+    let mut idle_tick = tokio::time::interval(Duration::from_secs(30));
+    idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    idle_tick.tick().await; // consume the immediate first tick; first real pulse at +30 s
+    let mut idle_keepalive_on = false;
     let mut media = MediaPipeline::new(video_mid, audio_mid, frame_sink);
 
     loop {
@@ -301,6 +305,15 @@ async fn stream<S: Signaling, T: Transport>(
                         &mut stats,
                     ) {
                         return end;
+                    }
+                    // React to an idle warning: send a micro-pulse (pulse + recenter)
+                    // and start the 30 s periodic repeat. The sequence counter is shared
+                    // with SendInput so it stays monotonic across all input frames.
+                    if let Some(_secs) = seq.take_idle_warning() {
+                        let ts = started.elapsed().as_secs_f64() * 1000.0;
+                        send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::idle_pulse(), ts);
+                        send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::neutral(), ts);
+                        idle_keepalive_on = true;
                     }
                 }
             }
@@ -382,6 +395,14 @@ async fn stream<S: Signaling, T: Transport>(
                     }
                     // transient errors: keep the timer running
                 }
+            }
+            _ = idle_tick.tick(), if idle_keepalive_on => {
+                // Periodic micro-pulse repeat every 30 s while the server is warning
+                // us about idleness. Pulse + recenter keeps the session alive without
+                // appearing as intentional input in most games.
+                let ts = started.elapsed().as_secs_f64() * 1000.0;
+                send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::idle_pulse(), ts);
+                send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::neutral(), ts);
             }
         }
 
@@ -531,6 +552,21 @@ fn write_channel(rtc: &mut Rtc, id: Option<ChannelId>, bytes: &[u8]) {
     {
         let _ = ch.write(true, bytes);
     }
+}
+
+/// Send a single gamepad frame on the Input channel, advancing the shared
+/// sequence counter. Reuses the same `input_seq` used by `SendInput` so the
+/// sequence is monotonic across all input frames.
+fn send_input_frame(
+    rtc: &mut Rtc,
+    ids: &ChannelMap,
+    seq: &mut u32,
+    frame: GamepadFrame,
+    ts_ms: f64,
+) {
+    let bytes = encode_gamepad(&frame, *seq, ts_ms);
+    *seq = seq.wrapping_add(1);
+    write_channel(rtc, ids.get(ChannelLabel::Input), &bytes);
 }
 
 fn label_for(ids: &ChannelMap, id: ChannelId) -> Option<ChannelLabel> {
