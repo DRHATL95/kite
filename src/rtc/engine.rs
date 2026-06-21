@@ -309,7 +309,8 @@ async fn stream<S: Signaling, T: Transport>(
                     // React to an idle warning: send a micro-pulse (pulse + recenter)
                     // and start the 30 s periodic repeat. The sequence counter is shared
                     // with SendInput so it stays monotonic across all input frames.
-                    if let Some(_secs) = seq.take_idle_warning() {
+                    if let Some(secs) = seq.take_idle_warning() {
+                        tracing::info!(seconds_until_kick = secs, "server idle warning — sending keepalive micro-pulse");
                         let ts = started.elapsed().as_secs_f64() * 1000.0;
                         send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::idle_pulse(), ts);
                         send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::neutral(), ts);
@@ -391,6 +392,7 @@ async fn stream<S: Signaling, T: Transport>(
                 if let Err(e) = signaling.keepalive(session).await {
                     let es = e.to_string();
                     if keepalive_should_stop(&es) {
+                        tracing::info!(error = %es, "API keepalive stopping — session left provisioning state");
                         keepalive_on = false; // provisioning over; data channel is the keepalive now
                     }
                     // transient errors: keep the timer running
@@ -400,6 +402,7 @@ async fn stream<S: Signaling, T: Transport>(
                 // Periodic micro-pulse repeat every 30 s while the server is warning
                 // us about idleness. Pulse + recenter keeps the session alive without
                 // appearing as intentional input in most games.
+                tracing::debug!("idle keepalive micro-pulse (periodic)");
                 let ts = started.elapsed().as_secs_f64() * 1000.0;
                 send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::idle_pulse(), ts);
                 send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::neutral(), ts);
