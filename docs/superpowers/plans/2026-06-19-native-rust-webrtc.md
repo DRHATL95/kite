@@ -52,11 +52,15 @@
 >   live Series X and the test passed — Connected + FirstFrame + **≥100 *decoded*
 >   1080p frames** in 10.3s:
 >   `XBOX_E2E=1 XBOX_SERVER_ID=<id> cargo test --features native-webrtc --test rtc_e2e -- --nocapture`
->   ⚠️ Audio was NOT heard — WSLg exposes no ALSA card (`cannot find card '0'`), so the
->   cpal sink couldn't open; non-fatal (logged, no assertion). The by-ear audio
->   check is still owed: install `libasound2-plugins` to bridge ALSA→WSLg pulse, or
->   confirm on the real box. (Benign startup `non-existing PPS 0`/`no frame!` lines
->   are the mid-stream join before the first keyframe — decode recovers at the IDR.)
+>   ✅ **Audio confirmed by ear on the CachyOS box (2026-06-20):** re-ran the live
+>   `XBOX_E2E` here with a 20s hold (`XBOX_E2E_HOLD_SECS=20`, new knob in the test)
+>   and the Xbox dashboard audio played cleanly through the default output (cpal →
+>   PipeWire). (On WSLg it could NOT be heard — no ALSA card, `cannot find card
+>   '0'`; cpal sink fails to open, non-fatal/logged. Bridge with `libasound2-plugins`
+>   if WSL audio is ever needed.) Benign startup `non-existing PPS 0`/`no frame!`
+>   lines are the mid-stream join before the first keyframe — decode recovers at the
+>   IDR. Live-run note: the console can wedge into `WaitingForServerToRegister` after
+>   a session; **fully Restart it** to clear (see the gotcha below).
 >   **DECISION: HW VA-API decode + zero-copy `FramePixels::Gpu` were deferred** to
 >   co-design with the Phase-4 renderer (software 1080p decode is proven; zero-copy
 >   only pays off with a GPU renderer). Phase-3 follow-ups: real A/V sync (Phase 5);
