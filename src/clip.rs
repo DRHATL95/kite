@@ -267,8 +267,8 @@ pub fn save_assembled_clip(
     dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let mp4 = mux_opus_to_mp4(clip)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
+    let mp4 = mux_opus_to_mp4(clip)?;
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -617,6 +617,18 @@ mod tests {
         let clip = AssembledClip {
             width: 1920, height: 1080, fps_num: 60, fps_den: 1,
             sps: vec![], pps: vec![], video: vec![], audio: vec![], start_sec: 0.0,
+        };
+        assert!(mux_opus_to_mp4(&clip).is_err());
+    }
+
+    #[test]
+    fn mux_opus_rejects_non_keyframe_first_frame() {
+        use crate::rtc::clip_tap::{AssembledClip, VideoAu};
+        let clip = AssembledClip {
+            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
+            sps: vec![], pps: vec![],
+            video: vec![VideoAu { bytes: vec![0, 0, 0, 1, 0x41], pts_sec: 0.0, is_keyframe: false }],
+            audio: vec![], start_sec: 0.0,
         };
         assert!(mux_opus_to_mp4(&clip).is_err());
     }
