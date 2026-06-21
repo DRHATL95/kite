@@ -75,6 +75,12 @@ required-features = ["native-webrtc"]
 [[example]]
 name = "render_spike"
 
+# Phase-4 live render proof: spawn the real engine, render its decoded I420 frames
+# in a gtk::GLArea (YUV→RGB via BT.709) under a transparent HUD. Linux-only.
+[[example]]
+name = "render_live"
+required-features = ["native-webrtc"]
+
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
 
