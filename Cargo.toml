@@ -55,9 +55,16 @@ insta = { version = "1", features = ["json"] }
 # Phase-0 spike only (examples/rtc_spike.rs): error context + PNG encode.
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
-# Phase-4 render de-risk spike (examples/render_spike.rs, Linux): GTK GLArea video
-# layer composited UNDER a transparent webview HUD. Versions match the tauri/wry
-# tree so Cargo unifies (no duplicate gtk/tao/wry). glow = lightweight GL.
+
+# Phase-4 render de-risk spikes (examples/render_{spike,live}.rs) are Linux-only:
+# a GTK GLArea video layer composited UNDER a transparent WebKitGTK HUD. These
+# dev-deps are Linux-gated so `cargo test` on Windows/macOS does NOT try to build
+# gtk → gio-sys/glib-sys (which need pkg-config/GTK and fail). Cargo compiles
+# declared dev-deps for the test profile even when no target references them, so
+# leaving gtk unconditional broke `cargo test` on Windows. The example bodies are
+# already cfg-guarded to a no-op stub on non-Linux. Versions match the tauri/wry
+# tree so Cargo unifies (no duplicate gtk/tao/wry); glow = lightweight GL.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 tao = "0.35"
 wry = "0.55"
 gtk = "0.18"
