@@ -156,7 +156,6 @@ async fn drive(
         match outcome {
             SessionEnd::UserDisconnect => return Ok(()),
             SessionEnd::Dropped(why) => {
-                let _ = event_tx.send(RtcEvent::Disconnected(why));
                 match state.on_dropped() {
                     Transition::ScheduleReconnect(d) => {
                         // Cancellable backoff: a Disconnect during the wait exits
@@ -172,8 +171,13 @@ async fn drive(
                         let _ = event_tx.send(RtcEvent::Reconnecting {
                             attempt: state.attempt(),
                         });
+                        // NOTE: `why` is logged, not surfaced as Disconnected (transient).
+                        tracing::info!(reason = %why, attempt = state.attempt(), "transient drop — reconnecting");
                     }
-                    Transition::GiveUp => return Ok(()),
+                    Transition::GiveUp => {
+                        let _ = event_tx.send(RtcEvent::Disconnected(why)); // terminal
+                        return Ok(());
+                    }
                 }
             }
         }
