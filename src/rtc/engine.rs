@@ -13,7 +13,9 @@ use str0m::channel::{ChannelConfig, ChannelId};
 use str0m::media::{Direction, MediaKind, Mid};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, Input, Output, Rtc};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+
+use crate::rtc::clip_tap::{AssembledClip, ClipRing, VideoTrackConfig};
 
 use super::channels::{ChannelEvent, ChannelLabel, ChannelWrite, HandshakeSequencer};
 use super::keepalive::{API_KEEPALIVE_SECS, keepalive_should_stop};
@@ -39,6 +41,7 @@ const CHANNELS: [(&str, &str); 4] = [
 /// Commands the caller sends to a running engine.
 pub enum EngineCommand {
     SendInput(GamepadFrame),
+    Clip(oneshot::Sender<Option<AssembledClip>>),
     Disconnect,
 }
 
@@ -54,6 +57,16 @@ pub struct RtcHandle {
 impl RtcHandle {
     pub fn send_input(&self, frame: GamepadFrame) {
         let _ = self.cmd_tx.send(EngineCommand::SendInput(frame));
+    }
+
+    /// Request a retroactive clip of the last buffered seconds. Returns the
+    /// assembled (keyframe-aligned) clip, or None if nothing is buffered / engine gone.
+    pub async fn clip(&self) -> Option<AssembledClip> {
+        let (tx, rx) = oneshot::channel();
+        if self.cmd_tx.send(EngineCommand::Clip(tx)).is_err() {
+            return None;
+        }
+        rx.await.ok().flatten()
     }
 
     /// Await the next lifecycle/stats event, or `None` once the engine thread
@@ -387,6 +400,9 @@ async fn stream<S: Signaling, T: Transport>(
                     input_seq = input_seq.wrapping_add(1);
                     write_channel(&mut rtc, ids.get(ChannelLabel::Input), &bytes);
                 }
+                Some(EngineCommand::Clip(reply)) => {
+                    let _ = reply.send(media.clip_ring.assemble());
+                }
             },
             _ = keepalive_tick.tick(), if keepalive_on => {
                 if let Err(e) = signaling.keepalive(session).await {
@@ -447,6 +463,7 @@ struct MediaPipeline {
     audio_dec: Option<OpusDecoder>,
     audio_sink: Option<AudioSink>,
     frame_sink: Option<Arc<SharedFrame>>,
+    clip_ring: ClipRing,
 }
 
 impl MediaPipeline {
@@ -458,6 +475,18 @@ impl MediaPipeline {
             audio_dec: OpusDecoder::new_48k_stereo().ok(),
             audio_sink: AudioSink::new().ok(),
             frame_sink,
+            clip_ring: ClipRing::with_clock(
+                20.0,
+                VideoTrackConfig::default(),
+                Box::new(|| {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs_f64()
+                        * 1000.0
+                }),
+            ),
         }
     }
 }
@@ -512,10 +541,13 @@ fn handle_event(
         Event::MediaData(data) => {
             if data.mid == media.video_mid {
                 stats.record_video_bytes(data.data.len());
+                let pts = media_time_micros(&data);
+                let v_rtp = (pts as i128 * 9 / 100) as u32; // µs → 90 kHz ticks
+                media.clip_ring.push_video(data.data.to_vec(), v_rtp, data.is_keyframe());
                 if let Some(dec) = media.video_dec.as_mut() {
                     let au = AccessUnit {
                         data: &data.data,
-                        pts_micros: media_time_micros(&data),
+                        pts_micros: pts,
                         keyframe: data.is_keyframe(),
                     };
                     if dec.feed(au).is_ok() {
@@ -532,12 +564,16 @@ fn handle_event(
                         }
                     }
                 }
-            } else if data.mid == media.audio_mid
-                && let (Some(dec), Some(sink)) =
+            } else if data.mid == media.audio_mid {
+                let a_pts = media_time_micros(&data);
+                let a_rtp = (a_pts as i128 * 48 / 1000) as u32; // µs → 48 kHz ticks
+                media.clip_ring.push_audio(data.data.to_vec(), a_rtp);
+                if let (Some(dec), Some(sink)) =
                     (media.audio_dec.as_mut(), media.audio_sink.as_ref())
-                && let Ok(pcm) = dec.decode(&data.data, media_time_micros(&data))
-            {
-                sink.submit(&pcm);
+                    && let Ok(pcm) = dec.decode(&data.data, a_pts)
+                {
+                    sink.submit(&pcm);
+                }
             }
         }
         _ => {}
