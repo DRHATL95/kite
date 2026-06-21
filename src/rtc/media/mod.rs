@@ -60,14 +60,6 @@ pub trait AudioDecoder: Send {
     fn decode(&mut self, packet: &[u8], pts_micros: u64) -> super::Result<AudioPcm>;
 }
 
-/// Presents decoded frames to a native surface composited under the transparent
-/// Svelte HUD. Adapters are per-OS (Linux GTK/wgpu first; Windows visual-hosting
-/// and macOS Metal later).
-pub trait VideoRenderer: Send {
-    fn present(&mut self, frame: &DecodedFrame);
-    fn resize(&mut self, width: u32, height: u32);
-}
-
 #[cfg(feature = "native-webrtc")]
 mod decode_ffmpeg;
 #[cfg(feature = "native-webrtc")]
@@ -79,3 +71,4 @@ mod decode_opus;
 pub use decode_opus::OpusDecoder;
 
 pub mod audio_sink;
+pub mod frame_sink;

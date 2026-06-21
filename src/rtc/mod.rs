@@ -12,7 +12,7 @@
 //! - [`signaling::Signaling`] — the Xbox xHome control plane (session/SDP/ICE).
 //! - [`transport::Transport`] — the UDP datagram socket str0m drives.
 //! - [`media::VideoDecoder`] / [`media::AudioDecoder`] — encoded AU → frames.
-//! - [`media::VideoRenderer`] — decoded frame → native surface under the HUD.
+//! - [`media::SharedFrame`] — cross-thread render seam (engine → GL thread).
 //!
 //! Pure protocol (`input`, `protocol`, `clip_tap`) carries no IO and is fully
 //! unit-tested. These pure modules and the trait seams compile in the **default
@@ -59,7 +59,7 @@ pub type Result<T> = std::result::Result<T, RtcError>;
 /// to the UI over a Tauri event channel).
 ///
 /// Deliberately carries **no pixel data** — decoded frames go straight to the
-/// [`media::VideoRenderer`] in-process; shipping 1080p60 frames across the IPC
+/// [`media::SharedFrame`] render seam in-process; shipping 1080p60 frames across the IPC
 /// boundary is fatal to latency (see the render research in the plan). Only
 /// control state and lightweight stats cross to the UI.
 #[derive(Debug, Clone)]
