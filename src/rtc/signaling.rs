@@ -38,7 +38,7 @@ pub struct IceCandidate {
 #[allow(async_fn_in_trait)] // generic engine uses static dispatch; no Send-boxing needed.
 pub trait Signaling: Send {
     /// Create a streaming session for the given console, polling until ready.
-    async fn create_session(&self, server_id: &str) -> Result<SessionInfo>;
+    async fn create_session(&self, server_id: &str, play_path: Option<&str>) -> Result<SessionInfo>;
 
     /// POST our SDP **offer**; returns Xbox's SDP **answer**.
     async fn exchange_sdp(&self, session: &SessionInfo, offer_sdp: &str) -> Result<String>;
@@ -102,12 +102,12 @@ impl XHomeSignaling {
 }
 
 impl Signaling for XHomeSignaling {
-    async fn create_session(&self, server_id: &str) -> Result<SessionInfo> {
+    async fn create_session(&self, server_id: &str, play_path: Option<&str>) -> Result<SessionInfo> {
         let cfg = self
             .client
             .lock()
             .await
-            .create_session(server_id, None)
+            .create_session(server_id, play_path)
             .await
             .map_err(|e| RtcError::Signaling(format!("create_session: {e}")))?;
         Ok(session_info_from(&cfg))

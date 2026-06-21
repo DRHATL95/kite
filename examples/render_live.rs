@@ -47,7 +47,7 @@ fn main() -> wry::Result<()> {
         assert!(loaded, "sign in first (app or wsl_login)");
         // Keep the handle alive for the program's lifetime by leaking it.
         let handle =
-            engine::spawn(auth, server_id, Some(Arc::clone(&frames))).expect("spawn engine");
+            engine::spawn(auth, server_id, None, Some(Arc::clone(&frames))).expect("spawn engine");
         std::mem::forget(handle);
         std::mem::forget(rt);
     }

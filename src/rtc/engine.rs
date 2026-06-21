@@ -95,6 +95,7 @@ impl RtcHandle {
 pub fn spawn(
     auth: crate::auth::XboxAuth,
     server_id: String,
+    play_path: Option<String>,
     frame_sink: Option<Arc<SharedFrame>>,
 ) -> Result<RtcHandle> {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
@@ -107,7 +108,7 @@ pub fn spawn(
                 .build()
                 .expect("engine runtime");
             rt.block_on(async move {
-                if let Err(e) = drive(auth, server_id, cmd_rx, event_tx.clone(), frame_sink).await {
+                if let Err(e) = drive(auth, server_id, play_path, cmd_rx, event_tx.clone(), frame_sink).await {
                     let _ = event_tx.send(RtcEvent::Disconnected(e.to_string()));
                 }
             });
@@ -124,6 +125,7 @@ pub fn spawn(
 async fn drive(
     auth: crate::auth::XboxAuth,
     server_id: String,
+    play_path: Option<String>,
     mut cmd_rx: mpsc::UnboundedReceiver<EngineCommand>,
     event_tx: mpsc::UnboundedSender<RtcEvent>,
     frame_sink: Option<Arc<SharedFrame>>,
@@ -143,6 +145,7 @@ async fn drive(
                     &signaling,
                     &transport,
                     &server_id,
+                    play_path.as_deref(),
                     &mut cmd_rx,
                     &event_tx,
                     &mut state,
@@ -195,12 +198,13 @@ async fn connect_and_stream<S: Signaling, T: Transport>(
     signaling: &S,
     transport: &T,
     server_id: &str,
+    play_path: Option<&str>,
     cmd_rx: &mut mpsc::UnboundedReceiver<EngineCommand>,
     event_tx: &mpsc::UnboundedSender<RtcEvent>,
     state: &mut ConnectionState,
     frame_sink: Option<Arc<SharedFrame>>,
 ) -> SessionEnd {
-    match connect(signaling, transport, server_id).await {
+    match connect(signaling, transport, server_id, play_path).await {
         Ok((rtc, session, ids, video_mid, audio_mid)) => {
             stream(
                 rtc, transport, signaling, &session, ids, video_mid, audio_mid, cmd_rx, event_tx,
@@ -217,8 +221,9 @@ async fn connect<S: Signaling, T: Transport>(
     signaling: &S,
     transport: &T,
     server_id: &str,
+    play_path: Option<&str>,
 ) -> Result<(Rtc, SessionInfo, ChannelMap, Mid, Mid)> {
-    let session = signaling.create_session(server_id).await?;
+    let session = signaling.create_session(server_id, play_path).await?;
     let local_addr = transport.local_addr()?;
 
     let mut rtc = Rtc::new(Instant::now());
