@@ -6,6 +6,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Xbox Remote is a desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. It implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and browser-side WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
 
+> ### 🚧 In progress: Native Rust WebRTC (Linux-first) — branch `feat/native-webrtc-linux`
+>
+> Linux's WebKitGTK ships **without** WebRTC, so the browser `<video>` path can't
+> stream on Linux. We're moving the WebRTC media client into a **native Rust engine**
+> (str0m) behind the **`native-webrtc`** Cargo feature, Linux-first. **The browser
+> path remains the default on all platforms and is unaffected** (the feature is off
+> by default). **Status: Phases 0–3 code-complete + live-validated through Phase 2**
+> (Phase 3's live decode+audio run is still pending) — engine connects, handshakes,
+> receives + decodes H.264, decodes + plays Opus. Source: `src/rtc/`. Plans + live
+> findings: `docs/superpowers/plans/2026-06-19-native-rust-webrtc.md` (the **STATUS
+> block at its top is the source of truth + a HANDOFF/OS-notes section**),
+> `docs/superpowers/plans/2026-06-19-native-webrtc-phase{2,3}.md`, and
+> `docs/superpowers/specs/2026-06-19-native-webrtc-sdp-findings.md`.
+>
+> **OS note for a fresh instance:** `cargo test` (no features) runs the **106
+> codec-free unit tests on any OS**. `cargo build --features native-webrtc` needs
+> str0m + ffmpeg-the-third + cpal + opus and is **Linux-first** — `ffmpeg-the-third`
+> typically won't build on stock Windows, and the live `XBOX_E2E` test needs the
+> Linux box + a console. Don't expect the native feature build or live tests to work
+> on Windows; the Windows-side work is Phase 7 (unify) + planning. See the plan's
+> HANDOFF section.
+
 ## Build & Run
 
 This project does NOT use the Tauri CLI (the layout has `Cargo.toml` + `tauri.conf.json`

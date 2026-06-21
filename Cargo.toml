@@ -40,12 +40,55 @@ regex = "1"
 # pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 muxide = "0.2.5"
+str0m = { version = "0.20", optional = true }
+opus = { version = "0.3", optional = true }
+ffmpeg-the-third = { version = "5", optional = true }
+bytes = { version = "1", optional = true }
+cpal = { version = "0.15", optional = true }
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+insta = { version = "1", features = ["json"] }
+# Phase-0 spike only (examples/rtc_spike.rs): error context + PNG encode.
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Phase-4 render de-risk spike (examples/render_spike.rs, Linux): GTK GLArea video
+# layer composited UNDER a transparent webview HUD. Versions match the tauri/wry
+# tree so Cargo unifies (no duplicate gtk/tao/wry). glow = lightweight GL.
+tao = "0.35"
+wry = "0.55"
+gtk = "0.18"
+glow = "0.13"
+libloading = "0.7"
+
+# Phase-0 throwaway de-risk spike: str0m offerer → receive Xbox H.264 → decode
+# one frame → PNG. Only built when the native stack is available.
+[[example]]
+name = "rtc_spike"
+required-features = ["native-webrtc"]
+
+# Phase-4 de-risk spike: prove flicker-free native-video-under-transparent-HUD
+# compositing on Linux/WebKitGTK (GTK GLArea in a GtkOverlay). Linux-only.
+[[example]]
+name = "render_spike"
+
+# Phase-4 live render proof: spawn the real engine, render its decoded I420 frames
+# in a gtk::GLArea (YUV→RGB via BT.709) under a transparent HUD. Linux-only.
+[[example]]
+name = "render_live"
+required-features = ["native-webrtc"]
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
 
 [profile.release]
 lto = false
+
+[features]
+# Native Rust WebRTC media stack (Linux-first; opt-in so the default build stays
+# lean and doesn't require ffmpeg/str0m toolchains). See
+# docs/superpowers/plans/2026-06-19-native-rust-webrtc.md.
+native-webrtc = ["dep:str0m", "dep:opus", "dep:ffmpeg-the-third", "dep:bytes", "dep:cpal"]

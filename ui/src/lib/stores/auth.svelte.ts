@@ -22,8 +22,9 @@ import {
   startXboxAuth,
   discoverXhomeConsoles,
   signOut as signOutCmd,
+  openExternalUrl,
 } from "../ipc/commands.js";
-import type { DeviceCodeInfo, XHomeConsole } from "../ipc/types.js";
+import type { XHomeConsole } from "../ipc/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth state type
@@ -40,10 +41,10 @@ class AuthStore {
   authState: AuthState = $state("unknown");
 
   /**
-   * Device code info from startXboxAuth().
-   * Non-null only while authState === 'awaitingCode'.
+   * Authorize URL for the in-progress browser sign-in.
+   * Non-null only while authState === 'awaitingCode' (for the manual re-open button).
    */
-  deviceCode: DeviceCodeInfo | null = $state(null);
+  signInUrl: string | null = $state(null);
 
   /** Consoles discovered after successful sign-in. */
   consoles: XHomeConsole[] = $state([]);
@@ -73,18 +74,26 @@ class AuthStore {
   }
 
   /**
-   * Start the OAuth device-code sign-in flow.
-   * Sets deviceCode so the UI can display the code and verification URL.
-   * Sets authState to 'awaitingCode'.
+   * Start the OAuth authorization-code sign-in flow.
+   * Stores the authorize URL (signInUrl), sets authState to 'awaitingCode',
+   * and opens the browser to the consent page.
    *
-   * Rust background task polls for completion; call pollAuth() to detect it.
+   * A Rust background task completes sign-in via the loopback redirect; call
+   * pollAuth() to detect it.
    */
   async signIn(): Promise<void> {
     this.error = null;
     try {
-      const info = await startXboxAuth();
-      this.deviceCode = info;
+      const url = await startXboxAuth();
+      this.signInUrl = url;
       this.authState = "awaitingCode";
+      // Auto-open the browser to the consent page. Failures are non-fatal —
+      // the awaitingCode screen keeps a manual "Open sign-in page" button.
+      try {
+        await openExternalUrl(url);
+      } catch {
+        // ignore — user can use the manual button
+      }
     } catch (e) {
       this.error = String(e);
     }
@@ -99,7 +108,7 @@ class AuthStore {
       const ok = await checkAuthStatus();
       if (ok) {
         this.authState = "signedIn";
-        this.deviceCode = null;
+        this.signInUrl = null;
       }
       return ok;
     } catch (e) {
@@ -167,7 +176,7 @@ class AuthStore {
     this._pollAbortController?.abort();
     this._pollAbortController = null;
     this.authState = "signedOut";
-    this.deviceCode = null;
+    this.signInUrl = null;
     this.consoles = [];
     this.error = null;
   }

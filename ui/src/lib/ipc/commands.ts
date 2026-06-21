@@ -13,7 +13,7 @@
  * extra parsing.
  *
  *   JSON-string commands (parse here):
- *     start_xbox_auth         → DeviceCodeInfo
+ *     start_xbox_auth         → string (authorize URL)
  *     discover_xhome_consoles → XHomeConsole[]  (Vec<String> of per-item JSON)
  *     create_xhome_session    → StreamConfig
  *
@@ -34,7 +34,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  DeviceCodeInfo,
   IceCandidate,
   IceServer,
   StreamConfig,
@@ -71,16 +70,15 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Start the OAuth device-code flow.
- * Returns the device code info (user code + verification URL) so the UI can
- * display the code to the user.  Polling for completion runs in a Rust
- * background task; call checkAuthStatus() to detect completion.
+ * Start the OAuth authorization-code (+ PKCE) sign-in flow.
+ * Returns the authorize URL to open in the browser. A Rust background task
+ * catches the loopback redirect and completes sign-in; call checkAuthStatus()
+ * to detect completion.
  *
- * Rust: start_xbox_auth(state) -> Result<String (JSON), String>
+ * Rust: start_xbox_auth(state) -> Result<String (authorize URL), String>
  */
-export async function startXboxAuth(): Promise<DeviceCodeInfo> {
-  const raw = await invoke<string>("start_xbox_auth");
-  return JSON.parse(raw) as DeviceCodeInfo;
+export async function startXboxAuth(): Promise<string> {
+  return invoke<string>("start_xbox_auth");
 }
 
 // ---------------------------------------------------------------------------
@@ -292,4 +290,17 @@ export function exportLogs(): Promise<string> {
  */
 export function openLogDir(): Promise<void> {
   return invoke("open_log_dir");
+}
+
+/**
+ * Open an external web URL (https/http/mailto) in the user's real browser.
+ *
+ * Prefer this over `@tauri-apps/plugin-opener`'s `openUrl` for external links:
+ * on Linux the backend launches the browser with a sanitized environment so it
+ * works inside an AppImage, where the bundled `LD_LIBRARY_PATH` would otherwise
+ * make the child browser fail to start silently.
+ * Rust: open_external_url(url) -> Result<(), String>
+ */
+export function openExternalUrl(url: string): Promise<void> {
+  return invoke("open_external_url", { url });
 }

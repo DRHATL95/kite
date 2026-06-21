@@ -76,14 +76,3 @@ export interface StreamConfig {
    */
   keepAlivePulseSeconds?: number;
 }
-
-/**
- * Device code info returned by start_xbox_auth (auth.rs DeviceCodeInfo).
- * Returned as a JSON string → must be JSON.parsed.
- *
- * Note: no serde rename attributes on DeviceCodeInfo; serialises as snake_case.
- */
-export interface DeviceCodeInfo {
-  user_code: string;
-  verification_uri: string;
-}

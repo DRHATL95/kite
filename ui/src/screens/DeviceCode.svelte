@@ -1,45 +1,36 @@
 <script lang="ts">
   /**
-   * DeviceCode.svelte — Device-code display and polling screen.
+   * DeviceCode.svelte — Browser sign-in waiting screen.
    *
-   * Rendered when authStore.authState === 'awaitingCode'.
-   * Displays user_code prominently and verification_uri with open/copy options.
+   * Rendered when authStore.authState === 'awaitingCode'. The authorization-code
+   * (+ PKCE) flow opens the user's browser to the Microsoft consent page; a Rust
+   * background task catches the localhost loopback redirect and completes
+   * sign-in. This screen shows a waiting state, a manual "Open sign-in page"
+   * button (in case the auto-open failed), and polls checkAuthStatus() until
+   * sign-in completes.
    *
-   * Starts authStore.startPollingLoop() on mount; cancels it in the $effect
-   * cleanup so the interval is never leaked when the component is destroyed.
+   * Opening the page uses the open_external_url backend command (sanitized env
+   * on Linux so it works inside an AppImage). window.open is a no-op in
+   * WebKitGTK, so it must NOT be used here.
    *
-   * Opening the sign-in page uses @tauri-apps/plugin-opener (openUrl), which
-   * hands the URL to the OS so it opens in the user's real browser. window.open
-   * is a no-op in WebKitGTK, so it must NOT be used here. The Microsoft /link
-   * page pre-fills the code from an `otc` query param, so we append the user
-   * code to the opened URL and the user only has to confirm. A "Copy URL"
-   * button remains as a manual fallback.
-   *
-   * Props: none.
+   * Props: none. State transitions are driven by authStore.authState.
    */
 
-  import { onMount } from "svelte";
-  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { openExternalUrl } from "$lib/ipc/commands.js";
+  import { logger } from "$lib/log/logger.js";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import Button from "$lib/design/Button.svelte";
   import Panel from "$lib/design/Panel.svelte";
 
-  // Reactive access to deviceCode fields. DeviceCodeInfo uses snake_case
-  // (no serde rename attributes) — fields are user_code and verification_uri.
-  let userCode = $derived(authStore.deviceCode?.user_code ?? "");
-  let verificationUri = $derived(authStore.deviceCode?.verification_uri ?? "");
+  // The authorize URL the backend prepared for this sign-in.
+  let signInUrl = $derived(authStore.signInUrl ?? "");
 
-  // The same verification URL with the one-time code pre-filled via `otc`, which
-  // the Microsoft sign-in page reads to populate the code box automatically.
-  let signInUrl = $derived(withCode(verificationUri, userCode));
-
-  let codeCopied = $state(false);
-  let urlCopied = $state(false);
   let openError = $state<string | null>(null);
+  let urlCopied = $state(false);
 
   // ── Polling lifecycle ────────────────────────────────────────────────────────
-  // $effect runs after mount; its cleanup callback fires when the component
-  // is destroyed — this guarantees the polling loop is always cancelled.
+  // $effect runs after mount; its cleanup fires on destroy, so the polling loop
+  // is always cancelled. The loop stops itself once authState reaches 'signedIn'.
   $effect(() => {
     const cancel = authStore.startPollingLoop(3000);
     return cancel;
@@ -47,47 +38,25 @@
 
   // ── Actions ───────────────────────────────────────────────────────────────────
 
-  // Append the one-time code as `otc` so the sign-in page pre-fills it. Returns
-  // the URL unchanged if it can't be parsed or there is no code yet.
-  function withCode(uri: string, code: string): string {
-    if (!uri) return uri;
-    try {
-      const u = new URL(uri);
-      if (code) u.searchParams.set("otc", code);
-      return u.toString();
-    } catch {
-      return uri;
-    }
-  }
-
   async function openSignIn() {
     openError = null;
     try {
-      // openUrl hands the URL to the OS — opens the user's real browser.
-      await openUrl(signInUrl);
+      await openExternalUrl(signInUrl);
     } catch (e) {
-      openError = `Couldn't open the browser automatically — use "Copy URL" and open it manually.`;
-      console.error("openUrl failed", e);
-    }
-  }
-
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(userCode);
-      codeCopied = true;
-      setTimeout(() => { codeCopied = false; }, 2000);
-    } catch {
-      // clipboard API unavailable — silently ignore
+      openError = `Couldn't open the browser automatically — use "Copy link" and open it manually.`;
+      logger.error("auth", `open sign-in failed: ${e}`);
     }
   }
 
   async function copyUrl() {
     try {
-      await navigator.clipboard.writeText(verificationUri);
+      await navigator.clipboard.writeText(signInUrl);
       urlCopied = true;
-      setTimeout(() => { urlCopied = false; }, 2000);
+      setTimeout(() => {
+        urlCopied = false;
+      }, 2000);
     } catch {
-      // clipboard API unavailable — silently ignore
+      // clipboard API unavailable — the link below is hand-selectable as a fallback
     }
   }
 </script>
@@ -96,25 +65,13 @@
   <Panel title="Sign in with Microsoft">
     <div class="device-code-body">
       <p class="instruction">
-        Go to the sign-in page and enter the code below:
+        We've opened your browser to sign in. Approve access there and the app
+        will connect automatically — nothing to type here.
       </p>
 
-      <!-- ── Code display ─────────────────────────────────────────────────── -->
-      <div class="code-block">
-        <div class="code-row">
-          <span class="code-display" aria-label="Device code: {userCode}">
-            {userCode || "Loading…"}
-          </span>
-          <Button variant="ghost" onclick={copyCode} disabled={!userCode}>
-            {codeCopied ? "Copied!" : "Copy"}
-          </Button>
-        </div>
-        <p class="code-hint">Enter this code at the sign-in page</p>
-      </div>
-
-      <!-- ── URL section ──────────────────────────────────────────────────── -->
+      <!-- ── Sign-in action ───────────────────────────────────────────────── -->
       <div class="url-section">
-        <Button onclick={openSignIn} disabled={!verificationUri}>
+        <Button onclick={openSignIn} disabled={!signInUrl}>
           Open sign-in page
         </Button>
 
@@ -123,9 +80,9 @@
         {/if}
 
         <div class="url-copy-row">
-          <span class="url-text" title={verificationUri}>{verificationUri}</span>
-          <Button variant="ghost" onclick={copyUrl} disabled={!verificationUri}>
-            {urlCopied ? "Copied!" : "Copy URL"}
+          <span class="url-text" title={signInUrl}>{signInUrl}</span>
+          <Button variant="ghost" onclick={copyUrl} disabled={!signInUrl}>
+            {urlCopied ? "Copied!" : "Copy link"}
           </Button>
         </div>
       </div>
@@ -133,7 +90,7 @@
       <!-- ── Waiting indicator ─────────────────────────────────────────────── -->
       <div class="waiting-indicator">
         <span class="live-dot" role="status" aria-label="Waiting for sign-in"></span>
-        <p class="waiting-text">Waiting for you to sign in…</p>
+        <p class="waiting-text">Waiting for you to finish signing in…</p>
       </div>
 
       {#if authStore.error}
@@ -170,47 +127,7 @@
     color: var(--text-dim);
   }
 
-  /* ── Code display ─────────────────────────────────────────────────────────── */
-
-  .code-block {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-  }
-
-  .code-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    width: 100%;
-    padding: var(--space-4) var(--space-4);
-    background: var(--surface-2);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-    border-radius: var(--radius-md);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-
-  .code-display {
-    font-family: var(--font-display);
-    font-size: var(--text-2xl);
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    color: var(--accent);
-    text-shadow: 0 0 20px color-mix(in srgb, var(--accent) 35%, transparent);
-    user-select: all;
-  }
-
-  .code-hint {
-    margin: 0;
-    font-family: var(--font-sans);
-    font-size: var(--text-xs);
-    color: var(--text-dim);
-  }
-
-  /* ── URL section ──────────────────────────────────────────────────────────── */
+  /* ── Sign-in action ───────────────────────────────────────────────────────── */
 
   .url-section {
     display: flex;
@@ -241,7 +158,7 @@
     white-space: nowrap;
     min-width: 0;
     /* Selectable so the full URL can be hand-copied even when the webview's
-       clipboard API is unavailable (Linux/WebKitGTK) and "Copy URL" silently
+       clipboard API is unavailable (Linux/WebKitGTK) and "Copy link" silently
        fails — text-overflow only truncates visually, selection grabs it all. */
     user-select: all;
   }

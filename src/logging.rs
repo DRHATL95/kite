@@ -16,13 +16,12 @@ use tracing::{Event, Subscriber};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{reload, EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, reload};
 
 static BEARER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+").unwrap());
-static JWT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+").unwrap()
-});
+static JWT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+").unwrap());
 // JSON form: "sensitiveKey": "value"  (handles the quote between key and colon)
 static KV_QUOTED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)"(authorization|refresh_token|access_token|auth_token|accesstoken|authtoken|token|xsts)"\s*:\s*"[^"]*""#).unwrap()
@@ -32,22 +31,23 @@ static KV_UNQUOTED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\b(authorization|refresh_token|access_token|auth_token|accesstoken|authtoken|token|xsts)\b\s*[:=]\s*"?([^\r\n,}\]"]+)"?"#).unwrap()
 });
 // Sensitive standalone SDP attribute lines (candidate/IP lines are intentionally KEPT).
-static SDP_ATTR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?im)^(\s*a=(?:ice-pwd|fingerprint))\s*:.*$").unwrap()
-});
+static SDP_ATTR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?im)^(\s*a=(?:ice-pwd|fingerprint))\s*:.*$").unwrap());
 // Whole SDP blob, bounded at a blank line or end-of-string (not greedy past it).
-static SDP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"v=0[\s\S]*?(?:\r?\n\r?\n|$)").unwrap()
-});
+static SDP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"v=0[\s\S]*?(?:\r?\n\r?\n|$)").unwrap());
 
 /// Scrub secrets from a log message before it is persisted or shown. Idempotent.
 pub fn redact(input: &str) -> String {
     let s = BEARER.replace_all(input, "Bearer [REDACTED]");
     let s = JWT.replace_all(&s, "[JWT REDACTED]");
-    let s = KV_QUOTED.replace_all(&s, |c: &regex::Captures| format!("\"{}\":\"[REDACTED]\"", &c[1]));
+    let s = KV_QUOTED.replace_all(&s, |c: &regex::Captures| {
+        format!("\"{}\":\"[REDACTED]\"", &c[1])
+    });
     let s = KV_UNQUOTED.replace_all(&s, |c: &regex::Captures| format!("{}=[REDACTED]", &c[1]));
     let s = SDP_ATTR.replace_all(&s, "$1:[REDACTED]");
-    let s = SDP.replace_all(&s, |c: &regex::Captures| format!("[SDP {} bytes redacted]", c[0].len()));
+    let s = SDP.replace_all(&s, |c: &regex::Captures| {
+        format!("[SDP {} bytes redacted]", c[0].len())
+    });
     s.into_owned()
 }
 
@@ -76,7 +76,10 @@ pub struct LogBuffer {
 
 impl LogBuffer {
     pub fn new(cap: usize) -> Self {
-        Self { ring: Mutex::new(VecDeque::with_capacity(cap)), cap }
+        Self {
+            ring: Mutex::new(VecDeque::with_capacity(cap)),
+            cap,
+        }
     }
 
     pub fn push(&self, rec: LogRecord) {
@@ -167,13 +170,20 @@ pub fn init_logging(log_dir: &Path) -> (LogState, WorkerGuard) {
 
     Registry::default()
         .with(filter)
-        .with(SinkLayer { buf: buf.clone(), file: non_blocking })
+        .with(SinkLayer {
+            buf: buf.clone(),
+            file: non_blocking,
+        })
         .init();
 
     install_panic_hook(log_dir.to_path_buf());
 
     (
-        LogState { buf, reload: reload_handle, log_dir: log_dir.to_path_buf() },
+        LogState {
+            buf,
+            reload: reload_handle,
+            log_dir: log_dir.to_path_buf(),
+        },
         guard,
     )
 }
@@ -208,7 +218,11 @@ fn install_panic_hook(log_dir: std::path::PathBuf) {
 
 /// Apply the verbose or default filter at runtime.
 pub fn set_verbose(state: &LogState, verbose: bool) {
-    let directive = if verbose { VERBOSE_FILTER } else { DEFAULT_FILTER };
+    let directive = if verbose {
+        VERBOSE_FILTER
+    } else {
+        DEFAULT_FILTER
+    };
     let _ = state.reload.reload(EnvFilter::new(directive));
 }
 
@@ -265,7 +279,10 @@ pub fn export_logs(state: State<'_, LogState>) -> Result<String, String> {
     }
     out.push_str("\n--- in-memory ring ---\n");
     for r in state.buf.snapshot(None) {
-        out.push_str(&format!("{} {:>5} {}: {}\n", r.ts, r.level, r.target, r.message));
+        out.push_str(&format!(
+            "{} {:>5} {}: {}\n",
+            r.ts, r.level, r.target, r.message
+        ));
     }
     let path = state.log_dir.join("xbox-remote-export.txt");
     std::fs::write(&path, out).map_err(|e| e.to_string())?;
@@ -281,7 +298,10 @@ mod tests {
         let jwt = "eyJhbGciOi.eyJzdWIiOi.SflKxwRJSM";
         let out = redact(&format!("Authorization: Bearer {jwt}"));
         assert!(!out.contains(jwt), "jwt leaked: {out}");
-        assert!(out.contains("[REDACTED]") || out.contains("[JWT REDACTED]"), "{out}");
+        assert!(
+            out.contains("[REDACTED]") || out.contains("[JWT REDACTED]"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -324,13 +344,26 @@ mod tests {
 
     #[test]
     fn redacts_sdp_ice_pwd_but_keeps_candidate_ip() {
-        let out = redact("a=ice-pwd:SuperSecretIcePwd123\r\na=candidate:1 1 udp 2 192.168.1.5 9 typ host");
-        assert!(!out.contains("SuperSecretIcePwd123"), "ice-pwd leaked: {out}");
-        assert!(out.contains("192.168.1.5"), "LAN candidate IP should be preserved: {out}");
+        let out = redact(
+            "a=ice-pwd:SuperSecretIcePwd123\r\na=candidate:1 1 udp 2 192.168.1.5 9 typ host",
+        );
+        assert!(
+            !out.contains("SuperSecretIcePwd123"),
+            "ice-pwd leaked: {out}"
+        );
+        assert!(
+            out.contains("192.168.1.5"),
+            "LAN candidate IP should be preserved: {out}"
+        );
     }
 
     fn rec(msg: &str) -> LogRecord {
-        LogRecord { ts: "t".into(), level: "INFO".into(), target: "x".into(), message: msg.into() }
+        LogRecord {
+            ts: "t".into(),
+            level: "INFO".into(),
+            target: "x".into(),
+            message: msg.into(),
+        }
     }
 
     #[test]
@@ -348,23 +381,37 @@ mod tests {
     #[test]
     fn ring_snapshot_limit_returns_most_recent() {
         let buf = LogBuffer::new(10);
-        for m in ["a", "b", "c"] { buf.push(rec(m)); }
+        for m in ["a", "b", "c"] {
+            buf.push(rec(m));
+        }
         let snap = buf.snapshot(Some(2));
-        assert_eq!(snap.iter().map(|r| r.message.clone()).collect::<Vec<_>>(), vec!["b", "c"]);
+        assert_eq!(
+            snap.iter().map(|r| r.message.clone()).collect::<Vec<_>>(),
+            vec!["b", "c"]
+        );
     }
 
     #[test]
     fn frontend_record_deserializes_from_js_shape() {
         let json = r#"{"level":"warn","category":"connection","message":"channel closed"}"#;
         let r: FrontendLogRecord = serde_json::from_str(json).unwrap();
-        assert_eq!(r, FrontendLogRecord {
-            level: "warn".into(), category: "connection".into(), message: "channel closed".into(),
-        });
+        assert_eq!(
+            r,
+            FrontendLogRecord {
+                level: "warn".into(),
+                category: "connection".into(),
+                message: "channel closed".into(),
+            }
+        );
     }
 
     #[test]
     fn log_event_formats_category_into_message() {
-        let r = FrontendLogRecord { level: "info".into(), category: "connection".into(), message: "ok".into() };
+        let r = FrontendLogRecord {
+            level: "info".into(),
+            category: "connection".into(),
+            message: "ok".into(),
+        };
         let msg = format!("{}: {}", r.category, r.message);
         assert_eq!(msg, "connection: ok");
     }

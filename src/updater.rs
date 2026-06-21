@@ -5,13 +5,17 @@
 /// Map a channel name to its rolling latest.json endpoint URL.
 /// Unknown values fall back to the stable channel (safe default).
 pub fn channel_endpoint(channel: &str) -> String {
-    let ch = if channel == "nightly" { "nightly" } else { "stable" };
+    let ch = if channel == "nightly" {
+        "nightly"
+    } else {
+        "stable"
+    };
     format!("https://github.com/DRHATL95/xbox-remote-releases/releases/download/{ch}/latest.json")
 }
 
-use std::sync::Mutex;
 use serde::Serialize;
-use tauri::{ipc::Channel, AppHandle, State};
+use std::sync::Mutex;
+use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_updater::UpdaterExt;
 
 /// Holds the pending update between `check_update` and `install_update`.
@@ -31,9 +35,13 @@ pub struct UpdateMeta {
 #[serde(tag = "event", content = "data", rename_all = "camelCase")]
 pub enum DownloadEvent {
     #[serde(rename_all = "camelCase")]
-    Started { content_length: Option<u64> },
+    Started {
+        content_length: Option<u64>,
+    },
     #[serde(rename_all = "camelCase")]
-    Progress { chunk_length: usize },
+    Progress {
+        chunk_length: usize,
+    },
     Finished,
 }
 
@@ -52,11 +60,15 @@ pub async fn check_update(
         .parse()
         .map_err(|e| format!("bad endpoint url: {e}"))?;
 
-    let mut builder = app.updater_builder().endpoints(vec![endpoint])
+    let mut builder = app
+        .updater_builder()
+        .endpoints(vec![endpoint])
         .map_err(|e| e.to_string())?;
     if allow_downgrade {
         // Accept any version that differs from the current (enables downgrade on channel switch).
-        builder = builder.version_comparator(|current, release| release.version.to_string() != current.to_string());
+        builder = builder.version_comparator(|current, release| {
+            release.version.to_string() != current.to_string()
+        });
     }
     let updater = builder.build().map_err(|e| e.to_string())?;
 
@@ -77,7 +89,11 @@ pub async fn install_update(
     on_event: Channel<DownloadEvent>,
     pending: State<'_, PendingUpdate>,
 ) -> Result<(), String> {
-    let update = pending.0.lock().unwrap().take()
+    let update = pending
+        .0
+        .lock()
+        .unwrap()
+        .take()
         .ok_or_else(|| "no pending update".to_string())?;
 
     let mut started = false;
@@ -85,10 +101,14 @@ pub async fn install_update(
         .download_and_install(
             |chunk_size, total| {
                 if !started {
-                    let _ = on_event.send(DownloadEvent::Started { content_length: total });
+                    let _ = on_event.send(DownloadEvent::Started {
+                        content_length: total,
+                    });
                     started = true;
                 }
-                let _ = on_event.send(DownloadEvent::Progress { chunk_length: chunk_size });
+                let _ = on_event.send(DownloadEvent::Progress {
+                    chunk_length: chunk_size,
+                });
             },
             || {
                 let _ = on_event.send(DownloadEvent::Finished);
