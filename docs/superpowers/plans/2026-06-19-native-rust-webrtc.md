@@ -65,12 +65,15 @@
 >   co-design with the Phase-4 renderer (software 1080p decode is proven; zero-copy
 >   only pays off with a GPU renderer). Phase-3 follow-ups: real A/V sync (Phase 5);
 >   maybe a dedicated decode thread if the inline decode starves the loop.
-> - **Phase 4 (Linux render) — ✅ DE-RISK PASSED 2026-06-20; implementation next.**
->   The make-or-break unknown (compositing native video UNDER the transparent
->   WebKitGTK HUD, flicker-free) is **resolved live on the CachyOS box** via
->   `examples/render_spike.rs`: a `gtk::Overlay { gtk::GLArea (alpha) base, transparent
->   webview overlaid }` composites entirely inside GTK — animated GL pattern showed
->   cleanly through/around a Svelte-style HUD with **zero flicker** (user-confirmed).
+> - **Phase 4 (Linux render) — ✅ COMPLETE + LIVE-VALIDATED 2026-06-20.** Plan
+>   `docs/superpowers/plans/2026-06-20-native-webrtc-phase4.md`. The full native
+>   video path now renders on Linux: engine → ffmpeg I420 decode → `SharedFrame`
+>   (cross-thread render seam) → `gtk::GLArea` YUV→RGB (BT.709) shader → composited
+>   under the transparent WebKitGTK HUD. **`examples/render_live` showed a live game
+>   (Madden) rendered natively on the CachyOS box** — correct colors, flicker-free
+>   (user-confirmed). The make-or-break compositing was de-risked first in
+>   `examples/render_spike.rs` (`gtk::Overlay { GLArea(alpha) base, transparent
+>   webview overlaid }` — composites inside GTK, **zero flicker**, no #9220).
 >   **DECISION: use the GTK `GLArea`+`GtkOverlay` path, NOT raw wgpu** — it sidesteps
 >   the raw-handle wgpu+transparency flicker (tauri#9220) by compositing within GTK,
 >   uses `tao` (= Tauri's windowing), and draws via lightweight `glow`. (wgpu is kept

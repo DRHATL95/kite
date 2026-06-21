@@ -1,9 +1,14 @@
 # Native WebRTC Phase 4 — Linux Video Render — Implementation Plan
 
-> **STATUS: NOT STARTED (authored 2026-06-20).** Make-or-break compositing already
-> de-risked (`examples/render_spike.rs`, commit `07ce379`): GTK `GLArea` under a
-> transparent WebKitGTK HUD composites flicker-free. This plan builds the real
-> renderer on that proven primitive.
+> **STATUS: ✅ COMPLETE + LIVE-VALIDATED (2026-06-20).** All 3 tasks done
+> (subagent-driven TDD); commits `7d56a6d..8c336e7`. 110 pure tests; feature build
+> clean. **`examples/render_live` showed the live game (Madden) rendered natively
+> on the CachyOS box** — engine → ffmpeg I420 decode → `SharedFrame` → `GLArea`
+> YUV→RGB (BT.709) → composited under the transparent HUD, correct colors,
+> flicker-free (user-confirmed). The make-or-break compositing was de-risked first
+> in `examples/render_spike.rs` (`07ce379`). NEXT: Phase 6 (reparent the
+> `GtkOverlay`/`GLArea` into the real Tauri window + transparency + Stream-UI +
+> runtime flag; promote the `render_live` renderer into the lib).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
