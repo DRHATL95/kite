@@ -42,6 +42,7 @@ const CHANNELS: [(&str, &str); 4] = [
 pub enum EngineCommand {
     SendInput(GamepadFrame),
     Clip(oneshot::Sender<Option<AssembledClip>>),
+    RequestKeyframe,
     Disconnect,
 }
 
@@ -67,6 +68,12 @@ impl RtcHandle {
             return None;
         }
         rx.await.ok().flatten()
+    }
+
+    /// Request a keyframe from the Xbox console by writing a keyframe-request
+    /// message on the Control channel. No-ops if the engine is gone.
+    pub fn request_keyframe(&self) {
+        let _ = self.cmd_tx.send(EngineCommand::RequestKeyframe);
     }
 
     /// Take sole ownership of the event stream (once). The caller (the Tauri
@@ -409,6 +416,12 @@ async fn stream<S: Signaling, T: Transport>(
                 }
                 Some(EngineCommand::Clip(reply)) => {
                     let _ = reply.send(media.clip_ring.assemble());
+                }
+                Some(EngineCommand::RequestKeyframe) => {
+                    apply_write(&mut rtc, &ids, &ChannelWrite {
+                        label: ChannelLabel::Control,
+                        bytes: serde_json::to_vec(&keyframe_request()).expect("serialize"),
+                    });
                 }
             },
             _ = keepalive_tick.tick(), if keepalive_on => {
