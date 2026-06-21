@@ -45,12 +45,12 @@ pub enum EngineCommand {
     Disconnect,
 }
 
-/// Caller-facing handle to a spawned engine. The event stream is encapsulated
-/// (consume it via [`RtcHandle::next_event`]) so callers can't take/replace the
-/// receiver out from under the engine.
+/// Caller-facing handle to a spawned engine. Call [`RtcHandle::take_events`] once
+/// to obtain the event receiver; the command/join side can then live behind a
+/// `Mutex` without holding it across `.await`.
 pub struct RtcHandle {
     cmd_tx: mpsc::UnboundedSender<EngineCommand>,
-    events: mpsc::UnboundedReceiver<RtcEvent>,
+    events: Option<mpsc::UnboundedReceiver<RtcEvent>>,
     join: std::thread::JoinHandle<()>,
 }
 
@@ -69,10 +69,12 @@ impl RtcHandle {
         rx.await.ok().flatten()
     }
 
-    /// Await the next lifecycle/stats event, or `None` once the engine thread
-    /// has exited and the channel is closed.
-    pub async fn next_event(&mut self) -> Option<RtcEvent> {
-        self.events.recv().await
+    /// Take sole ownership of the event stream (once). The caller (the Tauri
+    /// forwarding task / the E2E test) drains it independently of the command
+    /// side, so the handle can live behind a `Mutex` without holding it across
+    /// `.await`.
+    pub fn take_events(&mut self) -> Option<mpsc::UnboundedReceiver<RtcEvent>> {
+        self.events.take()
     }
 
     pub fn disconnect(self) {
@@ -106,7 +108,7 @@ pub fn spawn(
         .map_err(|e| RtcError::Transport(format!("spawn engine thread: {e}")))?;
     Ok(RtcHandle {
         cmd_tx,
-        events,
+        events: Some(events),
         join,
     })
 }
