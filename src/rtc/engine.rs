@@ -16,6 +16,7 @@ use str0m::{Candidate, Event, Input, Output, Rtc};
 use tokio::sync::mpsc;
 
 use super::channels::{ChannelEvent, ChannelLabel, ChannelWrite, HandshakeSequencer};
+use super::keepalive::{API_KEEPALIVE_SECS, keepalive_should_stop};
 use super::signaling::{SessionInfo, Signaling};
 use super::state::{ConnectionState, Transition};
 use super::stats::{StatsAccumulator, STATS_SAMPLE_MS};
@@ -268,6 +269,12 @@ async fn stream<S: Signaling, T: Transport>(
     let mut last_tick_ms = 0.0_f64;
     let mut input_seq: u32 = 0;
     let mut ice_tick = tokio::time::interval(Duration::from_millis(500));
+    let mut keepalive_tick = tokio::time::interval(Duration::from_secs(API_KEEPALIVE_SECS));
+    keepalive_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Consume the immediate first tick so the first real pulse lands at +30 s,
+    // matching the browser's `_startApiKeepalive` delay.
+    keepalive_tick.tick().await;
+    let mut keepalive_on = true;
     let mut media = MediaPipeline::new(video_mid, audio_mid, frame_sink);
 
     loop {
@@ -365,6 +372,15 @@ async fn stream<S: Signaling, T: Transport>(
                     let bytes = encode_gamepad(&frame, input_seq, ts);
                     input_seq = input_seq.wrapping_add(1);
                     write_channel(&mut rtc, ids.get(ChannelLabel::Input), &bytes);
+                }
+            },
+            _ = keepalive_tick.tick(), if keepalive_on => {
+                if let Err(e) = signaling.keepalive(session).await {
+                    let es = e.to_string();
+                    if keepalive_should_stop(&es) {
+                        keepalive_on = false; // provisioning over; data channel is the keepalive now
+                    }
+                    // transient errors: keep the timer running
                 }
             }
         }

@@ -29,6 +29,7 @@ pub mod transport;
 // Phase 1 (pure, TDD) — added with their tasks:
 pub mod clip_tap;
 pub mod input;
+pub mod keepalive;
 pub mod protocol;
 pub mod stats;
 pub mod watchdog;
