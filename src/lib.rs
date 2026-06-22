@@ -515,7 +515,6 @@ mod tauri_commands {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Native WebRTC command surface (6c)
-    // Bodies are stubs here; lifecycle wiring lands in 6c.9.
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Minimal gamepad button state mirroring the JS `GamepadButton` interface.
@@ -535,6 +534,167 @@ mod tauri_commands {
         pub axes: [f64; 4],
     }
 
+    /// Lifecycle + diagnostics events forwarded from the native engine to the
+    /// webview over the `rtc_event` Tauri event channel.
+    ///
+    /// Serialised with `#[serde(tag = "kind", rename_all = "camelCase")]` so the
+    /// TypeScript consumer can discriminate on `event.payload.kind` using the
+    /// camelCase names: `"connecting"`, `"connected"`, `"firstFrame"`,
+    /// `"reconnecting"`, `"stats"`, `"disconnected"`, `"ended"`.
+    #[cfg(feature = "native-webrtc")]
+    #[derive(serde::Serialize, Clone, Debug)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    pub enum RtcEventDto {
+        Connecting,
+        Connected,
+        FirstFrame,
+        Reconnecting {
+            attempt: u32,
+        },
+        Stats {
+            #[serde(rename = "bitrateKbps")]
+            bitrate_kbps: u32,
+            fps: u32,
+            #[serde(rename = "framesDecoded")]
+            frames_decoded: u64,
+            #[serde(rename = "freezeCount")]
+            freeze_count: u32,
+        },
+        Disconnected {
+            reason: String,
+        },
+        /// Emitted when the event stream closes (engine exited cleanly or the
+        /// forwarding task detected channel closure).
+        Ended,
+    }
+
+    #[cfg(feature = "native-webrtc")]
+    fn rtc_event_to_dto(ev: crate::rtc::RtcEvent) -> RtcEventDto {
+        use crate::rtc::RtcEvent;
+        match ev {
+            RtcEvent::Connecting => RtcEventDto::Connecting,
+            RtcEvent::Connected => RtcEventDto::Connected,
+            RtcEvent::FirstFrame => RtcEventDto::FirstFrame,
+            RtcEvent::Reconnecting { attempt } => RtcEventDto::Reconnecting { attempt },
+            RtcEvent::Stats(s) => RtcEventDto::Stats {
+                bitrate_kbps: s.bitrate_kbps,
+                fps: s.fps,
+                frames_decoded: s.frames_decoded,
+                freeze_count: s.freeze_count,
+            },
+            RtcEvent::Disconnected(reason) => RtcEventDto::Disconnected { reason },
+        }
+    }
+
+    /// Map a `GamepadStateDto` (JS Standard Gamepad API shape) to a `GamepadFrame`
+    /// (Xbox 38-byte wire format fields), mirroring `encodeGamepadFrame` from
+    /// `ui/src/lib/connection/input.ts`.
+    ///
+    /// Button-index → bitmask mapping from `BUTTON_BITS` in `constants.ts`:
+    ///
+    /// | Index | Button          | Bit   |
+    /// |-------|-----------------|-------|
+    /// | 0     | A               | 16    |
+    /// | 1     | B               | 32    |
+    /// | 2     | X               | 64    |
+    /// | 3     | Y               | 128   |
+    /// | 4     | LB              | 4096  |
+    /// | 5     | RB              | 8192  |
+    /// | 6     | LT (trigger)    | –     |
+    /// | 7     | RT (trigger)    | –     |
+    /// | 8     | View / Back     | 8     |
+    /// | 9     | Menu / Start    | 4     |
+    /// | 10    | LeftThumb       | 16384 |
+    /// | 11    | RightThumb      | 32768 |
+    /// | 12    | DPad Up         | 256   |
+    /// | 13    | DPad Down       | 512   |
+    /// | 14    | DPad Left       | 1024  |
+    /// | 15    | DPad Right      | 2048  |
+    /// | 16    | Nexus / Guide   | 2     |
+    ///
+    /// Axes are dead-zoned (|v| < 0.1 → 0), then scaled to i16 via
+    /// `round(v * 32767)` clamped to [−32767, +32767]. Y axes are stored
+    /// without negation; `encode_gamepad` (src/rtc/input.rs) negates them on
+    /// the wire, matching `normalizeAxis(-ly)` / `normalizeAxis(-ry)` in input.ts.
+    #[cfg(feature = "native-webrtc")]
+    fn gamepad_dto_to_frame(g: &GamepadStateDto) -> crate::rtc::input::GamepadFrame {
+        use crate::rtc::input::{
+            GamepadFrame, BTN_A, BTN_B, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT,
+            BTN_DPAD_UP, BTN_LEFT_SHOULDER, BTN_LEFT_THUMB, BTN_MENU, BTN_NEXUS,
+            BTN_RIGHT_SHOULDER, BTN_RIGHT_THUMB, BTN_VIEW, BTN_X, BTN_Y,
+        };
+
+        // Button index → bitmask table (indices 6 & 7 are triggers, handled below).
+        const BUTTON_BITS: &[(usize, u16)] = &[
+            (0, BTN_A),
+            (1, BTN_B),
+            (2, BTN_X),
+            (3, BTN_Y),
+            (4, BTN_LEFT_SHOULDER),
+            (5, BTN_RIGHT_SHOULDER),
+            // 6 = LT trigger value (not a bitmask)
+            // 7 = RT trigger value (not a bitmask)
+            (8, BTN_VIEW),
+            (9, BTN_MENU),
+            (10, BTN_LEFT_THUMB),
+            (11, BTN_RIGHT_THUMB),
+            (12, BTN_DPAD_UP),
+            (13, BTN_DPAD_DOWN),
+            (14, BTN_DPAD_LEFT),
+            (15, BTN_DPAD_RIGHT),
+            (16, BTN_NEXUS),
+        ];
+
+        let mut buttons: u16 = 0;
+        for &(idx, bit) in BUTTON_BITS {
+            if g.buttons.get(idx).map(|b| b.pressed).unwrap_or(false) {
+                buttons |= bit;
+            }
+        }
+
+        // Triggers: buttons[6].value and buttons[7].value, scaled 0..1 → 0..65535.
+        let lt_val = g.buttons.get(6).map(|b| b.value).unwrap_or(0.0);
+        let rt_val = g.buttons.get(7).map(|b| b.value).unwrap_or(0.0);
+        let left_trigger = (lt_val.max(0.0) * 65535.0).round().min(65535.0) as u16;
+        let right_trigger = (rt_val.max(0.0) * 65535.0).round().min(65535.0) as u16;
+
+        // Dead-zone (matches STICK_DEADZONE = 0.1 in constants.ts).
+        fn deadzone(v: f64) -> f64 {
+            if v.abs() < 0.1 { 0.0 } else { v }
+        }
+        // Axis scaling: round(v * 32767), clamped to [−32767, +32767].
+        fn normalize(v: f64) -> i16 {
+            (v * 32767.0).round().clamp(-32767.0, 32767.0) as i16
+        }
+
+        let lx = normalize(deadzone(g.axes[0]));
+        let ly = normalize(deadzone(g.axes[1]));
+        let rx = normalize(deadzone(g.axes[2]));
+        let ry = normalize(deadzone(g.axes[3]));
+
+        GamepadFrame {
+            buttons,
+            left_thumb_x: lx,
+            left_thumb_y: ly,   // encode_gamepad negates on the wire (Y-flip protocol)
+            right_thumb_x: rx,
+            right_thumb_y: ry,  // encode_gamepad negates on the wire (Y-flip protocol)
+            left_trigger,
+            right_trigger,
+        }
+    }
+
+    /// Resolve the clips directory (`<Videos>/Xbox Remote Clips/`), creating it
+    /// if absent. Shared between `save_clip` (browser path) and `rtc_save_clip`
+    /// (native path).
+    #[cfg(feature = "native-webrtc")]
+    fn clips_dir() -> Result<std::path::PathBuf, String> {
+        let dir = dirs::video_dir()
+            .ok_or_else(|| "could not resolve Videos directory".to_string())?
+            .join("Xbox Remote Clips");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create clips dir: {e}"))?;
+        Ok(dir)
+    }
+
     /// Returns `true` when the native WebRTC engine is available for this build
     /// and the user has not opted into the browser path via the env override.
     #[tauri::command]
@@ -550,34 +710,88 @@ mod tauri_commands {
     }
 
     /// Begin a native WebRTC streaming session.
-    /// The real body (engine spawn + signaling) is wired in 6c.9.
+    ///
+    /// Clones the current auth under its lock (matches the pattern in
+    /// `start_xbox_auth`), refuses if a session is already running, spawns the
+    /// engine, takes the event receiver, and launches a detached tokio task that
+    /// forwards every `RtcEvent` to the webview as an `rtc_event` Tauri event.
+    /// Returns `Ok(())` immediately; connection failures arrive as
+    /// `Disconnected` events.
     #[tauri::command]
     pub async fn rtc_connect(
-        _state: State<'_, AppState>,
-        _server_id: String,
-        _play_path: Option<String>,
+        app: tauri::AppHandle,
+        state: State<'_, AppState>,
+        server_id: String,
+        play_path: Option<String>,
     ) -> Result<(), String> {
         #[cfg(feature = "native-webrtc")]
         {
-            // 6c.9 fills the real body.
+            use tauri::Emitter;
+
+            // Clone auth under its lock, then drop the lock before acquiring rtc.
+            let auth = {
+                let guard = state.auth.lock().await;
+                guard.clone()
+            };
+
+            let mut rtc_guard = state.rtc.lock().await;
+            if rtc_guard.is_some() {
+                return Err("already connected".into());
+            }
+
+            #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+            let frame_sink = Some(state.frame_sink.clone());
+            #[cfg(not(target_os = "linux"))]
+            let frame_sink: Option<std::sync::Arc<crate::rtc::media::frame_sink::SharedFrame>> =
+                None;
+
+            let mut handle =
+                crate::rtc::engine::spawn(auth, server_id, play_path, frame_sink)
+                    .map_err(|e| format!("engine spawn: {e}"))?;
+
+            // Take the event receiver out of the handle before locking it away.
+            let rx = handle
+                .take_events()
+                .ok_or_else(|| "engine produced no event receiver".to_string())?;
+
+            *rtc_guard = Some(handle);
+            drop(rtc_guard);
+
+            // Forward events to the webview. The task exits when the channel
+            // closes (engine exited), emitting `Ended` as the final event.
+            let app_for_task = app.clone();
+            tokio::spawn(async move {
+                let mut rx = rx;
+                while let Some(ev) = rx.recv().await {
+                    let dto = rtc_event_to_dto(ev);
+                    let _ = app_for_task.emit("rtc_event", dto);
+                }
+                let _ = app_for_task.emit("rtc_event", RtcEventDto::Ended);
+            });
+
             Ok(())
         }
         #[cfg(not(feature = "native-webrtc"))]
         {
+            let _ = (app, state, server_id, play_path);
             Err("native WebRTC unavailable in this build".into())
         }
     }
 
     /// Tear down the running native WebRTC session.
     #[tauri::command]
-    pub async fn rtc_disconnect(_state: State<'_, AppState>) -> Result<(), String> {
+    pub async fn rtc_disconnect(state: State<'_, AppState>) -> Result<(), String> {
         #[cfg(feature = "native-webrtc")]
         {
-            // 6c.9 fills the real body.
+            let mut rtc_guard = state.rtc.lock().await;
+            if let Some(handle) = rtc_guard.take() {
+                handle.disconnect();
+            }
             Ok(())
         }
         #[cfg(not(feature = "native-webrtc"))]
         {
+            let _ = state;
             Err("native WebRTC unavailable in this build".into())
         }
     }
@@ -585,45 +799,64 @@ mod tauri_commands {
     /// Forward a gamepad state snapshot to the engine's input encoder.
     #[tauri::command]
     pub async fn rtc_send_input(
-        _state: State<'_, AppState>,
-        _gamepad: GamepadStateDto,
+        state: State<'_, AppState>,
+        gamepad: GamepadStateDto,
     ) -> Result<(), String> {
         #[cfg(feature = "native-webrtc")]
         {
-            // 6c.9 fills the real body.
+            let rtc_guard = state.rtc.lock().await;
+            if let Some(handle) = rtc_guard.as_ref() {
+                let frame = gamepad_dto_to_frame(&gamepad);
+                handle.send_input(frame);
+            }
             Ok(())
         }
         #[cfg(not(feature = "native-webrtc"))]
         {
+            let _ = (state, gamepad);
             Err("native WebRTC unavailable in this build".into())
         }
     }
 
     /// Ask the encoder to emit a keyframe on the next opportunity.
     #[tauri::command]
-    pub async fn rtc_request_keyframe(_state: State<'_, AppState>) -> Result<(), String> {
+    pub async fn rtc_request_keyframe(state: State<'_, AppState>) -> Result<(), String> {
         #[cfg(feature = "native-webrtc")]
         {
-            // 6c.9 fills the real body.
+            let rtc_guard = state.rtc.lock().await;
+            if let Some(handle) = rtc_guard.as_ref() {
+                handle.request_keyframe();
+            }
             Ok(())
         }
         #[cfg(not(feature = "native-webrtc"))]
         {
+            let _ = state;
             Err("native WebRTC unavailable in this build".into())
         }
     }
 
     /// Assemble and save a clip from the engine's encoded-frame ring buffer.
-    /// Returns the path of the saved MP4.
+    /// Returns the absolute path of the saved MP4.
     #[tauri::command]
-    pub async fn rtc_save_clip(_state: State<'_, AppState>) -> Result<String, String> {
+    pub async fn rtc_save_clip(state: State<'_, AppState>) -> Result<String, String> {
         #[cfg(feature = "native-webrtc")]
         {
-            // 6c.9 fills the real body.
-            Ok(String::new())
+            let rtc_guard = state.rtc.lock().await;
+            let handle = rtc_guard
+                .as_ref()
+                .ok_or_else(|| "no active native session".to_string())?;
+            let clip = handle
+                .clip()
+                .await
+                .ok_or_else(|| "no clip data available (ring buffer empty or engine gone)".to_string())?;
+            let dir = clips_dir()?;
+            let path = crate::clip::save_assembled_clip(&clip, &dir)?;
+            Ok(path.to_string_lossy().into_owned())
         }
         #[cfg(not(feature = "native-webrtc"))]
         {
+            let _ = state;
             Err("native WebRTC unavailable in this build".into())
         }
     }
