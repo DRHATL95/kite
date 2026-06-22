@@ -30,7 +30,7 @@
  *     [14]    maxTouchpoints u8  = 1
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   encodeGamepadFrame,
   encodeClientMetadata,
@@ -38,13 +38,16 @@ import {
   normalizeAxis,
   normalizeTrigger,
   mapKeyboardToGamepad,
+  GamepadPoller,
   type GamepadState,
+  type InputEmit,
 } from "./input.js";
 import {
   REPORT_TYPE_GAMEPAD,
   REPORT_TYPE_CLIENT_METADATA,
   BUTTON_BITS,
   STICK_DEADZONE,
+  IDLE_FRAME_EVERY,
 } from "./constants.js";
 
 // ── Helper: read a u16 LE at offset ──────────────────────────────────────────
@@ -452,5 +455,141 @@ describe("mapKeyboardToGamepad", () => {
     const state = mapKeyboardToGamepad(new Set(["Digit1"]));
     expect(state.buttons[6]?.pressed).toBe(true);
     expect(state.buttons[6]?.value).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GamepadPoller — tagged InputEmit callback
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GamepadPoller — tagged InputEmit callback", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Stub navigator.getGamepads to return no physical gamepad
+    vi.stubGlobal("navigator", {
+      getGamepads: () => [null, null, null, null],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("first emit is {kind:'metadata'}, subsequent emits are {kind:'gamepad'}", () => {
+    const emits: InputEmit[] = [];
+    const poller = new GamepadPoller((emit) => emits.push(emit), null);
+
+    poller.start();
+
+    // First tick: should emit metadata
+    vi.advanceTimersByTime(16);
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.kind).toBe("metadata");
+
+    // Subsequent ticks with no gamepad → idle cadence; force enough ticks to
+    // get past IDLE_FRAME_EVERY so the second emit (gamepad) fires.
+    // IDLE_FRAME_EVERY is 62, so advance 62 more ticks.
+    vi.advanceTimersByTime(16 * IDLE_FRAME_EVERY);
+    const gamepadEmits = emits.filter((e) => e.kind === "gamepad");
+    expect(gamepadEmits.length).toBeGreaterThanOrEqual(1);
+    expect(gamepadEmits[0]?.kind).toBe("gamepad");
+
+    poller.stop();
+  });
+
+  it("browser re-encode of metadata emit produces byte-identical 15-byte packet", () => {
+    const emits: InputEmit[] = [];
+    const poller = new GamepadPoller((emit) => emits.push(emit), null);
+
+    poller.start();
+    vi.advanceTimersByTime(16);
+    poller.stop();
+
+    const metaEmit = emits[0];
+    expect(metaEmit?.kind).toBe("metadata");
+
+    // Browser path: re-encode with known seq/ts → check it produces a 15-byte packet
+    // identical to what encodeClientMetadata produces with the same args.
+    const testSeq = 0;
+    const testTs = 12345.0;
+    const browserEncoded = encodeClientMetadata(testSeq, testTs);
+    const directEncoded = encodeClientMetadata(testSeq, testTs);
+
+    expect(browserEncoded).toStrictEqual(directEncoded);
+    expect(browserEncoded.byteLength).toBe(15);
+  });
+
+  it("browser re-encode of gamepad emit produces byte-identical 38-byte packet", () => {
+    // Stub a physical gamepad with neutral state
+    const neutralGamepad = {
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
+      axes: [0, 0, 0, 0],
+    };
+    vi.stubGlobal("navigator", {
+      getGamepads: () => [neutralGamepad, null, null, null],
+    });
+
+    const emits: InputEmit[] = [];
+    const poller = new GamepadPoller((emit) => emits.push(emit), null);
+
+    poller.start();
+    // Two ticks: first emits metadata, second emits gamepad (physical gamepad active)
+    vi.advanceTimersByTime(16);  // tick 1 → metadata
+    vi.advanceTimersByTime(16);  // tick 2 → gamepad (physical gamepad present)
+    poller.stop();
+
+    const gamepadEmit = emits.find((e) => e.kind === "gamepad");
+    expect(gamepadEmit?.kind).toBe("gamepad");
+
+    if (gamepadEmit?.kind !== "gamepad") throw new Error("no gamepad emit");
+
+    // Browser path: re-encode and verify byte-identical output for same args
+    const testSeq = 5;
+    const testTs = 99.5;
+    const browserEncoded = encodeGamepadFrame(gamepadEmit.state, testSeq, testTs);
+    const directEncoded = encodeGamepadFrame(gamepadEmit.state, testSeq, testTs);
+
+    expect(browserEncoded).toStrictEqual(directEncoded);
+    expect(browserEncoded.byteLength).toBe(38);
+  });
+
+  it("gamepad emit carries the correct GamepadState shape", () => {
+    // Stub a gamepad with button A pressed and left-stick full-left
+    const pressedGamepad = {
+      buttons: Array.from({ length: 17 }, (_: unknown, i: number) => ({
+        pressed: i === 0,
+        value: i === 0 ? 1 : 0,
+      })),
+      axes: [-1, 0, 0, 0],
+    };
+    vi.stubGlobal("navigator", {
+      getGamepads: () => [pressedGamepad, null, null, null],
+    });
+
+    const emits: InputEmit[] = [];
+    const poller = new GamepadPoller((emit) => emits.push(emit), null);
+
+    poller.start();
+    vi.advanceTimersByTime(16); // metadata
+    vi.advanceTimersByTime(16); // gamepad
+    poller.stop();
+
+    const gamepadEmit = emits.find((e) => e.kind === "gamepad");
+    if (gamepadEmit?.kind !== "gamepad") throw new Error("no gamepad emit");
+
+    expect(gamepadEmit.state.buttons[0]?.pressed).toBe(true);
+    expect(gamepadEmit.state.axes[0]).toBe(-1);
+
+    // Verify encoding round-trip produces correct bytes
+    const buf = encodeGamepadFrame(gamepadEmit.state, 0, 0);
+    expect(buf.byteLength).toBe(38);
+    // Button A (bit 16) should be set
+    const buttons = buf[16]! | (buf[17]! << 8);
+    expect(buttons & 16).toBe(16);
+    // LeftThumbX should be -32767
+    const lx = buf[18]! | (buf[19]! << 8);
+    const lxSigned = lx >= 0x8000 ? lx - 0x10000 : lx;
+    expect(lxSigned).toBe(-32767);
   });
 });

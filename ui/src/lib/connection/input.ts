@@ -63,6 +63,23 @@ export interface GamepadState {
   axes: [number, number, number, number];
 }
 
+/**
+ * Tagged input intent emitted by GamepadPoller.
+ *
+ * The poller emits intent; callers re-encode for their transport:
+ *  - Browser path: re-encodes via encodeClientMetadata / encodeGamepadFrame
+ *    with its own seq counter and performance.now() → byte-identical wire bytes.
+ *  - Native path (6c.6): forwards gamepad state directly to Rust via
+ *    rtcSendInput (seq/ts are assigned by the native engine, so they are not
+ *    needed here).
+ *
+ * `metadata` is emitted exactly once on the first tick; `gamepad` is emitted
+ * on every active or idle-cadence tick thereafter.
+ */
+export type InputEmit =
+  | { kind: "metadata" }
+  | { kind: "gamepad"; state: GamepadState };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper functions (exported for unit-testing)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,37 +313,44 @@ export function mapKeyboardToGamepad(keysPressed: Set<string>): GamepadState {
 
 /**
  * GamepadPoller — polls navigator.getGamepads() at GAMEPAD_POLL_MS intervals
- * and calls the provided `send` callback with encoded binary packets.
+ * and calls the provided `emit` callback with a tagged InputEmit intent.
  *
  * Behaviour mirrors app.js:1648-1688 (startGamepadPolling / stopGamepadPolling):
- *  - Sends a ClientMetadata init packet on the first tick.
- *  - When no input is active (no physical gamepad, no keyboard input), sends
- *    an idle (null-gamepad) frame every IDLE_FRAME_EVERY ticks.
- *  - When input IS active, sends a full gamepad frame every tick.
+ *  - Emits {kind:"metadata"} exactly once on the first tick.
+ *  - When no input is active (no physical gamepad, no keyboard input), emits
+ *    {kind:"gamepad", state} with a neutral state every IDLE_FRAME_EVERY ticks.
+ *  - When input IS active, emits {kind:"gamepad", state} every tick.
  *
- * Keeps `performance.now()` and `navigator.getGamepads()` usage OUTSIDE the
- * pure encoder so encodeGamepadFrame remains deterministic and unit-testable.
+ * The poller no longer owns seq or timestamp — those are the caller's
+ * responsibility. This allows:
+ *  - Browser path: the _startGamepadPoller callback holds its own seq counter,
+ *    calls performance.now(), then re-encodes via encodeClientMetadata /
+ *    encodeGamepadFrame — producing byte-identical wire packets.
+ *  - Native path (6c.6): forwards gamepad state directly to Rust; the native
+ *    engine assigns its own seq/ts, so they are not needed here.
+ *
+ * Keeps `navigator.getGamepads()` usage OUTSIDE the pure encoder so
+ * encodeGamepadFrame remains deterministic and unit-testable.
  */
 export class GamepadPoller {
-  private readonly send: (bytes: Uint8Array) => void;
+  private readonly emit: (intent: InputEmit) => void;
   private readonly getKeyboardState: (() => Set<string>) | null;
 
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private seq = 0;
   private idleCounter = 0;
   private initialized = false;
 
   /**
-   * @param send              Callback invoked with each encoded packet.
+   * @param emit              Callback invoked with each input intent.
    * @param getKeyboardState  Optional callback returning the set of currently
    *                          held keyboard codes (for keyboard-to-gamepad
    *                          mapping).  Pass null to disable keyboard input.
    */
   constructor(
-    send: (bytes: Uint8Array) => void,
+    emit: (intent: InputEmit) => void,
     getKeyboardState: (() => Set<string>) | null = null,
   ) {
-    this.send = send;
+    this.emit = emit;
     this.getKeyboardState = getKeyboardState;
   }
 
@@ -350,13 +374,11 @@ export class GamepadPoller {
   }
 
   private tick(): void {
-    const now = performance.now();
-
-    // Send ClientMetadata exactly once to initialise the input channel
+    // Emit ClientMetadata intent exactly once to initialise the input channel
     if (!this.initialized) {
       this.initialized = true;
       try {
-        this.send(encodeClientMetadata(this.seq++, now));
+        this.emit({ kind: "metadata" });
       } catch {
         this.initialized = false;
         return;
@@ -398,7 +420,7 @@ export class GamepadPoller {
     }
 
     if (!gamepadState) {
-      // No active input — send idle frame every IDLE_FRAME_EVERY ticks
+      // No active input — emit idle frame every IDLE_FRAME_EVERY ticks
       this.idleCounter++;
       if (this.idleCounter < IDLE_FRAME_EVERY) return;
       this.idleCounter = 0;
@@ -407,14 +429,14 @@ export class GamepadPoller {
     }
 
     try {
-      // null gamepadState → build packet with neutral (all-zero) state
+      // null gamepadState → emit neutral (all-zero) state
       const state: GamepadState = gamepadState ?? {
         buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
         axes: [0, 0, 0, 0],
       };
-      this.send(encodeGamepadFrame(state, this.seq++, now));
+      this.emit({ kind: "gamepad", state });
     } catch {
-      // Silently ignore send errors during polling (matches app.js:1685-1687)
+      // Silently ignore emit errors during polling (matches app.js:1685-1687)
     }
   }
 }
