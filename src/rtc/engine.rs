@@ -397,10 +397,12 @@ async fn stream<S: Signaling, T: Transport>(
                     last_tick_ms = t;
                     match watchdog.tick(Some(frames), t) {
                         Some(WatchdogAction::Nudge) => {
-                            apply_write(&mut rtc, &ids, &ChannelWrite {
-                                label: ChannelLabel::Control,
-                                bytes: serde_json::to_vec(&keyframe_request()).expect("serialize"),
-                            });
+                            if let Ok(bytes) = serde_json::to_vec(&keyframe_request()) {
+                                apply_write(&mut rtc, &ids, &ChannelWrite {
+                                    label: ChannelLabel::Control,
+                                    bytes,
+                                });
+                            }
                         }
                         Some(WatchdogAction::Recover(reason)) => {
                             return SessionEnd::Dropped(format!("media watchdog: {reason:?}"));
@@ -427,10 +429,12 @@ async fn stream<S: Signaling, T: Transport>(
                     let _ = reply.send(media.clip_ring.assemble());
                 }
                 Some(EngineCommand::RequestKeyframe) => {
-                    apply_write(&mut rtc, &ids, &ChannelWrite {
-                        label: ChannelLabel::Control,
-                        bytes: serde_json::to_vec(&keyframe_request()).expect("serialize"),
-                    });
+                    if let Ok(bytes) = serde_json::to_vec(&keyframe_request()) {
+                        apply_write(&mut rtc, &ids, &ChannelWrite {
+                            label: ChannelLabel::Control,
+                            bytes,
+                        });
+                    }
                 }
             },
             _ = keepalive_tick.tick(), if keepalive_on => {

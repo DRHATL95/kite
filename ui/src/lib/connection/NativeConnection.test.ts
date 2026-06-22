@@ -154,7 +154,7 @@ describe("NativeConnection", () => {
     const { capturedCb } = wireSubscribe();
     const console_ = makeConsole();
     await nc.connect(console_);
-    expect(commands.rtcConnect).toHaveBeenCalledWith("server-abc", undefined);
+    expect(commands.rtcConnect).toHaveBeenCalledWith("server-abc");
     expect(capturedCb.current).not.toBeNull();
   });
 

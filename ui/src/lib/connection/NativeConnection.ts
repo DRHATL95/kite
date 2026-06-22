@@ -96,7 +96,7 @@ export class NativeConnection implements ConnectionBackend {
     const myGeneration = ++this._generation;
 
     // Start the native engine.
-    await rtcConnect(xboxConsole.serverId, undefined);
+    await rtcConnect(xboxConsole.serverId);
 
     // Subscribe to engine events — capturing the generation in the closure.
     this._unlisten = await subscribeRtcEvents((event) => {

@@ -753,7 +753,6 @@ mod tauri_commands {
         app: tauri::AppHandle,
         state: State<'_, AppState>,
         server_id: String,
-        play_path: Option<String>,
     ) -> Result<(), String> {
         #[cfg(feature = "native-webrtc")]
         {
@@ -776,8 +775,12 @@ mod tauri_commands {
             let frame_sink: Option<std::sync::Arc<crate::rtc::media::frame_sink::SharedFrame>> =
                 None;
 
+            // `play_path` is intentionally not accepted from the webview: it is
+            // opaque data that originates from the xHome API, not user input, so
+            // the engine sources its own default rather than trusting a JS string
+            // in the request URL. (Pass `None` → engine/signaling default.)
             let mut handle =
-                crate::rtc::engine::spawn(auth, server_id, play_path, frame_sink)
+                crate::rtc::engine::spawn(auth, server_id, None, frame_sink)
                     .map_err(|e| format!("engine spawn: {e}"))?;
 
             // Take the event receiver out of the handle before locking it away.
@@ -804,7 +807,7 @@ mod tauri_commands {
         }
         #[cfg(not(feature = "native-webrtc"))]
         {
-            let _ = (app, state, server_id, play_path);
+            let _ = (app, state, server_id);
             Err("native WebRTC unavailable in this build".into())
         }
     }
@@ -950,10 +953,10 @@ mod native_render {
             // Detach the webview from whatever currently parents it (the vbox)
             // before re-homing it into the overlay; GTK forbids a widget having
             // two parents.
-            if let Some(parent) = webview_widget.parent() {
-                if let Ok(container) = parent.downcast::<gtk::Container>() {
-                    container.remove(&webview_widget);
-                }
+            if let Some(parent) = webview_widget.parent()
+                && let Ok(container) = parent.downcast::<gtk::Container>()
+            {
+                container.remove(&webview_widget);
             }
 
             // Build Overlay { GLArea base (video), webview overlay on top }.
@@ -983,9 +986,22 @@ mod native_render {
             // 16ms render tick on the GTK main loop (Tauri-owned): keep pulling
             // the latest frame even when GTK wouldn't otherwise repaint.
             let area_tick = gl_area.clone();
-            gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                area_tick.queue_render();
-                gtk::glib::ControlFlow::Continue
+            let tick_id = gtk::glib::timeout_add_local(
+                std::time::Duration::from_millis(16),
+                move || {
+                    area_tick.queue_render();
+                    gtk::glib::ControlFlow::Continue
+                },
+            );
+
+            // Cancel the tick when the GLArea is destroyed so we never call
+            // queue_render on a dead widget and never leak the source (matters
+            // if the window/area is ever torn down and re-created).
+            let tick_id = std::rc::Rc::new(std::cell::RefCell::new(Some(tick_id)));
+            gl_area.connect_unrealize(move |_| {
+                if let Some(id) = tick_id.borrow_mut().take() {
+                    id.remove();
+                }
             });
 
             tracing::info!(

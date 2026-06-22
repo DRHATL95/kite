@@ -329,10 +329,10 @@ export function rtcNativeAvailable(): Promise<boolean> {
  * Start a native streaming session for the given console. Returns once the
  * engine thread has spawned; connection success/failure arrives asynchronously
  * as `rtc_event`s (terminal failures as `{kind:"disconnected"}`).
- * Rust: rtc_connect(state, server_id, play_path) -> Result<(), String>
+ * Rust: rtc_connect(state, server_id) -> Result<(), String>
  */
-export function rtcConnect(serverId: string, playPath?: string): Promise<void> {
-  return invoke<void>("rtc_connect", { serverId, playPath: playPath ?? null });
+export function rtcConnect(serverId: string): Promise<void> {
+  return invoke<void>("rtc_connect", { serverId });
 }
 
 /**
