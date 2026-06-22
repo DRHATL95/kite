@@ -152,14 +152,19 @@ class ConnectionStore {
   async init(): Promise<void> {
     if (this.backendReady) return;
 
-    const native = await rtcNativeAvailable();
-    if (native) {
-      // Replace the placeholder with the native backend.
-      this._impl = new NativeConnection(this._callbacks);
+    try {
+      const native = await rtcNativeAvailable();
+      if (native) {
+        // Replace the placeholder with the native backend.
+        this._impl = new NativeConnection(this._callbacks);
+      }
+      // else: browser ConnectionManager (already in place) — no-op.
+    } catch (e) {
+      // IPC probe failed — keep the browser ConnectionManager (safe fallback).
+      console.warn(`rtc_native_available probe failed; using browser path: ${String(e)}`);
+    } finally {
+      this.backendReady = true;
     }
-    // else: browser ConnectionManager (already in place) — no-op.
-
-    this.backendReady = true;
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
