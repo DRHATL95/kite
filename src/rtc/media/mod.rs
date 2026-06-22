@@ -72,3 +72,6 @@ pub use decode_opus::OpusDecoder;
 
 pub mod audio_sink;
 pub mod frame_sink;
+
+#[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+pub mod render_gtk;

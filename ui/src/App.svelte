@@ -28,9 +28,12 @@
     }
   });
 
-  // Attach/detach the clip buffer based on settings + live stream.
+  // Attach/detach the browser clip buffer (EncodedTap / ClipBuffer) based on
+  // settings + live stream.  Browser-only: native mode has no MediaStream to
+  // attach to — the engine ClipRing records continuously on the Rust side.
   // Re-runs whenever the stream, session state, or clip settings change.
   $effect(() => {
+    if (connectionStore.nativeMode) return; // native: engine handles clip recording
     const stream = connectionStore.mediaStream;
     const streaming = connectionStore.state === "streaming";
     const c = settings.clip;
@@ -79,6 +82,10 @@
   let appVersion = $state("");
 
   onMount(() => {
+    // Resolve the connection backend (native vs browser) before any connect.
+    // Sets connectionStore.backendReady = true when done.
+    void connectionStore.init();
+
     authStore.loadCached();
     updateStore.checkOnLaunch();
     getVersion()
@@ -94,7 +101,13 @@
   {:else if activeScreen() === "deviceCode"}
     <DeviceCode />
   {:else if activeScreen() === "consoleList"}
-    <ConsoleList onConnect={(c) => connectionStore.connect(c)} />
+    <ConsoleList
+      onConnect={(c) => {
+        // Guard: do not connect before the backend has been selected.
+        if (!connectionStore.backendReady) return;
+        void connectionStore.connect(c);
+      }}
+    />
   {:else}
     <Login />
   {/if}

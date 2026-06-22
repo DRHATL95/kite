@@ -40,9 +40,10 @@ import {
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
+import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
-import { GamepadPoller } from "./input.js";
+import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -88,7 +89,7 @@ export interface ConnectionManagerCallbacks {
  * Mirrors app.js ConnectionManager (lines 4–924).  All methods that were
  * private in app.js are prefixed with _ here for clarity.
  */
-export class ConnectionManager {
+export class ConnectionManager implements ConnectionBackend {
   // ── State machine ──────────────────────────────────────────────────────────
   /** app.js:6 */
   private _state: SessionState = "idle";
@@ -999,14 +1000,20 @@ export class ConnectionManager {
   private _startGamepadPoller(): void {
     if (this._gamepadPoller !== null) return;
 
-    const send = (bytes: Uint8Array): void => {
+    // seq is owned here (browser path); native path (6c.6) assigns its own.
+    let seq = 0;
+
+    const onEmit = (intent: InputEmit): void => {
       const ch = this._channels?.input;
       if (!ch || ch.readyState !== "open") return;
+
+      const now = performance.now();
+      const bytes = encodeInputEmit(intent, seq++, now);
       // Narrow Uint8Array<ArrayBufferLike> → Uint8Array<ArrayBuffer> for RTCDataChannel.send()
       ch.send(new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength));
     };
 
-    this._gamepadPoller = new GamepadPoller(send, null);
+    this._gamepadPoller = new GamepadPoller(onEmit, null);
     this._gamepadPoller.start();
     this._log("Started gamepad polling (60 Hz)");
   }

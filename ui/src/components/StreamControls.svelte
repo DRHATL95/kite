@@ -26,7 +26,6 @@
   import { onDestroy } from "svelte";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import { settings } from "$lib/stores/settings.svelte.js";
-  import { clipStore } from "$lib/stores/clip.svelte.js";
   import { persisted } from "$lib/persist/store.js";
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
 
@@ -41,6 +40,17 @@
     fullscreenEl?: HTMLElement | null;
     focusMode?: boolean;
     floating?: boolean;
+    /**
+     * When true, the volume control is hidden entirely. Defaults to false.
+     */
+    hideVolume?: boolean;
+    /**
+     * Native mode: there is no DOM <video> to set `.volume` on (audio plays via
+     * Rust/cpal), so the slider routes its gain (0–1) here instead. Called on the
+     * initial saved level, slider input, and mute toggle. Omitted on the browser
+     * path (where `video.volume` is used directly).
+     */
+    onVolumeChange?: (gain: number) => void;
     onDisconnect: () => void;
   }
 
@@ -49,6 +59,8 @@
     fullscreenEl = null,
     focusMode = $bindable(false),
     floating = false,
+    hideVolume = false,
+    onVolumeChange,
     onDisconnect,
   }: Props = $props();
 
@@ -118,6 +130,13 @@
     const target = e.target as HTMLInputElement;
     applyVolume(parseInt(target.value, 10));
   }
+
+  // Native mode: push the gain to the Rust audio sink (no DOM <video> to set).
+  // Runs on the initial saved level and every volumePct change (slider / mute);
+  // a no-op on the browser path where onVolumeChange is undefined.
+  $effect(() => {
+    onVolumeChange?.(volumePct / 100);
+  });
 
   // ── Fullscreen ────────────────────────────────────────────────────────────────
 
@@ -203,42 +222,45 @@
   aria-label="Stream controls"
 >
   <!-- Volume: clickable speaker glyph (mute toggle) + slider + value -->
-  <div class="ctrl-volume">
-    <!-- Speaker glyph — click to mute / unmute -->
-    <button
-      type="button"
-      class="ctrl-volume__icon"
-      onclick={toggleMute}
-      aria-pressed={volumePct === 0}
-      aria-label={volumePct === 0 ? "Unmute" : "Mute"}
-      title={volumePct === 0 ? "Unmute" : "Mute"}
-    >
-      {#if volumePct === 0}
-        🔇
-      {:else if volumePct < 50}
-        🔉
-      {:else}
-        🔊
-      {/if}
-    </button>
+  <!-- Hidden in native mode — audio is played by Rust/cpal, not a DOM <video>. -->
+  {#if !hideVolume}
+    <div class="ctrl-volume">
+      <!-- Speaker glyph — click to mute / unmute -->
+      <button
+        type="button"
+        class="ctrl-volume__icon"
+        onclick={toggleMute}
+        aria-pressed={volumePct === 0}
+        aria-label={volumePct === 0 ? "Unmute" : "Mute"}
+        title={volumePct === 0 ? "Unmute" : "Mute"}
+      >
+        {#if volumePct === 0}
+          🔇
+        {:else if volumePct < 50}
+          🔉
+        {:else}
+          🔊
+        {/if}
+      </button>
 
-    <!-- Slider — CSS custom property drives the accent fill via background gradient -->
-    <input
-      type="range"
-      class="ctrl-volume__slider"
-      min="0"
-      max="100"
-      value={volumePct}
-      style="--fill: {volumePct}%;"
-      oninput={handleVolumeInput}
-      aria-label="Volume"
-    />
+      <!-- Slider — CSS custom property drives the accent fill via background gradient -->
+      <input
+        type="range"
+        class="ctrl-volume__slider"
+        min="0"
+        max="100"
+        value={volumePct}
+        style="--fill: {volumePct}%;"
+        oninput={handleVolumeInput}
+        aria-label="Volume"
+      />
 
-    <span class="ctrl-volume__value">{volumePct}%</span>
-  </div>
+      <span class="ctrl-volume__value">{volumePct}%</span>
+    </div>
 
-  <!-- Separator -->
-  <span class="ctrl-sep" aria-hidden="true"></span>
+    <!-- Separator -->
+    <span class="ctrl-sep" aria-hidden="true"></span>
+  {/if}
 
   <!-- Immersive (focus) mode toggle (ghost button) -->
   <button
@@ -277,7 +299,7 @@
   {#if showClip}
     <button
       class="ctrl-btn"
-      onclick={() => clipStore.saveClip()}
+      onclick={() => void connectionStore.saveClip()}
       title="Save the last few seconds as a clip"
     >
       Clip

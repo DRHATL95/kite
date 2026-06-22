@@ -135,6 +135,21 @@ class ClipStore {
     }
   }
 
+  /**
+   * Surface the result of a native-engine clip save as a toast.
+   * Called by `connectionStore.saveClip()` after `rtcSaveClip()` resolves.
+   *
+   * @param path  Saved MP4 path on success, or null on failure.
+   * @param err   Error string when path is null.
+   */
+  showNativeClipToast(path: string | null, err?: string): void {
+    if (path !== null) {
+      this._showToast("Clip saved", path, "ok");
+    } else {
+      this._showToast("Clip failed: " + (err ?? "unknown error"), null, "bad");
+    }
+  }
+
   /** Reveal the most recent saved clip in the OS file manager. */
   async reveal(): Promise<void> {
     const path = this.toast?.path;

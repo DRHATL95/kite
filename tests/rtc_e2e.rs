@@ -27,7 +27,8 @@ async fn e2e_connect_handshake_receive() {
         panic!("set XBOX_SERVER_ID=<serverId> for the E2E test")
     });
 
-    let mut handle = engine::spawn(auth, server_id, None).expect("spawn engine");
+    let mut handle = engine::spawn(auth, server_id, None, None).expect("spawn engine");
+    let mut rx = handle.take_events().expect("event stream");
 
     // Optional manual hold so a human can watch/hear the stream after the frame
     // target is hit (e.g. `XBOX_E2E_HOLD_SECS=20`). Unset → fast disconnect (CI).
@@ -43,7 +44,7 @@ async fn e2e_connect_handshake_receive() {
     let deadline = Instant::now() + Duration::from_secs(25);
 
     while Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), handle.next_event()).await {
+        match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
             Ok(Some(RtcEvent::Connected)) => connected = true,
             Ok(Some(RtcEvent::FirstFrame)) => first_frame = true,
             Ok(Some(RtcEvent::Stats(s))) => {
@@ -72,7 +73,7 @@ async fn e2e_connect_handshake_receive() {
         );
         let hold_until = Instant::now() + hold_dur;
         while Instant::now() < hold_until {
-            match tokio::time::timeout(Duration::from_secs(1), handle.next_event()).await {
+            match tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
                 Ok(Some(RtcEvent::Disconnected(why))) => panic!("dropped during hold: {why}"),
                 Ok(Some(RtcEvent::Stats(s))) => {
                     last_frames = s.frames_decoded;

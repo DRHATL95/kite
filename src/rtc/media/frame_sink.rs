@@ -3,6 +3,7 @@
 //! Latest-wins (an unconsumed frame is dropped on the next `put`) — for live
 //! video we want the freshest frame, not a backlog.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::rtc::media::DecodedFrame;
@@ -10,23 +11,35 @@ use crate::rtc::media::DecodedFrame;
 #[derive(Default)]
 pub struct SharedFrame {
     slot: Mutex<Option<DecodedFrame>>,
+    /// Mirrors `slot.is_some()` for a lock-free `has_pending()` poll.
+    pending: AtomicBool,
 }
 
 impl SharedFrame {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            slot: Mutex::new(None),
-        })
+        Arc::new(Self::default())
     }
 
     /// Store the latest frame, dropping any previous unconsumed one.
     pub fn put(&self, frame: DecodedFrame) {
         *self.slot.lock().unwrap() = Some(frame);
+        self.pending.store(true, Ordering::Release);
     }
 
     /// Take the latest frame if present, clearing the slot.
     pub fn take_latest(&self) -> Option<DecodedFrame> {
-        self.slot.lock().unwrap().take()
+        let frame = self.slot.lock().unwrap().take();
+        if frame.is_some() {
+            self.pending.store(false, Ordering::Release);
+        }
+        frame
+    }
+
+    /// Lock-free check for a waiting frame. Lets the GTK render tick skip
+    /// `queue_render` when idle so it doesn't churn the main thread (and starve
+    /// the WebKit HUD) at 60fps with nothing new to show.
+    pub fn has_pending(&self) -> bool {
+        self.pending.load(Ordering::Acquire)
     }
 }
 
@@ -61,6 +74,16 @@ mod tests {
         let got = sink.take_latest().expect("a frame");
         assert_eq!(got.pts_micros, 7);
         assert!(sink.take_latest().is_none(), "consumed — slot now empty");
+    }
+
+    #[test]
+    fn has_pending_tracks_put_and_take() {
+        let sink = SharedFrame::new();
+        assert!(!sink.has_pending(), "empty → nothing pending");
+        sink.put(frame(1));
+        assert!(sink.has_pending(), "after put → pending");
+        let _ = sink.take_latest();
+        assert!(!sink.has_pending(), "after take → not pending");
     }
 
     #[test]
