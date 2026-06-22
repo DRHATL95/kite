@@ -79,6 +79,10 @@
   let appVersion = $state("");
 
   onMount(() => {
+    // Resolve the connection backend (native vs browser) before any connect.
+    // Sets connectionStore.backendReady = true when done.
+    void connectionStore.init();
+
     authStore.loadCached();
     updateStore.checkOnLaunch();
     getVersion()
@@ -94,7 +98,13 @@
   {:else if activeScreen() === "deviceCode"}
     <DeviceCode />
   {:else if activeScreen() === "consoleList"}
-    <ConsoleList onConnect={(c) => connectionStore.connect(c)} />
+    <ConsoleList
+      onConnect={(c) => {
+        // Guard: do not connect before the backend has been selected.
+        if (!connectionStore.backendReady) return;
+        void connectionStore.connect(c);
+      }}
+    />
   {:else}
     <Login />
   {/if}
