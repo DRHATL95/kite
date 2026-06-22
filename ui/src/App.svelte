@@ -28,9 +28,12 @@
     }
   });
 
-  // Attach/detach the clip buffer based on settings + live stream.
+  // Attach/detach the browser clip buffer (EncodedTap / ClipBuffer) based on
+  // settings + live stream.  Browser-only: native mode has no MediaStream to
+  // attach to — the engine ClipRing records continuously on the Rust side.
   // Re-runs whenever the stream, session state, or clip settings change.
   $effect(() => {
+    if (connectionStore.nativeMode) return; // native: engine handles clip recording
     const stream = connectionStore.mediaStream;
     const streaming = connectionStore.state === "streaming";
     const c = settings.clip;

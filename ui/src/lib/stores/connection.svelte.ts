@@ -31,7 +31,7 @@ import type { ConnectionManagerCallbacks } from "../connection/ConnectionManager
 import type { SessionState, DiagnosticsSnapshot } from "../connection/types.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
-import { rtcNativeAvailable } from "../ipc/commands.js";
+import { rtcNativeAvailable, rtcSaveClip } from "../ipc/commands.js";
 
 /**
  * Map an internal reconnect/trigger reason to a user-facing failure message.
@@ -96,6 +96,12 @@ class ConnectionStore {
   private _impl: ConnectionBackend;
 
   /**
+   * True when init() selected the native Rust engine (NativeConnection).
+   * False (default) means the browser ConnectionManager is in use.
+   */
+  private _native: boolean = false;
+
+  /**
    * The shared callbacks object.  Built once; passed to whichever backend
    * init() constructs.  Kept as a field so init() can reuse it when building
    * the NativeConnection without duplicating the callback wiring.
@@ -157,6 +163,7 @@ class ConnectionStore {
       if (native) {
         // Replace the placeholder with the native backend.
         this._impl = new NativeConnection(this._callbacks);
+        this._native = true;
       }
       // else: browser ConnectionManager (already in place) — no-op.
     } catch (e) {
@@ -168,6 +175,43 @@ class ConnectionStore {
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
+
+  /**
+   * True when the native Rust WebRTC engine is active (set after init() resolves).
+   * False means the browser ConnectionManager is in use.
+   * Used to gate browser-only code paths (e.g. EncodedTap clip attachment).
+   */
+  get nativeMode(): boolean {
+    return this._native;
+  }
+
+  /**
+   * Save a retroactive clip.
+   *
+   * - Native mode: delegates to `rtcSaveClip()` (engine ClipRing is always
+   *   recording) and surfaces the result via `clipStore`'s toast mechanism.
+   * - Browser mode: delegates to the existing `clipStore.saveClip()` path
+   *   (EncodedTap / ClipBuffer).
+   *
+   * Call this from the "Clip" button instead of `clipStore.saveClip()` directly
+   * so native mode is handled transparently.
+   */
+  async saveClip(): Promise<void> {
+    if (this._native) {
+      // Lazy import to avoid a circular-module issue (clipStore imports
+      // connectionStore; we import clipStore only at call time here).
+      const { clipStore } = await import("./clip.svelte.js");
+      try {
+        const path = await rtcSaveClip();
+        clipStore.showNativeClipToast(path);
+      } catch (e) {
+        clipStore.showNativeClipToast(null, String(e));
+      }
+    } else {
+      const { clipStore } = await import("./clip.svelte.js");
+      await clipStore.saveClip();
+    }
+  }
 
   /**
    * Initiate a connection to the given Xbox console.

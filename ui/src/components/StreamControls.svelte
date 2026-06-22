@@ -26,7 +26,6 @@
   import { onDestroy } from "svelte";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import { settings } from "$lib/stores/settings.svelte.js";
-  import { clipStore } from "$lib/stores/clip.svelte.js";
   import { persisted } from "$lib/persist/store.js";
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
 
@@ -277,7 +276,7 @@
   {#if showClip}
     <button
       class="ctrl-btn"
-      onclick={() => clipStore.saveClip()}
+      onclick={() => void connectionStore.saveClip()}
       title="Save the last few seconds as a clip"
     >
       Clip
