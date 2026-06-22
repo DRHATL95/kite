@@ -5,16 +5,27 @@
    * Responsibilities:
    *   1. Binds connectionStore.mediaStream → video.srcObject reactively via
    *      $effect so any stream change (including reconnect) is picked up.
+   *      (Browser path only — nativeMode skips the <video> element entirely;
+   *       video renders natively behind the transparent HUD.)
    *   2. Dual-track playback (ported from app.js §3.10):
    *      - When mediaStream is set, waits ~250ms then calls video.play().
    *      - If the browser muted the video due to autoplay policy, surfaces
    *        an "Unmute" button that unmutes + replays on user click.
+   *      (Browser path only — inert when nativeMode.)
    *   3. Composes StreamControls and StreamStatus.
    *   4. Focus/"Stage" mode (focusMode=true): video goes full-bleed (position:fixed
    *      inset:0), status strip and controls bar replaced by floating overlays:
    *      a status pill top-left, a HUD hint top-right, and a floating auto-hiding
    *      controls bar at the bottom. Player mode (focusMode=false) keeps the
    *      normal flex-column layout (status strip / stage / controls bar).
+   *
+   * Native mode (nativeMode = connectionStore.nativeMode):
+   *   - No <video> element rendered (video surface is the native GTK GL area
+   *     composited behind the transparent HUD).
+   *   - srcObject / autoplay / needsUnmute / playTimer $effect returns early.
+   *   - Splash dismissal is driven by connectionStore.state === "streaming"
+   *     rather than videoPlaying (which never fires natively).
+   *   - Volume control is hidden (audio played by Rust/cpal, no DOM video).
    *
    * Props:
    *   onDisconnect — required; called when the user clicks Disconnect.
@@ -37,6 +48,10 @@
 
   let { onDisconnect }: Props = $props();
 
+  // ── Native mode gate ──────────────────────────────────────────────────────────
+
+  const nativeMode = connectionStore.nativeMode;
+
   // ── Element refs ──────────────────────────────────────────────────────────────
 
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -47,10 +62,14 @@
   /**
    * True when the browser blocked unmuted autoplay.
    * Surfaced as an "Unmute" affordance the user must click.
+   * Always false in native mode (no <video>).
    */
   let needsUnmute = $state(false);
 
-  /** True once the <video> element is actually rendering frames. */
+  /**
+   * True once the <video> element is actually rendering frames (browser path).
+   * Never set in native mode — splash dismissal uses store state instead.
+   */
   let videoPlaying = $state(false);
 
   // ── Playback timer ref (cleaned up on destroy) ────────────────────────────────
@@ -62,8 +81,14 @@
   // We use $effect so this re-runs whenever connectionStore.mediaStream changes.
   // Setting srcObject is a DOM side-effect and must be done imperatively —
   // Svelte bind:srcObject is not a standard binding.
+  //
+  // In native mode: returns early immediately (no <video> exists; the native
+  // GTK surface handles video). All guards are kept so no null-deref occurs.
 
   $effect(() => {
+    // Native path: video is rendered by Rust behind the HUD — nothing to do.
+    if (nativeMode) return;
+
     const stream = connectionStore.mediaStream;
 
     if (!videoEl) return;
@@ -155,8 +180,17 @@
   }
 
   // ── Connecting splash ──────────────────────────────────────────────────────────
+  //
+  // Browser path: hide once <video>.onplaying fires (videoPlaying=true), matching
+  //   the original behaviour (shouldShowSplash checks videoPlaying).
+  // Native path:  hide once the store state reaches "streaming" — the <video>
+  //   element never fires `playing`, so we key off store state instead.
+  //   NativeConnection synthesises handshakeMs/videoArrivedAt into the snapshot
+  //   (6c.6) so the step indicators (session→handshake→video) still advance.
   const showSplash = $derived(
-    shouldShowSplash(connectionStore.state, videoPlaying),
+    nativeMode
+      ? (connectionStore.state === "connecting" || connectionStore.state === "reconnecting")
+      : shouldShowSplash(connectionStore.state, videoPlaying),
   );
   const splashSteps = $derived(
     connectingSteps({
@@ -190,22 +224,24 @@
 
     <!-- ── Video stage (middle, flex: 1) ───────────────────────────────────── -->
     <div class="video-stage">
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video
-        class="stream-video"
-        autoplay
-        playsinline
-        bind:this={videoEl}
-        onplaying={() => (videoPlaying = true)}
-        aria-label="Xbox console stream"
-      ></video>
+      {#if !nativeMode}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          class="stream-video"
+          autoplay
+          playsinline
+          bind:this={videoEl}
+          onplaying={() => (videoPlaying = true)}
+          aria-label="Xbox console stream"
+        ></video>
+      {/if}
 
       {#if showSplash}
         <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
       {/if}
 
-      <!-- ── Unmute affordance (autoplay policy fallback) ────────────────── -->
-      {#if needsUnmute}
+      <!-- ── Unmute affordance (autoplay policy fallback — browser path only) ── -->
+      {#if !nativeMode && needsUnmute}
         <div class="unmute-overlay" aria-live="assertive">
           <button class="unmute-btn" onclick={handleUnmute}>
             Unmute &amp; Play
@@ -220,9 +256,10 @@
 
     <!-- ── Controls bar (bottom) ───────────────────────────────────────────── -->
     <StreamControls
-      video={videoEl}
+      video={nativeMode ? null : videoEl}
       fullscreenEl={containerEl}
       bind:focusMode
+      hideVolume={nativeMode}
       {onDisconnect}
     />
   {:else}
@@ -230,22 +267,24 @@
 
     <!-- Full-bleed video stage (position:fixed inset:0) -->
     <div class="stage-fullbleed">
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video
-        class="stage-video"
-        autoplay
-        playsinline
-        bind:this={videoEl}
-        onplaying={() => (videoPlaying = true)}
-        aria-label="Xbox console stream"
-      ></video>
+      {#if !nativeMode}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          class="stage-video"
+          autoplay
+          playsinline
+          bind:this={videoEl}
+          onplaying={() => (videoPlaying = true)}
+          aria-label="Xbox console stream"
+        ></video>
+      {/if}
 
       {#if showSplash}
         <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
       {/if}
 
-      <!-- ── Unmute affordance (autoplay policy fallback) ────────────────── -->
-      {#if needsUnmute}
+      <!-- ── Unmute affordance (autoplay policy fallback — browser path only) ── -->
+      {#if !nativeMode && needsUnmute}
         <div class="unmute-overlay" aria-live="assertive">
           <button class="unmute-btn" onclick={handleUnmute}>
             Unmute &amp; Play
@@ -272,10 +311,11 @@
 
       <!-- ── Floating controls bar — bottom-centre ─────────────────────────── -->
       <StreamControls
-        video={videoEl}
+        video={nativeMode ? null : videoEl}
         fullscreenEl={containerEl}
         bind:focusMode
         floating={true}
+        hideVolume={nativeMode}
         {onDisconnect}
       />
     </div>

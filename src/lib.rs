@@ -100,6 +100,37 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // Tear down the native WebRTC engine when the main window closes so
+            // the Xbox session is cleanly ended (not left as an orphaned session
+            // on the console). Gated so the lean Windows/macOS build is untouched.
+            #[cfg(feature = "native-webrtc")]
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let state = window.state::<tauri_commands::AppState>();
+                // Block_on is safe here: we are on the GTK/Win32 event-loop
+                // thread (not inside a tokio async context), so we can create
+                // a throwaway runtime to run the brief async lock acquisition.
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                {
+                    rt.block_on(async {
+                        let handle_opt = state.rtc.lock().await.take();
+                        if let Some(handle) = handle_opt {
+                            tracing::info!(
+                                "window closing — disconnecting native WebRTC engine"
+                            );
+                            // disconnect() sends Disconnect cmd + joins the engine
+                            // thread, ensuring the session is torn down before the
+                            // process exits.
+                            handle.disconnect();
+                        }
+                    });
+                }
+            }
+            // Non-feature builds: no engine to tear down; suppress unused warnings.
+            #[cfg(not(feature = "native-webrtc"))]
+            let _ = (window, event);
+        })
         .invoke_handler(tauri::generate_handler![
             tauri_commands::try_load_cached_auth,
             tauri_commands::start_xbox_auth,

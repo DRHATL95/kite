@@ -40,6 +40,11 @@
     fullscreenEl?: HTMLElement | null;
     focusMode?: boolean;
     floating?: boolean;
+    /**
+     * When true (native mode), the volume control is hidden — audio is rendered
+     * by Rust/cpal, not a DOM <video> element. Defaults to false (browser path).
+     */
+    hideVolume?: boolean;
     onDisconnect: () => void;
   }
 
@@ -48,6 +53,7 @@
     fullscreenEl = null,
     focusMode = $bindable(false),
     floating = false,
+    hideVolume = false,
     onDisconnect,
   }: Props = $props();
 
@@ -202,42 +208,45 @@
   aria-label="Stream controls"
 >
   <!-- Volume: clickable speaker glyph (mute toggle) + slider + value -->
-  <div class="ctrl-volume">
-    <!-- Speaker glyph — click to mute / unmute -->
-    <button
-      type="button"
-      class="ctrl-volume__icon"
-      onclick={toggleMute}
-      aria-pressed={volumePct === 0}
-      aria-label={volumePct === 0 ? "Unmute" : "Mute"}
-      title={volumePct === 0 ? "Unmute" : "Mute"}
-    >
-      {#if volumePct === 0}
-        🔇
-      {:else if volumePct < 50}
-        🔉
-      {:else}
-        🔊
-      {/if}
-    </button>
+  <!-- Hidden in native mode — audio is played by Rust/cpal, not a DOM <video>. -->
+  {#if !hideVolume}
+    <div class="ctrl-volume">
+      <!-- Speaker glyph — click to mute / unmute -->
+      <button
+        type="button"
+        class="ctrl-volume__icon"
+        onclick={toggleMute}
+        aria-pressed={volumePct === 0}
+        aria-label={volumePct === 0 ? "Unmute" : "Mute"}
+        title={volumePct === 0 ? "Unmute" : "Mute"}
+      >
+        {#if volumePct === 0}
+          🔇
+        {:else if volumePct < 50}
+          🔉
+        {:else}
+          🔊
+        {/if}
+      </button>
 
-    <!-- Slider — CSS custom property drives the accent fill via background gradient -->
-    <input
-      type="range"
-      class="ctrl-volume__slider"
-      min="0"
-      max="100"
-      value={volumePct}
-      style="--fill: {volumePct}%;"
-      oninput={handleVolumeInput}
-      aria-label="Volume"
-    />
+      <!-- Slider — CSS custom property drives the accent fill via background gradient -->
+      <input
+        type="range"
+        class="ctrl-volume__slider"
+        min="0"
+        max="100"
+        value={volumePct}
+        style="--fill: {volumePct}%;"
+        oninput={handleVolumeInput}
+        aria-label="Volume"
+      />
 
-    <span class="ctrl-volume__value">{volumePct}%</span>
-  </div>
+      <span class="ctrl-volume__value">{volumePct}%</span>
+    </div>
 
-  <!-- Separator -->
-  <span class="ctrl-sep" aria-hidden="true"></span>
+    <!-- Separator -->
+    <span class="ctrl-sep" aria-hidden="true"></span>
+  {/if}
 
   <!-- Immersive (focus) mode toggle (ghost button) -->
   <button
