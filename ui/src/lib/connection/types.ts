@@ -281,3 +281,25 @@ export type ManagerStats = Pick<
   | "consoleName"
   | "consoleType"
 >;
+
+/**
+ * An event emitted by the native Rust WebRTC engine, forwarded to the webview on
+ * the `rtc_event` Tauri channel (Phase 6 / native-webrtc). Mirrors the Rust
+ * `RtcEventDto` (serde `#[serde(tag = "kind")]`, camelCase fields). `disconnected`
+ * is TERMINAL (transient drops surface as `reconnecting`); `ended` fires when the
+ * engine's event stream closes (thread exited).
+ */
+export type RtcEvent =
+  | { kind: "connecting" }
+  | { kind: "connected" }
+  | { kind: "firstFrame" }
+  | { kind: "reconnecting"; attempt: number }
+  | {
+      kind: "stats";
+      bitrateKbps: number;
+      fps: number;
+      framesDecoded: number;
+      freezeCount: number;
+    }
+  | { kind: "disconnected"; reason: string }
+  | { kind: "ended" };

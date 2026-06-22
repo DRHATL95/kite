@@ -33,6 +33,9 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import type { GamepadState } from "../connection/input";
+import type { RtcEvent } from "../connection/types";
 import type {
   IceCandidate,
   IceServer,
@@ -303,4 +306,78 @@ export function openLogDir(): Promise<void> {
  */
 export function openExternalUrl(url: string): Promise<void> {
   return invoke("open_external_url", { url });
+}
+
+// ---------------------------------------------------------------------------
+// Native WebRTC engine (Phase 6) — only meaningful on a `native-webrtc` build
+// (Linux). On other builds the Rust commands return "native unavailable" and the
+// frontend uses the browser ConnectionManager instead (selected via
+// rtcNativeAvailable()).
+// ---------------------------------------------------------------------------
+
+/**
+ * True iff the native Rust WebRTC engine is compiled in AND not force-disabled
+ * (XBOX_FORCE_BROWSER_WEBRTC). The frontend resolves this once at startup to
+ * pick the native engine vs the browser ConnectionManager.
+ * Rust: rtc_native_available() -> bool
+ */
+export function rtcNativeAvailable(): Promise<boolean> {
+  return invoke<boolean>("rtc_native_available");
+}
+
+/**
+ * Start a native streaming session for the given console. Returns once the
+ * engine thread has spawned; connection success/failure arrives asynchronously
+ * as `rtc_event`s (terminal failures as `{kind:"disconnected"}`).
+ * Rust: rtc_connect(state, server_id, play_path) -> Result<(), String>
+ */
+export function rtcConnect(serverId: string, playPath?: string): Promise<void> {
+  return invoke<void>("rtc_connect", { serverId, playPath: playPath ?? null });
+}
+
+/**
+ * Tear down the active native session (joins the engine thread).
+ * Rust: rtc_disconnect(state) -> Result<(), String>
+ */
+export function rtcDisconnect(): Promise<void> {
+  return invoke<void>("rtc_disconnect");
+}
+
+/**
+ * Forward one gamepad/keyboard input state to the engine, which encodes it to
+ * the 38-byte wire packet and sends it on the input data channel. Driven by the
+ * GamepadPoller at ~60 Hz in native mode.
+ * Rust: rtc_send_input(state, gamepad) -> Result<(), String>
+ */
+export function rtcSendInput(state: GamepadState): Promise<void> {
+  return invoke<void>("rtc_send_input", { gamepad: state });
+}
+
+/**
+ * Ask the engine to request a keyframe (IDR) from the console — the native
+ * equivalent of the "Fix Video" control.
+ * Rust: rtc_request_keyframe(state) -> Result<(), String>
+ */
+export function rtcRequestKeyframe(): Promise<void> {
+  return invoke<void>("rtc_request_keyframe");
+}
+
+/**
+ * Save a retroactive clip from the engine's clip ring. Returns the saved MP4 path.
+ * Rust: rtc_save_clip(state) -> Result<String, String>
+ */
+export function rtcSaveClip(): Promise<string> {
+  return invoke<string>("rtc_save_clip");
+}
+
+/**
+ * Subscribe to native engine events on the `rtc_event` Tauri channel. Returns an
+ * unlisten function; call it on disconnect. (New pattern for this codebase —
+ * core:default already grants `core:event` listen/emit.)
+ */
+export async function subscribeRtcEvents(
+  cb: (event: RtcEvent) => void,
+): Promise<UnlistenFn> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<RtcEvent>("rtc_event", (e) => cb(e.payload));
 }
