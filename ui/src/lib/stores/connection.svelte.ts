@@ -170,6 +170,12 @@ class ConnectionStore {
       // IPC probe failed — keep the browser ConnectionManager (safe fallback).
       console.warn(`rtc_native_available probe failed; using browser path: ${String(e)}`);
     } finally {
+      // Wire the body class so tokens.css body.native-render makes the HUD
+      // transparent in native mode (lets the GTK GLArea show through).
+      // Guard for SSR / test environments where document is unavailable.
+      if (typeof document !== "undefined") {
+        document.body.classList.toggle("native-render", this._native);
+      }
       this.backendReady = true;
     }
   }

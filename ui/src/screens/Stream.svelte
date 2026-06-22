@@ -223,7 +223,7 @@
     <StreamStatus />
 
     <!-- ── Video stage (middle, flex: 1) ───────────────────────────────────── -->
-    <div class="video-stage">
+    <div class="video-stage" class:native={nativeMode}>
       {#if !nativeMode}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
@@ -266,7 +266,7 @@
     <!-- ── STAGE MODE: full-bleed video + floating overlays ─────────────────── -->
 
     <!-- Full-bleed video stage (position:fixed inset:0) -->
-    <div class="stage-fullbleed">
+    <div class="stage-fullbleed" class:native={nativeMode}>
       {#if !nativeMode}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
@@ -472,5 +472,16 @@
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     color: var(--text-dim);
+  }
+
+  /* ── Native-mode transparent stage backgrounds ──────────────────────────
+   * In native mode the GTK GLArea sits behind the WebKit HUD and renders
+   * Xbox video directly.  The stage containers must be transparent so the
+   * GL surface shows through.  The browser path keeps its opaque #000 stage
+   * (var(--video-bg)) and is completely unaffected by these rules.         */
+  .video-stage.native,
+  .stage-fullbleed.native {
+    background: transparent;
+    border-color: transparent;
   }
 </style>
