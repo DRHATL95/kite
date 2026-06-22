@@ -40,6 +40,7 @@ import {
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
+import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller } from "./input.js";
@@ -88,7 +89,7 @@ export interface ConnectionManagerCallbacks {
  * Mirrors app.js ConnectionManager (lines 4–924).  All methods that were
  * private in app.js are prefixed with _ here for clarity.
  */
-export class ConnectionManager {
+export class ConnectionManager implements ConnectionBackend {
   // ── State machine ──────────────────────────────────────────────────────────
   /** app.js:6 */
   private _state: SessionState = "idle";
