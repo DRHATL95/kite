@@ -34,6 +34,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   encodeGamepadFrame,
   encodeClientMetadata,
+  encodeInputEmit,
   applyDeadzone,
   normalizeAxis,
   normalizeTrigger,
@@ -498,60 +499,28 @@ describe("GamepadPoller — tagged InputEmit callback", () => {
     poller.stop();
   });
 
-  it("browser re-encode of metadata emit produces byte-identical 15-byte packet", () => {
-    const emits: InputEmit[] = [];
-    const poller = new GamepadPoller((emit) => emits.push(emit), null);
+  it("encodeInputEmit({kind:'metadata'}, 7, 1234) equals encodeClientMetadata(7, 1234) and is 15 bytes", () => {
+    const via_dispatch = encodeInputEmit({ kind: "metadata" }, 7, 1234);
+    const direct = encodeClientMetadata(7, 1234);
 
-    poller.start();
-    vi.advanceTimersByTime(16);
-    poller.stop();
-
-    const metaEmit = emits[0];
-    expect(metaEmit?.kind).toBe("metadata");
-
-    // Browser path: re-encode with known seq/ts → check it produces a 15-byte packet
-    // identical to what encodeClientMetadata produces with the same args.
-    const testSeq = 0;
-    const testTs = 12345.0;
-    const browserEncoded = encodeClientMetadata(testSeq, testTs);
-    const directEncoded = encodeClientMetadata(testSeq, testTs);
-
-    expect(browserEncoded).toStrictEqual(directEncoded);
-    expect(browserEncoded.byteLength).toBe(15);
+    expect(via_dispatch).toStrictEqual(direct);
+    expect(via_dispatch.byteLength).toBe(15);
   });
 
-  it("browser re-encode of gamepad emit produces byte-identical 38-byte packet", () => {
-    // Stub a physical gamepad with neutral state
-    const neutralGamepad = {
-      buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
-      axes: [0, 0, 0, 0],
+  it("encodeInputEmit({kind:'gamepad', state}, 8, 5678) equals encodeGamepadFrame(state, 8, 5678) and is 38 bytes", () => {
+    const state: GamepadState = {
+      buttons: Array.from({ length: 17 }, (_: unknown, i: number) => ({
+        pressed: i === 0,
+        value: i === 0 ? 1 : 0,
+      })),
+      axes: [-1, 0.5, 0, -0.25],
     };
-    vi.stubGlobal("navigator", {
-      getGamepads: () => [neutralGamepad, null, null, null],
-    });
 
-    const emits: InputEmit[] = [];
-    const poller = new GamepadPoller((emit) => emits.push(emit), null);
+    const via_dispatch = encodeInputEmit({ kind: "gamepad", state }, 8, 5678);
+    const direct = encodeGamepadFrame(state, 8, 5678);
 
-    poller.start();
-    // Two ticks: first emits metadata, second emits gamepad (physical gamepad active)
-    vi.advanceTimersByTime(16);  // tick 1 → metadata
-    vi.advanceTimersByTime(16);  // tick 2 → gamepad (physical gamepad present)
-    poller.stop();
-
-    const gamepadEmit = emits.find((e) => e.kind === "gamepad");
-    expect(gamepadEmit?.kind).toBe("gamepad");
-
-    if (gamepadEmit?.kind !== "gamepad") throw new Error("no gamepad emit");
-
-    // Browser path: re-encode and verify byte-identical output for same args
-    const testSeq = 5;
-    const testTs = 99.5;
-    const browserEncoded = encodeGamepadFrame(gamepadEmit.state, testSeq, testTs);
-    const directEncoded = encodeGamepadFrame(gamepadEmit.state, testSeq, testTs);
-
-    expect(browserEncoded).toStrictEqual(directEncoded);
-    expect(browserEncoded.byteLength).toBe(38);
+    expect(via_dispatch).toStrictEqual(direct);
+    expect(via_dispatch.byteLength).toBe(38);
   });
 
   it("gamepad emit carries the correct GamepadState shape", () => {

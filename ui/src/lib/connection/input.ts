@@ -210,6 +210,28 @@ export function encodeClientMetadata(
   return new Uint8Array(buffer);
 }
 
+/**
+ * Dispatch an `InputEmit` to the appropriate encoder.
+ *
+ * This is the single dispatch point used by the browser path in
+ * `ConnectionManager._startGamepadPoller`.  Extracting it as a pure exported
+ * function makes the dispatch logic directly unit-testable.
+ *
+ * @param emit        Tagged intent from `GamepadPoller`.
+ * @param seq         Packet sequence number (u32), owned by the caller.
+ * @param timestampMs Current timestamp in milliseconds (e.g. performance.now()).
+ * @returns           Encoded packet bytes (15 bytes for metadata, 38 for gamepad).
+ */
+export function encodeInputEmit(
+  emit: InputEmit,
+  seq: number,
+  timestampMs: number,
+): Uint8Array {
+  return emit.kind === "metadata"
+    ? encodeClientMetadata(seq, timestampMs)
+    : encodeGamepadFrame(emit.state, seq, timestampMs);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Keyboard → virtual gamepad mapping
 // ─────────────────────────────────────────────────────────────────────────────

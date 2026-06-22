@@ -43,7 +43,7 @@ import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
-import { GamepadPoller, encodeClientMetadata, encodeGamepadFrame, type InputEmit } from "./input.js";
+import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -1008,12 +1008,7 @@ export class ConnectionManager implements ConnectionBackend {
       if (!ch || ch.readyState !== "open") return;
 
       const now = performance.now();
-      let bytes: Uint8Array;
-      if (intent.kind === "metadata") {
-        bytes = encodeClientMetadata(seq++, now);
-      } else {
-        bytes = encodeGamepadFrame(intent.state, seq++, now);
-      }
+      const bytes = encodeInputEmit(intent, seq++, now);
       // Narrow Uint8Array<ArrayBufferLike> → Uint8Array<ArrayBuffer> for RTCDataChannel.send()
       ch.send(new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength));
     };
