@@ -41,10 +41,16 @@
     focusMode?: boolean;
     floating?: boolean;
     /**
-     * When true (native mode), the volume control is hidden — audio is rendered
-     * by Rust/cpal, not a DOM <video> element. Defaults to false (browser path).
+     * When true, the volume control is hidden entirely. Defaults to false.
      */
     hideVolume?: boolean;
+    /**
+     * Native mode: there is no DOM <video> to set `.volume` on (audio plays via
+     * Rust/cpal), so the slider routes its gain (0–1) here instead. Called on the
+     * initial saved level, slider input, and mute toggle. Omitted on the browser
+     * path (where `video.volume` is used directly).
+     */
+    onVolumeChange?: (gain: number) => void;
     onDisconnect: () => void;
   }
 
@@ -54,6 +60,7 @@
     focusMode = $bindable(false),
     floating = false,
     hideVolume = false,
+    onVolumeChange,
     onDisconnect,
   }: Props = $props();
 
@@ -123,6 +130,13 @@
     const target = e.target as HTMLInputElement;
     applyVolume(parseInt(target.value, 10));
   }
+
+  // Native mode: push the gain to the Rust audio sink (no DOM <video> to set).
+  // Runs on the initial saved level and every volumePct change (slider / mute);
+  // a no-op on the browser path where onVolumeChange is undefined.
+  $effect(() => {
+    onVolumeChange?.(volumePct / 100);
+  });
 
   // ── Fullscreen ────────────────────────────────────────────────────────────────
 

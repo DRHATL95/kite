@@ -38,6 +38,7 @@
   import DiagnosticsHud from "../components/DiagnosticsHud.svelte";
   import ConnectingSplash from "../components/ConnectingSplash.svelte";
   import { connectingSteps, shouldShowSplash } from "$lib/console/connectingSplash.js";
+  import { rtcSetVolume } from "$lib/ipc/commands.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,14 @@
   // ── Native mode gate ──────────────────────────────────────────────────────────
 
   const nativeMode = connectionStore.nativeMode;
+
+  // Native mode has no DOM <video>; route the volume slider's gain (0–1) to the
+  // Rust audio sink. No-ops until the engine is connected (the command buffers).
+  const onVolumeChange = nativeMode
+    ? (gain: number) => {
+        void rtcSetVolume(gain);
+      }
+    : undefined;
 
   // ── Element refs ──────────────────────────────────────────────────────────────
 
@@ -259,7 +268,7 @@
       video={nativeMode ? null : videoEl}
       fullscreenEl={containerEl}
       bind:focusMode
-      hideVolume={nativeMode}
+      {onVolumeChange}
       {onDisconnect}
     />
   {:else}
@@ -315,7 +324,7 @@
         fullscreenEl={containerEl}
         bind:focusMode
         floating={true}
-        hideVolume={nativeMode}
+        {onVolumeChange}
         {onDisconnect}
       />
     </div>

@@ -119,6 +119,8 @@ class ConnectionStore {
         if (s === "failed") {
           this.failureReason = mapFailureReason(this._impl.lastTriggerReason);
         }
+        // Make the HUD transparent only while actually streaming (see helper).
+        this._syncNativeRenderClass();
       },
 
       onDiagnostics: (snap: DiagnosticsSnapshot) => {
@@ -141,6 +143,24 @@ class ConnectionStore {
 
     // Default: browser path — safe placeholder until init() resolves.
     this._impl = new ConnectionManager(this._callbacks);
+  }
+
+  /**
+   * Toggle the `native-render` body class that makes the HUD (and its atmosphere
+   * layers) transparent so the GTK GLArea video shows through.
+   *
+   * Only transparent while `native && state === "streaming"`. On the
+   * login / console-list / connecting / reconnecting / failed screens the HUD
+   * stays OPAQUE: WebKit compositing is disabled under XWayland (required, or the
+   * HUD renders black), so a transparent webview would let the *previous* screen
+   * ghost through the un-repainted GL surface. An opaque HUD covers that, so the
+   * "warped/overlapping" connecting phase is clean. Video screens are unaffected
+   * (frames fill the surface).
+   */
+  private _syncNativeRenderClass(): void {
+    if (typeof document === "undefined") return;
+    const transparent = this._native && this.state === "streaming";
+    document.body.classList.toggle("native-render", transparent);
   }
 
   // ── Backend initialisation ─────────────────────────────────────────────────
@@ -170,12 +190,8 @@ class ConnectionStore {
       // IPC probe failed — keep the browser ConnectionManager (safe fallback).
       console.warn(`rtc_native_available probe failed; using browser path: ${String(e)}`);
     } finally {
-      // Wire the body class so tokens.css body.native-render makes the HUD
-      // transparent in native mode (lets the GTK GLArea show through).
-      // Guard for SSR / test environments where document is unavailable.
-      if (typeof document !== "undefined") {
-        document.body.classList.toggle("native-render", this._native);
-      }
+      // Set the initial transparency state (opaque until streaming begins).
+      this._syncNativeRenderClass();
       this.backendReady = true;
     }
   }
@@ -226,7 +242,23 @@ class ConnectionStore {
   async connect(xboxConsole: XHomeConsole): Promise<void> {
     this.failureReason = null;
     this.currentConsole = xboxConsole;
-    await this._impl.connect(xboxConsole);
+    // Show the connecting screen immediately, before the backend's own first
+    // "connecting" event — which (natively) is gated behind a chain of IPC
+    // round-trips + the engine's signaling connect, so without this the loading
+    // screen lags a beat after Stream is pressed (feels like a freeze). The
+    // backend re-asserts "connecting" shortly after; this just front-runs it.
+    this.state = "connecting";
+    try {
+      await this._impl.connect(xboxConsole);
+    } catch (e) {
+      // The backend normally surfaces failure via onStateChange("failed"); guard
+      // the optimistic transition in case connect() rejects before any event.
+      if (this.state === "connecting") {
+        this.state = "failed";
+        this.failureReason = mapFailureReason(this._impl.lastTriggerReason);
+      }
+      throw e;
+    }
   }
 
   /**

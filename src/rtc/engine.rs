@@ -6,6 +6,8 @@
 
 use std::net::{IpAddr, SocketAddr, UdpSocket as StdUdpSocket};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc as stdmpsc;
 use std::time::{Duration, Instant};
 
 use str0m::change::SdpAnswer;
@@ -43,6 +45,8 @@ pub enum EngineCommand {
     SendInput(GamepadFrame),
     Clip(oneshot::Sender<Option<AssembledClip>>),
     RequestKeyframe,
+    /// Set audio playback gain (0.0 = mute, 1.0 = unity).
+    SetVolume(f32),
     Disconnect,
 }
 
@@ -74,6 +78,11 @@ impl RtcHandle {
     /// message on the Control channel. No-ops if the engine is gone.
     pub fn request_keyframe(&self) {
         let _ = self.cmd_tx.send(EngineCommand::RequestKeyframe);
+    }
+
+    /// Set audio playback volume (0.0 = mute, 1.0 = unity). No-ops if gone.
+    pub fn set_volume(&self, gain: f32) {
+        let _ = self.cmd_tx.send(EngineCommand::SetVolume(gain));
     }
 
     /// Take sole ownership of the event stream (once). The caller (the Tauri
@@ -291,8 +300,6 @@ async fn stream<S: Signaling, T: Transport>(
     let mut buf = vec![0u8; 65_535];
     let started = Instant::now();
     let mut connected = false;
-    let mut first_frame = false;
-    let mut frames: u64 = 0;
     let mut stats = StatsAccumulator::new();
     let mut watchdog = MediaWatchdog::new();
     let mut watchdog_armed = false;
@@ -311,7 +318,7 @@ async fn stream<S: Signaling, T: Transport>(
     idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     idle_tick.tick().await; // consume the immediate first tick; first real pulse at +30 s
     let mut idle_keepalive_on = false;
-    let mut media = MediaPipeline::new(video_mid, audio_mid, frame_sink);
+    let mut media = MediaPipeline::new(video_mid, audio_mid, frame_sink, event_tx.clone());
 
     loop {
         // (a) drain poll_output
@@ -332,8 +339,6 @@ async fn stream<S: Signaling, T: Transport>(
                         &mut media,
                         event_tx,
                         &mut connected,
-                        &mut first_frame,
-                        &mut frames,
                         state,
                         &mut stats,
                         &mut client_metadata_sent,
@@ -390,12 +395,21 @@ async fn stream<S: Signaling, T: Transport>(
                 if !watchdog_armed && seq.is_ready() {
                     watchdog.arm(t);
                     watchdog_armed = true;
+                    // Ask for an IDR immediately so the first frame doesn't wait
+                    // for the watchdog's first nudge (4 s). Cuts time-to-first-
+                    // frame after a console wake / on reconnect.
+                    if let Ok(bytes) = serde_json::to_vec(&keyframe_request()) {
+                        apply_write(&mut rtc, &ids, &ChannelWrite {
+                            label: ChannelLabel::Control,
+                            bytes,
+                        });
+                    }
                 }
 
                 // Drive the media watchdog ~every MONITOR_TICK_MS.
                 if watchdog_armed && t - last_tick_ms >= MONITOR_TICK_MS {
                     last_tick_ms = t;
-                    match watchdog.tick(Some(frames), t) {
+                    match watchdog.tick(Some(media.video_frames()), t) {
                         Some(WatchdogAction::Nudge) => {
                             if let Ok(bytes) = serde_json::to_vec(&keyframe_request()) {
                                 apply_write(&mut rtc, &ids, &ChannelWrite {
@@ -414,6 +428,7 @@ async fn stream<S: Signaling, T: Transport>(
                 // Emit real stats ~every STATS_SAMPLE_MS.
                 if t - last_stats_ms >= STATS_SAMPLE_MS {
                     last_stats_ms = t;
+                    stats.set_frames_decoded(media.video_frames());
                     let _ = event_tx.send(RtcEvent::Stats(stats.sample(t)));
                 }
             }
@@ -434,6 +449,11 @@ async fn stream<S: Signaling, T: Transport>(
                             label: ChannelLabel::Control,
                             bytes,
                         });
+                    }
+                }
+                Some(EngineCommand::SetVolume(gain)) => {
+                    if let Some(sink) = media.audio_sink.as_ref() {
+                        sink.set_volume(gain);
                     }
                 }
             },
@@ -486,28 +506,99 @@ impl ChannelMap {
     }
 }
 
-/// Per-session decode pipeline: H.264 → frames (published to `frame_sink` when
-/// present, otherwise dropped), Opus → PCM → speakers. Decoders are `Option` so a
-/// missing codec/audio device is non-fatal (the session still runs).
+/// Off-thread H.264 decoder. Decode (and its keyframe-sized CPU spikes) runs on
+/// a dedicated thread so it never blocks the engine's str0m/network loop — that
+/// inline coupling was the source of the periodic fps/connection spikes. The
+/// engine hands owned access units over a channel; the worker decodes, bumps a
+/// shared frame counter (read for stats + the watchdog), emits `FirstFrame`, and
+/// publishes frames to the GL `frame_sink`. Dropping the worker closes the
+/// channel, so the thread exits at session end.
+struct VideoDecodeWorker {
+    tx: stdmpsc::Sender<(Vec<u8>, u64, bool)>,
+    frames: Arc<AtomicU64>,
+    _join: std::thread::JoinHandle<()>,
+}
+
+impl VideoDecodeWorker {
+    /// Spawn the worker, or `None` if no H.264 decoder is available.
+    fn spawn(
+        frame_sink: Option<Arc<SharedFrame>>,
+        event_tx: mpsc::UnboundedSender<RtcEvent>,
+    ) -> Option<Self> {
+        let mut dec = FfmpegDecoder::new_h264().ok()?;
+        let (tx, rx) = stdmpsc::channel::<(Vec<u8>, u64, bool)>();
+        let frames = Arc::new(AtomicU64::new(0));
+        let frames_worker = Arc::clone(&frames);
+        let join = std::thread::Builder::new()
+            .name("rtc-decode".into())
+            .spawn(move || {
+                let mut first = false;
+                // Exits when the engine drops the sender (session end / reconnect).
+                while let Ok((data, pts_micros, keyframe)) = rx.recv() {
+                    let au = AccessUnit {
+                        data: &data,
+                        pts_micros,
+                        keyframe,
+                    };
+                    if dec.feed(au).is_ok() {
+                        while let Some(frame) = dec.poll() {
+                            frames_worker.fetch_add(1, Ordering::Relaxed);
+                            if !first {
+                                first = true;
+                                let _ = event_tx.send(RtcEvent::FirstFrame);
+                            }
+                            if let Some(sink) = &frame_sink {
+                                sink.put(frame); // hand to the GL thread; latest-wins
+                            }
+                        }
+                    }
+                }
+            })
+            .ok()?;
+        Some(Self {
+            tx,
+            frames,
+            _join: join,
+        })
+    }
+
+    /// Queue one access unit for decode — cheap: just hands off an owned buffer.
+    fn feed(&self, data: Vec<u8>, pts_micros: u64, keyframe: bool) {
+        // Send failures mean the worker exited (session ending) — safe to drop.
+        let _ = self.tx.send((data, pts_micros, keyframe));
+    }
+
+    /// Total frames decoded so far (read by the engine for stats + watchdog).
+    fn frames(&self) -> u64 {
+        self.frames.load(Ordering::Relaxed)
+    }
+}
+
+/// Per-session decode pipeline: H.264 → frames (off-thread, published to
+/// `frame_sink`), Opus → PCM → speakers (inline; light). Decoders are `Option` so
+/// a missing codec/audio device is non-fatal (the session still runs).
 struct MediaPipeline {
     video_mid: Mid,
     audio_mid: Mid,
-    video_dec: Option<FfmpegDecoder>,
+    video: Option<VideoDecodeWorker>,
     audio_dec: Option<OpusDecoder>,
     audio_sink: Option<AudioSink>,
-    frame_sink: Option<Arc<SharedFrame>>,
     clip_ring: ClipRing,
 }
 
 impl MediaPipeline {
-    fn new(video_mid: Mid, audio_mid: Mid, frame_sink: Option<Arc<SharedFrame>>) -> Self {
+    fn new(
+        video_mid: Mid,
+        audio_mid: Mid,
+        frame_sink: Option<Arc<SharedFrame>>,
+        event_tx: mpsc::UnboundedSender<RtcEvent>,
+    ) -> Self {
         Self {
             video_mid,
             audio_mid,
-            video_dec: FfmpegDecoder::new_h264().ok(),
+            video: VideoDecodeWorker::spawn(frame_sink, event_tx),
             audio_dec: OpusDecoder::new_48k_stereo().ok(),
             audio_sink: AudioSink::new().ok(),
-            frame_sink,
             clip_ring: ClipRing::with_clock(
                 20.0,
                 VideoTrackConfig::default(),
@@ -522,6 +613,11 @@ impl MediaPipeline {
             ),
         }
     }
+
+    /// Frames decoded so far by the video worker (0 if no decoder).
+    fn video_frames(&self) -> u64 {
+        self.video.as_ref().map(|v| v.frames()).unwrap_or(0)
+    }
 }
 
 /// Handle one str0m Event; `Some(end)` means the session is over.
@@ -534,8 +630,6 @@ fn handle_event(
     media: &mut MediaPipeline,
     event_tx: &mpsc::UnboundedSender<RtcEvent>,
     connected: &mut bool,
-    first_frame: &mut bool,
-    frames: &mut u64,
     state: &mut ConnectionState,
     stats: &mut StatsAccumulator,
     client_metadata_sent: &mut bool,
@@ -589,25 +683,11 @@ fn handle_event(
                 let pts = media_time_micros(&data);
                 let v_rtp = (pts as i128 * 9 / 100) as u32; // µs → 90 kHz ticks
                 media.clip_ring.push_video(data.data.to_vec(), v_rtp, data.is_keyframe());
-                if let Some(dec) = media.video_dec.as_mut() {
-                    let au = AccessUnit {
-                        data: &data.data,
-                        pts_micros: pts,
-                        keyframe: data.is_keyframe(),
-                    };
-                    if dec.feed(au).is_ok() {
-                        while let Some(frame) = dec.poll() {
-                            *frames += 1;
-                            stats.set_frames_decoded(*frames);
-                            if !*first_frame {
-                                *first_frame = true;
-                                let _ = event_tx.send(RtcEvent::FirstFrame);
-                            }
-                            if let Some(sink) = &media.frame_sink {
-                                sink.put(frame); // hand off to the GL thread; latest-wins
-                            }
-                        }
-                    }
+                // Hand the access unit to the decode thread (non-blocking) so the
+                // engine loop keeps draining the socket. Decode, the frame
+                // counter, FirstFrame, and GL publishing all happen on the worker.
+                if let Some(v) = &media.video {
+                    v.feed(data.data.to_vec(), pts, data.is_keyframe());
                 }
             } else if data.mid == media.audio_mid {
                 let a_pts = media_time_micros(&data);

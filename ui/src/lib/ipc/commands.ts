@@ -363,6 +363,14 @@ export function rtcRequestKeyframe(): Promise<void> {
 }
 
 /**
+ * Set native audio playback volume (0.0 = mute, 1.0 = unity).
+ * Rust: rtc_set_volume(state, gain) -> Result<(), String>
+ */
+export function rtcSetVolume(gain: number): Promise<void> {
+  return invoke<void>("rtc_set_volume", { gain });
+}
+
+/**
  * Save a retroactive clip from the engine's clip ring. Returns the saved MP4 path.
  * Rust: rtc_save_clip(state) -> Result<String, String>
  */

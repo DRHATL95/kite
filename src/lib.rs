@@ -47,6 +47,10 @@ pub fn run() {
         if std::env::var_os("GDK_BACKEND").is_none() {
             unsafe { std::env::set_var("GDK_BACKEND", "x11") };
         }
+        // Required even in native-webrtc builds: without it the WebKit HUD itself
+        // renders black under XWayland (not just browser-path WebRTC video). The
+        // connecting-phase "ghosting" is addressed in the frontend instead, by
+        // only making the HUD transparent once video is actually flowing.
         if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
             unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
         }
@@ -158,6 +162,7 @@ pub fn run() {
             tauri_commands::rtc_disconnect,
             tauri_commands::rtc_send_input,
             tauri_commands::rtc_request_keyframe,
+            tauri_commands::rtc_set_volume,
             tauri_commands::rtc_save_clip,
         ])
         .run(tauri::generate_context!())
@@ -870,6 +875,24 @@ mod tauri_commands {
         }
     }
 
+    /// Set native audio playback volume (0.0 = mute, 1.0 = unity).
+    #[tauri::command]
+    pub async fn rtc_set_volume(state: State<'_, AppState>, gain: f32) -> Result<(), String> {
+        #[cfg(feature = "native-webrtc")]
+        {
+            let rtc_guard = state.rtc.lock().await;
+            if let Some(handle) = rtc_guard.as_ref() {
+                handle.set_volume(gain);
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            let _ = (state, gain);
+            Err("native WebRTC unavailable in this build".into())
+        }
+    }
+
     /// Assemble and save a clip from the engine's encoded-frame ring buffer.
     /// Returns the absolute path of the saved MP4.
     #[tauri::command]
@@ -940,8 +963,21 @@ mod native_render {
             // transitive dep of wry/tauri, sharing our gtk 0.18).
             let webview_widget: gtk::Widget = platform_webview.inner().upcast();
 
-            // The vertical gtk::Box Tauri adds as the window's sole child; Tauri
-            // currently packs the webview into it.
+            // Tauri's window tree is `gtk::ApplicationWindow → gtk::Box (vbox) →
+            // webview`. We re-home the webview into a `gtk::Overlay` so video can
+            // composite under it — but the overlay must become the window's
+            // *direct* child, NOT another layer inside the vbox.
+            //
+            // Why: wry attaches an undecorated-resize handler to every webview
+            // (`tauri-runtime-wry .../undecorated_resizing.rs`) that, on a
+            // left-button press, does `webview.parent().parent().downcast::<gtk::
+            // Window>().unwrap()`. That walks exactly two levels up and expects
+            // the gtk::Window. If we leave the overlay nested in the vbox
+            // (`window → vbox → overlay → webview`), that walk lands on the vbox
+            // (a GtkBox), the downcast `unwrap()` fails, and because it runs
+            // inside a GTK C callback the panic is non-unwinding → the whole app
+            // aborts on the first click. Keeping `window → overlay → webview`
+            // preserves the two-hop invariant. (Found live, 2026-06-22.)
             let vbox = match window_for_closure.default_vbox() {
                 Ok(b) => b,
                 Err(e) => {
@@ -949,24 +985,28 @@ mod native_render {
                     return;
                 }
             };
+            let gtk_window = match window_for_closure.gtk_window() {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("native_render: gtk_window() failed: {e}");
+                    return;
+                }
+            };
 
-            // Detach the webview from whatever currently parents it (the vbox)
-            // before re-homing it into the overlay; GTK forbids a widget having
-            // two parents.
+            // Detach the webview from the vbox, then remove the now-empty vbox
+            // from the window so the overlay can take its place as the window's
+            // sole child (gtk::ApplicationWindow is a Bin — one child only).
             if let Some(parent) = webview_widget.parent()
                 && let Ok(container) = parent.downcast::<gtk::Container>()
             {
                 container.remove(&webview_widget);
             }
+            gtk_window.remove(&vbox);
 
             // Build Overlay { GLArea base (video), webview overlay on top }.
-            // Mirrors examples/render_live.rs's flicker-free composite. render_live
-            // wraps the webview in a gtk::Fixed because wry's `build_gtk` builds a
-            // *fresh* webview into a container with explicit bounds; here we are
-            // re-parenting an *existing* webview, so we add it as the overlay child
-            // directly — gtk::Overlay sizes overlay children to fill the overlay by
-            // default, whereas a bare gtk::Fixed would leave it at 0x0. (Runtime
-            // sizing is one of the things the owner validates on the box.)
+            // Mirrors examples/render_live.rs's flicker-free composite. We add the
+            // existing webview as the overlay child directly — gtk::Overlay sizes
+            // overlay children to fill the overlay by default.
             let overlay = gtk::Overlay::new();
             let gl_area = gtk::GLArea::new();
             gl_area.set_has_alpha(true);
@@ -979,17 +1019,24 @@ mod native_render {
             overlay.add(&gl_area);
             overlay.add_overlay(&webview_widget);
 
-            // Pack the overlay where the webview used to live and show the tree.
-            vbox.pack_start(&overlay, true, true, 0);
+            // Install the overlay as the window's direct child and show the tree.
+            gtk_window.add(&overlay);
             overlay.show_all();
 
-            // 16ms render tick on the GTK main loop (Tauri-owned): keep pulling
-            // the latest frame even when GTK wouldn't otherwise repaint.
+            // ~60fps render tick on the GTK main loop (Tauri-owned): repaint the
+            // GL surface only when the decode thread has actually published a new
+            // frame. Skipping queue_render while idle keeps the shared GTK main
+            // thread free for the WebKit HUD — otherwise a constant 60fps redraw
+            // (with WebKit compositing disabled) makes the HUD sluggish on the
+            // login / console-list / connecting screens.
             let area_tick = gl_area.clone();
+            let sink_tick = Arc::clone(&frame_sink);
             let tick_id = gtk::glib::timeout_add_local(
                 std::time::Duration::from_millis(16),
                 move || {
-                    area_tick.queue_render();
+                    if sink_tick.has_pending() {
+                        area_tick.queue_render();
+                    }
                     gtk::glib::ControlFlow::Continue
                 },
             );
