@@ -73,12 +73,28 @@ pub fn run() {
             // Initialize app state
             let auth = auth::XboxAuth::new();
 
+            // Native render seam: the engine's decode thread publishes decoded
+            // frames here; the GTK GL thread pulls them for upload. Created here
+            // so it can be both stored in AppState (for `rtc_connect`, a later
+            // 6c task) and handed to the render mount below. Feature-gated so the
+            // lean Win/macOS browser-path build doesn't carry it.
+            #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+            let frame_sink = rtc::media::frame_sink::SharedFrame::new();
+
             app.manage(tauri_commands::AppState {
                 auth: Mutex::new(auth),
                 xhome: Mutex::new(None),
                 stream_status: Mutex::new(tauri_commands::StreamStatus::default()),
+                #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+                frame_sink: frame_sink.clone(),
             });
             app.manage(updater::PendingUpdate::default());
+
+            // Mount the native GTK video surface UNDER the transparent web HUD.
+            // Linux + native-webrtc only; the browser path (Windows/macOS, or
+            // Linux without the feature) is untouched.
+            #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+            native_render::mount(app.handle(), frame_sink);
 
             Ok(())
         })
@@ -132,6 +148,11 @@ mod tauri_commands {
         pub auth: Mutex<XboxAuth>,
         pub xhome: Mutex<Option<XHomeClient>>,
         pub stream_status: Mutex<StreamStatus>,
+        /// Native render seam handed to the engine by `rtc_connect` (6c). Only
+        /// present on the Linux native-webrtc build; the browser path never uses
+        /// it, so the field is feature-gated to keep the default build lean.
+        #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+        pub frame_sink: std::sync::Arc<crate::rtc::media::frame_sink::SharedFrame>,
     }
 
     #[derive(Default, serde::Serialize, Clone)]
@@ -476,6 +497,112 @@ mod tauri_commands {
         std::fs::write(&path, &data).map_err(|e| format!("write failed: {e}"))?;
 
         Ok(path.to_string_lossy().into_owned())
+    }
+}
+
+/// Native render mount (Linux + `native-webrtc`): re-parents the live wry
+/// webview on top of a GTK [`gtk::GLArea`] inside a [`gtk::Overlay`], so decoded
+/// Xbox video composites *under* the transparent Svelte HUD — the same proven
+/// `GtkOverlay { GLArea base, transparent webview overlay }` pattern as
+/// `examples/render_live.rs`, but applied to the Tauri-managed window.
+///
+/// ## Spike status
+/// This is the make-or-break compositing spike (Task 6b.B3). It compiles on
+/// Linux but display correctness is validated on a real Linux box by the owner.
+/// No video appears until the engine feeds `frame_sink` (a later 6c
+/// `rtc_connect` task); the spike validates the re-parent + compositing only.
+#[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+mod native_render {
+    use std::sync::Arc;
+
+    use tauri::{AppHandle, Manager};
+
+    use crate::rtc::media::frame_sink::SharedFrame;
+    use crate::rtc::media::render_gtk::GtkGlRenderer;
+
+    /// Re-parent the main window's webview onto a GL video surface.
+    ///
+    /// Must run on the GTK main thread; Tauri's `.setup()` runs there, and the
+    /// GTK work is additionally deferred into [`tauri::WebviewWindow::with_webview`],
+    /// whose closure is invoked on the main thread. Tauri owns the GTK main loop,
+    /// so the render tick scheduled here cooperates with it.
+    pub fn mount(app: &AppHandle, frame_sink: Arc<SharedFrame>) {
+        let Some(window) = app.get_webview_window("main") else {
+            tracing::error!("native_render: no 'main' webview window; skipping render mount");
+            return;
+        };
+
+        // All GTK widget access happens inside this closure (main thread). The
+        // closure is `Send + 'static`; `Arc<SharedFrame>` is Send, and we move a
+        // clone of the (Send) WebviewWindow in to reach its gtk_window/default_vbox.
+        let window_for_closure = window.clone();
+        let result = window.with_webview(move |platform_webview| {
+            use gtk::prelude::*;
+
+            // The live webkit2gtk::WebView (an `IsA<gtk::Widget>`). Upcast to a
+            // plain Widget so we never have to name the webkit2gtk crate (it's a
+            // transitive dep of wry/tauri, sharing our gtk 0.18).
+            let webview_widget: gtk::Widget = platform_webview.inner().upcast();
+
+            // The vertical gtk::Box Tauri adds as the window's sole child; Tauri
+            // currently packs the webview into it.
+            let vbox = match window_for_closure.default_vbox() {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!("native_render: default_vbox() failed: {e}");
+                    return;
+                }
+            };
+
+            // Detach the webview from whatever currently parents it (the vbox)
+            // before re-homing it into the overlay; GTK forbids a widget having
+            // two parents.
+            if let Some(parent) = webview_widget.parent() {
+                if let Ok(container) = parent.downcast::<gtk::Container>() {
+                    container.remove(&webview_widget);
+                }
+            }
+
+            // Build Overlay { GLArea base (video), webview overlay on top }.
+            // Mirrors examples/render_live.rs's flicker-free composite. render_live
+            // wraps the webview in a gtk::Fixed because wry's `build_gtk` builds a
+            // *fresh* webview into a container with explicit bounds; here we are
+            // re-parenting an *existing* webview, so we add it as the overlay child
+            // directly — gtk::Overlay sizes overlay children to fill the overlay by
+            // default, whereas a bare gtk::Fixed would leave it at 0x0. (Runtime
+            // sizing is one of the things the owner validates on the box.)
+            let overlay = gtk::Overlay::new();
+            let gl_area = gtk::GLArea::new();
+            gl_area.set_has_alpha(true);
+            gl_area.set_auto_render(true);
+
+            // Wire the reusable GL renderer (realize + render closures) before
+            // the area is shown, matching render_live's ordering.
+            GtkGlRenderer::attach(&gl_area, Arc::clone(&frame_sink));
+
+            overlay.add(&gl_area);
+            overlay.add_overlay(&webview_widget);
+
+            // Pack the overlay where the webview used to live and show the tree.
+            vbox.pack_start(&overlay, true, true, 0);
+            overlay.show_all();
+
+            // 16ms render tick on the GTK main loop (Tauri-owned): keep pulling
+            // the latest frame even when GTK wouldn't otherwise repaint.
+            let area_tick = gl_area.clone();
+            gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                area_tick.queue_render();
+                gtk::glib::ControlFlow::Continue
+            });
+
+            tracing::info!(
+                "native_render: mounted GLArea under the webview HUD (awaiting frames from rtc_connect)"
+            );
+        });
+
+        if let Err(e) = result {
+            tracing::error!("native_render: with_webview failed: {e}");
+        }
     }
 }
 

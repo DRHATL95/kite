@@ -155,6 +155,20 @@ body {
   transition: var(--theme-fade);
 }
 
+/* ── Native render mode (Linux native-webrtc spike, 6b.B2) ──────────────────
+ * In the native path the decoded Xbox video is composited by a GTK GLArea that
+ * sits *behind* this WebKit HUD; for it to show through, the HUD's body and its
+ * opaque atmosphere layers must be transparent. This is gated behind a body
+ * class so the browser path on Windows/macOS is completely untouched — the class
+ * is never set there. 6c/C9 wires this class on automatically in native mode;
+ * for the 6b spike the owner can force it by adding `class="native-render"` to
+ * <body> in ui/index.html (then rebuild) or toggling it via devtools. */
+body.native-render,
+body.native-render::before,
+body.native-render::after {
+  background: transparent;
+}
+
 :focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
