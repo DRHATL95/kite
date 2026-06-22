@@ -87,6 +87,8 @@ pub fn run() {
                 stream_status: Mutex::new(tauri_commands::StreamStatus::default()),
                 #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
                 frame_sink: frame_sink.clone(),
+                #[cfg(feature = "native-webrtc")]
+                rtc: Mutex::new(None),
             });
             app.manage(updater::PendingUpdate::default());
 
@@ -120,6 +122,12 @@ pub fn run() {
             logging::set_log_verbosity,
             logging::open_log_dir,
             logging::export_logs,
+            tauri_commands::rtc_native_available,
+            tauri_commands::rtc_connect,
+            tauri_commands::rtc_disconnect,
+            tauri_commands::rtc_send_input,
+            tauri_commands::rtc_request_keyframe,
+            tauri_commands::rtc_save_clip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -153,6 +161,12 @@ mod tauri_commands {
         /// it, so the field is feature-gated to keep the default build lean.
         #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
         pub frame_sink: std::sync::Arc<crate::rtc::media::frame_sink::SharedFrame>,
+        /// Running native WebRTC engine handle (6c.9 fills the body of
+        /// `rtc_connect`; here it starts as `None`). Gated on the feature
+        /// because `RtcHandle` lives in `crate::rtc::engine` which is itself
+        /// gated — the field disappears on the lean Windows/macOS build.
+        #[cfg(feature = "native-webrtc")]
+        pub rtc: Mutex<Option<crate::rtc::engine::RtcHandle>>,
     }
 
     #[derive(Default, serde::Serialize, Clone)]
@@ -497,6 +511,121 @@ mod tauri_commands {
         std::fs::write(&path, &data).map_err(|e| format!("write failed: {e}"))?;
 
         Ok(path.to_string_lossy().into_owned())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Native WebRTC command surface (6c)
+    // Bodies are stubs here; lifecycle wiring lands in 6c.9.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Minimal gamepad button state mirroring the JS `GamepadButton` interface.
+    #[derive(serde::Deserialize)]
+    pub struct GamepadButtonDto {
+        pub pressed: bool,
+        pub value: f64,
+    }
+
+    /// Virtual gamepad state mirroring the JS `GamepadState` interface in
+    /// `ui/src/lib/connection/input.ts`.
+    /// `buttons`: full Standard Gamepad button array.
+    /// `axes`: [leftX, leftY, rightX, rightY] in the range −1..+1.
+    #[derive(serde::Deserialize)]
+    pub struct GamepadStateDto {
+        pub buttons: Vec<GamepadButtonDto>,
+        pub axes: [f64; 4],
+    }
+
+    /// Returns `true` when the native WebRTC engine is available for this build
+    /// and the user has not opted into the browser path via the env override.
+    #[tauri::command]
+    pub fn rtc_native_available() -> bool {
+        #[cfg(feature = "native-webrtc")]
+        {
+            std::env::var_os("XBOX_FORCE_BROWSER_WEBRTC").is_none()
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            false
+        }
+    }
+
+    /// Begin a native WebRTC streaming session.
+    /// The real body (engine spawn + signaling) is wired in 6c.9.
+    #[tauri::command]
+    pub async fn rtc_connect(
+        _state: State<'_, AppState>,
+        _server_id: String,
+        _play_path: Option<String>,
+    ) -> Result<(), String> {
+        #[cfg(feature = "native-webrtc")]
+        {
+            // 6c.9 fills the real body.
+            Ok(())
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            Err("native WebRTC unavailable in this build".into())
+        }
+    }
+
+    /// Tear down the running native WebRTC session.
+    #[tauri::command]
+    pub async fn rtc_disconnect(_state: State<'_, AppState>) -> Result<(), String> {
+        #[cfg(feature = "native-webrtc")]
+        {
+            // 6c.9 fills the real body.
+            Ok(())
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            Err("native WebRTC unavailable in this build".into())
+        }
+    }
+
+    /// Forward a gamepad state snapshot to the engine's input encoder.
+    #[tauri::command]
+    pub async fn rtc_send_input(
+        _state: State<'_, AppState>,
+        _gamepad: GamepadStateDto,
+    ) -> Result<(), String> {
+        #[cfg(feature = "native-webrtc")]
+        {
+            // 6c.9 fills the real body.
+            Ok(())
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            Err("native WebRTC unavailable in this build".into())
+        }
+    }
+
+    /// Ask the encoder to emit a keyframe on the next opportunity.
+    #[tauri::command]
+    pub async fn rtc_request_keyframe(_state: State<'_, AppState>) -> Result<(), String> {
+        #[cfg(feature = "native-webrtc")]
+        {
+            // 6c.9 fills the real body.
+            Ok(())
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            Err("native WebRTC unavailable in this build".into())
+        }
+    }
+
+    /// Assemble and save a clip from the engine's encoded-frame ring buffer.
+    /// Returns the path of the saved MP4.
+    #[tauri::command]
+    pub async fn rtc_save_clip(_state: State<'_, AppState>) -> Result<String, String> {
+        #[cfg(feature = "native-webrtc")]
+        {
+            // 6c.9 fills the real body.
+            Ok(String::new())
+        }
+        #[cfg(not(feature = "native-webrtc"))]
+        {
+            Err("native WebRTC unavailable in this build".into())
+        }
     }
 }
 
