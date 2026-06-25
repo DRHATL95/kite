@@ -101,13 +101,30 @@ impl GtkGlRenderer {
 
         // ── render: upload latest I420 frame, draw ────────────────────────────
         let s_render = state.clone();
-        area.connect_render(move |_area, _ctx| {
+        area.connect_render(move |area, _ctx| {
             if let Some(st) = s_render.borrow_mut().as_mut() {
                 // SAFETY: `st.gl` is the context built on this same GTK thread in
                 // realize; all handles (program/vao/tex) belong to it and the
                 // GLArea context is current during a render callback.
                 unsafe {
                     use glow::HasContext as _;
+
+                    // Pin the GL viewport to the live framebuffer size every frame.
+                    // GtkGLArea does not call glViewport for us, so the context
+                    // keeps its realize-time viewport — which is 1x1 when the area
+                    // is hot-swapped into Tauri's already-mapped window before
+                    // layout settles. The full-screen triangle (gl_VertexID-derived,
+                    // no vertex buffer) is scaled solely by the viewport, so a stale
+                    // 1x1 viewport collapses every draw to a single pixel (black)
+                    // until a window resize updates it. Setting it here fixes the
+                    // "video only appears after I resize the window" bug.
+                    let scale = area.scale_factor();
+                    st.gl.viewport(
+                        0,
+                        0,
+                        area.allocated_width() * scale,
+                        area.allocated_height() * scale,
+                    );
 
                     // Upload a fresh frame if one is waiting.
                     if let Some(frame) = frames.take_latest() {
