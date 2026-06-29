@@ -139,6 +139,7 @@ pub fn run() {
             tauri_commands::try_load_cached_auth,
             tauri_commands::start_xbox_auth,
             tauri_commands::check_auth_status,
+            tauri_commands::take_auth_flow_error,
             tauri_commands::sign_out,
             tauri_commands::open_external_url,
             tauri_commands::discover_xhome_consoles,
@@ -353,6 +354,15 @@ mod tauri_commands {
     pub async fn check_auth_status(state: State<'_, AppState>) -> Result<bool, String> {
         let auth = state.auth.lock().await;
         Ok(auth.is_authenticated().await)
+    }
+
+    /// Drain the last background sign-in failure (one-shot). The frontend polls
+    /// this alongside `check_auth_status` while awaiting sign-in so a failed
+    /// token exchange surfaces as a real error instead of polling forever.
+    #[tauri::command]
+    pub async fn take_auth_flow_error(state: State<'_, AppState>) -> Result<Option<String>, String> {
+        let auth = state.auth.lock().await;
+        Ok(auth.take_flow_error().await)
     }
 
     /// Sign out: clear the cached Microsoft/Xbox tokens from memory and the OS

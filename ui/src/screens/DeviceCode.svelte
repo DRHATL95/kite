@@ -25,14 +25,19 @@
   // The authorize URL the backend prepared for this sign-in.
   let signInUrl = $derived(authStore.signInUrl ?? "");
 
+  // Show the failure variant (error + retry) when a sign-in attempt failed.
+  let failed = $derived(authStore.authState === "failed");
+
   let openError = $state<string | null>(null);
   let urlCopied = $state(false);
 
   // ── Polling lifecycle ────────────────────────────────────────────────────────
-  // $effect runs after mount; its cleanup fires on destroy, so the polling loop
-  // is always cancelled. The loop stops itself once authState reaches 'signedIn'.
+  // Poll only while actually awaiting sign-in. Keying the effect on authState
+  // means it restarts the loop when the user retries (failed → awaitingCode) and
+  // stops once we leave that state; cleanup cancels the loop on destroy.
   $effect(() => {
-    const cancel = authStore.startPollingLoop(3000);
+    if (authStore.authState !== "awaitingCode") return;
+    const cancel = authStore.startPollingLoop();
     return cancel;
   });
 
@@ -59,44 +64,71 @@
       // clipboard API unavailable — the link below is hand-selectable as a fallback
     }
   }
+
+  // Retry a failed sign-in: starts a fresh flow (new authorize URL + loopback)
+  // and, by returning authState to 'awaitingCode', restarts the polling effect.
+  async function retry() {
+    await authStore.signIn();
+  }
+
+  // Abandon the attempt and return to the login screen.
+  function back() {
+    authStore.cancelSignIn();
+  }
 </script>
 
 <div class="device-code-screen">
-  <Panel title="Sign in with Microsoft">
-    <div class="device-code-body">
-      <p class="instruction">
-        We've opened your browser to sign in. Approve access there and the app
-        will connect automatically — nothing to type here.
-      </p>
+  <Panel title={failed ? "Sign-in failed" : "Sign in with Microsoft"}>
+    {#if failed}
+      <!-- ── Failure variant ───────────────────────────────────────────────── -->
+      <div class="device-code-body">
+        <p class="instruction">
+          We couldn't finish signing you in. Your browser login worked, but the
+          app couldn't complete the secure token exchange with Microsoft.
+        </p>
 
-      <!-- ── Sign-in action ───────────────────────────────────────────────── -->
-      <div class="url-section">
-        <Button onclick={openSignIn} disabled={!signInUrl}>
-          Open sign-in page
-        </Button>
-
-        {#if openError}
-          <p class="error-message" role="alert">{openError}</p>
+        {#if authStore.error}
+          <p class="error-message" role="alert">{authStore.error}</p>
         {/if}
 
-        <div class="url-copy-row">
-          <span class="url-text" title={signInUrl}>{signInUrl}</span>
-          <Button variant="ghost" onclick={copyUrl} disabled={!signInUrl}>
-            {urlCopied ? "Copied!" : "Copy link"}
-          </Button>
+        <div class="url-section">
+          <Button onclick={retry}>Try again</Button>
+          <Button variant="ghost" onclick={back}>Back to start</Button>
         </div>
       </div>
+    {:else}
+      <!-- ── Waiting variant ───────────────────────────────────────────────── -->
+      <div class="device-code-body">
+        <p class="instruction">
+          We've opened your browser to sign in. Approve access there and the app
+          will connect automatically — nothing to type here.
+        </p>
 
-      <!-- ── Waiting indicator ─────────────────────────────────────────────── -->
-      <div class="waiting-indicator">
-        <span class="live-dot" role="status" aria-label="Waiting for sign-in"></span>
-        <p class="waiting-text">Waiting for you to finish signing in…</p>
+        <!-- ── Sign-in action ───────────────────────────────────────────────── -->
+        <div class="url-section">
+          <Button onclick={openSignIn} disabled={!signInUrl}>
+            Open sign-in page
+          </Button>
+
+          {#if openError}
+            <p class="error-message" role="alert">{openError}</p>
+          {/if}
+
+          <div class="url-copy-row">
+            <span class="url-text" title={signInUrl}>{signInUrl}</span>
+            <Button variant="ghost" onclick={copyUrl} disabled={!signInUrl}>
+              {urlCopied ? "Copied!" : "Copy link"}
+            </Button>
+          </div>
+        </div>
+
+        <!-- ── Waiting indicator ─────────────────────────────────────────────── -->
+        <div class="waiting-indicator">
+          <span class="live-dot" role="status" aria-label="Waiting for sign-in"></span>
+          <p class="waiting-text">Waiting for you to finish signing in…</p>
+        </div>
       </div>
-
-      {#if authStore.error}
-        <p class="error-message" role="alert">{authStore.error}</p>
-      {/if}
-    </div>
+    {/if}
   </Panel>
 </div>
 
