@@ -51,6 +51,13 @@ pub struct XboxTokens {
 pub struct XboxAuth {
     client: Client,
     tokens: Arc<Mutex<Option<XboxTokens>>>,
+    /// Last failure from the background authorization-code task. The UI polls
+    /// token validity (`is_authenticated`) and otherwise cannot see *why* a
+    /// sign-in died; the task records the reason here and the UI drains it via
+    /// [`XboxAuth::take_flow_error`] to show a real error instead of waiting
+    /// forever. Shared (`Arc`) so the spawned `self.clone()` writes where the
+    /// managed instance reads.
+    flow_error: Arc<Mutex<Option<String>>>,
 }
 
 /// Token endpoint response (authorization-code exchange and refresh share it).
@@ -135,6 +142,23 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Render an error together with its full `source()` chain.
+///
+/// `reqwest` collapses the useful cause (DNS failure, connection refused, TLS
+/// error) under a generic top-level `"error sending request for url (...)"`, so
+/// logging only `{e}` hides *why* a request failed. Walking the chain surfaces
+/// the real cause — e.g. a DNS sinkhole shows up as a trailing `": ... dns ..."`.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        out.push_str(": ");
+        out.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    out
+}
+
 /// Parse the loopback redirect's HTTP request line into `(code, state)`,
 /// surfacing an `error` query param (e.g. user-declined consent) as an error.
 fn parse_redirect_query(request: &str) -> Result<(String, String)> {
@@ -200,6 +224,7 @@ impl XboxAuth {
         Self {
             client: Client::new(),
             tokens: Arc::new(Mutex::new(None)),
+            flow_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -278,7 +303,7 @@ impl XboxAuth {
             .form(&params)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("Token refresh failed: {}", e)))?;
+            .map_err(|e| XboxError::AuthError(format!("Token refresh failed: {}", error_chain(&e))))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -333,6 +358,10 @@ impl XboxAuth {
     pub async fn start_auth_code_flow(&self) -> Result<String> {
         info!("Starting Xbox Live OAuth authorization-code flow");
 
+        // Clear any failure from a previous attempt so the polling UI never sees
+        // a stale error from the last sign-in.
+        *self.flow_error.lock().await = None;
+
         let client_id = resolve_client_id();
         let pkce = generate_pkce();
         let state = generate_state();
@@ -369,7 +398,11 @@ impl XboxAuth {
                 .await_redirect_and_exchange(listener, client_id, redirect_uri, verifier, state)
                 .await
             {
-                tracing::error!("Authorization-code sign-in failed: {}", e);
+                let msg = e.to_string();
+                tracing::error!("Authorization-code sign-in failed: {}", msg);
+                // Record it so the polling UI can surface a real error and stop,
+                // instead of waiting indefinitely with no feedback.
+                *auth_clone.flow_error.lock().await = Some(msg);
             }
         });
 
@@ -401,17 +434,24 @@ impl XboxAuth {
             .await
             .map_err(|e| XboxError::AuthError(format!("Failed to read redirect: {}", e)))?;
         let request = String::from_utf8_lossy(&buf[..n]);
-        let parsed = parse_redirect_query(&request);
 
-        // Always answer the browser so the user sees a clean "done" page.
-        let (status, message) = match &parsed {
-            Ok(_) => (
+        // Run the *entire* exchange before answering the browser, so the page can
+        // tell the truth. Previously the success page was sent the moment a code
+        // came back — even when the token exchange then failed (e.g. a DNS-blocked
+        // login endpoint), telling the user "signed in" while the app silently
+        // never advanced. A few seconds of HTTP wait is well within browser limits.
+        let outcome = self
+            .complete_redirect(&request, &client_id, &redirect_uri, &verifier, &expected_state)
+            .await;
+
+        let (status, message) = match &outcome {
+            Ok(()) => (
                 "200 OK",
                 "Signed in to Xbox Remote — you can close this tab.",
             ),
             Err(_) => (
-                "400 Bad Request",
-                "Sign-in failed — return to the app and try again.",
+                "502 Bad Gateway",
+                "Sign-in failed — return to the app to see what went wrong.",
             ),
         };
         let body = format!(
@@ -428,7 +468,22 @@ impl XboxAuth {
         let _ = stream.write_all(response.as_bytes()).await;
         let _ = stream.flush().await;
 
-        let (code, state) = parsed?;
+        outcome
+    }
+
+    /// Parse the redirect, validate `state`, exchange the code for tokens, run
+    /// the Xbox Live → XSTS chain, and persist. Split out of
+    /// [`Self::await_redirect_and_exchange`] so the caller can answer the
+    /// browser based on the *true* result rather than on parsing alone.
+    async fn complete_redirect(
+        &self,
+        request: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        verifier: &str,
+        expected_state: &str,
+    ) -> Result<()> {
+        let (code, state) = parse_redirect_query(request)?;
         if state != expected_state {
             return Err(XboxError::AuthError(
                 "State mismatch on redirect (possible CSRF) — sign-in aborted".to_string(),
@@ -436,7 +491,7 @@ impl XboxAuth {
         }
 
         let token = self
-            .exchange_code(&client_id, &code, &redirect_uri, &verifier)
+            .exchange_code(client_id, &code, redirect_uri, verifier)
             .await?;
         let access_token = token
             .access_token
@@ -483,7 +538,7 @@ impl XboxAuth {
             .form(&params)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("Token exchange failed: {}", e)))?;
+            .map_err(|e| XboxError::AuthError(format!("Token exchange failed: {}", error_chain(&e))))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -521,7 +576,7 @@ impl XboxAuth {
             .json(&body)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("Xbox Live auth failed: {}", e)))?;
+            .map_err(|e| XboxError::AuthError(format!("Xbox Live auth failed: {}", error_chain(&e))))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -559,7 +614,7 @@ impl XboxAuth {
             .json(&body)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("XSTS request failed: {}", e)))?;
+            .map_err(|e| XboxError::AuthError(format!("XSTS request failed: {}", error_chain(&e))))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -584,6 +639,13 @@ impl XboxAuth {
         Self::token_store()?.clear()?;
         info!("Signed out: cleared in-memory tokens and OS keychain");
         Ok(())
+    }
+
+    /// Drain the last background sign-in failure (one-shot — clears on read).
+    /// The polling UI calls this while awaiting sign-in so a failed token
+    /// exchange surfaces as a real error instead of an indefinite wait.
+    pub async fn take_flow_error(&self) -> Option<String> {
+        self.flow_error.lock().await.take()
     }
 
     /// Check if tokens are valid
@@ -636,5 +698,43 @@ mod tests {
     #[test]
     fn falls_back_to_default_when_absent() {
         assert_eq!(resolve_client_id_from(None), DEFAULT_CLIENT_ID);
+    }
+
+    #[test]
+    fn error_chain_appends_each_source() {
+        // reqwest hides the real cause (DNS/connection/TLS) behind a generic
+        // top-level message; error_chain must walk source() so the cause shows.
+        #[derive(Debug)]
+        struct Cause;
+        impl std::fmt::Display for Cause {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "dns error: no record")
+            }
+        }
+        impl std::error::Error for Cause {}
+
+        #[derive(Debug)]
+        struct Top(Cause);
+        impl std::fmt::Display for Top {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "error sending request")
+            }
+        }
+        impl std::error::Error for Top {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        assert_eq!(
+            error_chain(&Top(Cause)),
+            "error sending request: dns error: no record"
+        );
+    }
+
+    #[test]
+    fn error_chain_of_a_sourceless_error_is_just_its_message() {
+        let e = std::io::Error::other("boom");
+        assert_eq!(error_chain(&e), "boom");
     }
 }

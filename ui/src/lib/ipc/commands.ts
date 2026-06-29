@@ -65,6 +65,16 @@ export async function checkAuthStatus(): Promise<boolean> {
 }
 
 /**
+ * Drain the last background sign-in failure (one-shot — clears on read).
+ * Polled alongside checkAuthStatus() while awaiting sign-in so a failed token
+ * exchange surfaces as a real error instead of an indefinite wait.
+ * Rust: take_auth_flow_error(state) -> Result<Option<String>, String>
+ */
+export async function takeAuthFlowError(): Promise<string | null> {
+  return invoke<string | null>("take_auth_flow_error");
+}
+
+/**
  * Sign out: clear cached tokens from memory and the OS keychain on the backend.
  * Rust: sign_out(state) -> Result<(), String>
  */

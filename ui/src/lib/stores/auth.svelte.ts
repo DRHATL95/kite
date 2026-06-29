@@ -5,10 +5,10 @@
  * command functions from ui/src/lib/ipc/commands.ts.
  *
  * Auth flow:
- *   1. On app start: authStore.loadCached()     — try keychain, set signedIn/signedOut
- *   2. If signedOut:  authStore.signIn()         — device-code flow, sets awaitingCode
- *   3. While waiting: authStore.pollAuth()       — check if user completed sign-in
- *   4. After signedIn: authStore.loadConsoles()  — fetch console list
+ *   1. On app start: authStore.loadCached()       — try keychain, set signedIn/signedOut
+ *   2. If signedOut:  authStore.signIn()          — auth-code flow, sets awaitingCode
+ *   3. While waiting: authStore.startPollingLoop() — detect completion or failure
+ *   4. After signedIn: authStore.loadConsoles()   — fetch console list
  *
  * Usage:
  *   import { authStore } from '$lib/stores/auth.svelte';
@@ -19,18 +19,27 @@
 import {
   tryLoadCachedAuth,
   checkAuthStatus,
+  takeAuthFlowError,
   startXboxAuth,
   discoverXhomeConsoles,
   signOut as signOutCmd,
   openExternalUrl,
 } from "../ipc/commands.js";
 import type { XHomeConsole } from "../ipc/types.js";
+import { decidePollOutcome, type PollDecision } from "./authFlowLogic.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth state type
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type AuthState = "unknown" | "signedOut" | "awaitingCode" | "signedIn";
+export type AuthState =
+  | "unknown"
+  | "signedOut"
+  | "awaitingCode"
+  | "signedIn"
+  /** A sign-in attempt failed (e.g. token exchange couldn't reach Microsoft);
+   *  `error` holds the reason. The DeviceCode screen shows it with a retry. */
+  | "failed";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Store class — reactive fields via $state runes
@@ -78,8 +87,8 @@ class AuthStore {
    * Stores the authorize URL (signInUrl), sets authState to 'awaitingCode',
    * and opens the browser to the consent page.
    *
-   * A Rust background task completes sign-in via the loopback redirect; call
-   * pollAuth() to detect it.
+   * A Rust background task completes sign-in via the loopback redirect;
+   * startPollingLoop() detects completion or failure.
    */
   async signIn(): Promise<void> {
     this.error = null;
@@ -100,43 +109,59 @@ class AuthStore {
   }
 
   /**
-   * Check whether the user has completed sign-in in their browser.
-   * Returns true (and updates authState to 'signedIn') if auth is valid.
+   * One poll: check token validity, then (only if not yet signed in) drain any
+   * one-shot backend flow error, and decide what the loop should do next. The
+   * decision rules live in the pure, unit-tested `decidePollOutcome`.
+   *
+   * A transient IPC error is swallowed (treated as "no result yet") so a single
+   * failed `invoke` doesn't abort the whole sign-in wait; the attempt cap still
+   * guarantees the loop terminates.
    */
-  async pollAuth(): Promise<boolean> {
+  private async pollOnce(attempts: number, maxAttempts: number): Promise<PollDecision> {
     try {
-      const ok = await checkAuthStatus();
-      if (ok) {
-        this.authState = "signedIn";
-        this.signInUrl = null;
-      }
-      return ok;
-    } catch (e) {
-      this.error = String(e);
-      return false;
+      const signedIn = await checkAuthStatus();
+      const flowError = signedIn ? null : await takeAuthFlowError();
+      return decidePollOutcome({ signedIn, flowError, attempts, maxAttempts });
+    } catch {
+      return decidePollOutcome({ signedIn: false, flowError: null, attempts, maxAttempts });
     }
   }
 
   /**
-   * Start a polling loop that calls checkAuthStatus() every `intervalMs`
-   * milliseconds until auth succeeds or `cancel()` is called.
+   * Start a polling loop that watches for sign-in completion every `intervalMs`
+   * milliseconds. The loop ends — transitioning authState to 'signedIn' or
+   * 'failed' — when the backend reports success, reports a flow error, or the
+   * attempt cap is reached (a timeout backstop just past the backend's own
+   * 300 s loopback timeout). The returned function cancels the loop, as does
+   * leaving the 'awaitingCode' state.
    *
-   * The returned cancel function stops the loop.  The loop also stops
-   * automatically once authState reaches 'signedIn'.
-   *
-   * @param intervalMs  Polling interval in milliseconds (default 3000).
+   * @param intervalMs   Polling interval in milliseconds (default 3000).
+   * @param maxAttempts  Give-up cap; default 110 (~5.5 min at 3 s).
    */
-  startPollingLoop(intervalMs = 3000): () => void {
+  startPollingLoop(intervalMs = 3000, maxAttempts = 110): () => void {
     // Cancel any existing loop
     this._pollAbortController?.abort();
     this._pollAbortController = new AbortController();
     const signal = this._pollAbortController.signal;
 
     const loop = async () => {
+      let attempts = 0;
       while (!signal.aborted && this.authState === "awaitingCode") {
-        const ok = await this.pollAuth();
-        if (ok || signal.aborted) break;
-        // Wait for the interval, but abort early if cancelled
+        attempts++;
+        const decision = await this.pollOnce(attempts, maxAttempts);
+        if (signal.aborted) break;
+        if (decision.kind === "signedIn") {
+          this.authState = "signedIn";
+          this.signInUrl = null;
+          break;
+        }
+        if (decision.kind === "failed") {
+          this.error = decision.error;
+          this.signInUrl = null;
+          this.authState = "failed";
+          break;
+        }
+        // continue → wait for the interval, but abort early if cancelled
         await new Promise<void>((resolve) => {
           const t = setTimeout(resolve, intervalMs);
           signal.addEventListener("abort", () => {
@@ -166,6 +191,15 @@ class AuthStore {
     } catch (e) {
       this.error = String(e);
     }
+  }
+
+  /**
+   * Abandon an in-progress or failed sign-in and return to the login screen.
+   * Cancels the polling loop and clears the URL/error; does NOT touch the
+   * keychain (nothing was stored yet).
+   */
+  cancelSignIn(): void {
+    this.resetLocal();
   }
 
   /**

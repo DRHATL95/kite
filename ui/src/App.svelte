@@ -71,8 +71,12 @@
     if (cs === "connecting" || cs === "streaming" || cs === "reconnecting" || cs === "failed") {
       return "stream";
     }
-    if (authStore.authState === "awaitingCode") return "deviceCode";
-    if (authStore.authState === "signedIn")     return "consoleList";
+    // 'failed' stays on the DeviceCode screen so the error + retry are shown;
+    // bouncing to Login would re-run loadCached() and wipe authStore.error.
+    if (authStore.authState === "awaitingCode" || authStore.authState === "failed") {
+      return "deviceCode";
+    }
+    if (authStore.authState === "signedIn") return "consoleList";
     return "login";
   });
 
