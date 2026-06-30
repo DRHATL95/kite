@@ -44,7 +44,7 @@ import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
-import { videoTransceiverDirection } from "./audioOnly.js";
+import { videoTransceiverDirection, tracksReadyToStream } from "./audioOnly.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -650,13 +650,28 @@ export class ConnectionManager implements ConnectionBackend {
       // BEFORE media actually flows. Do NOT go to "streaming" here — arm the
       // media watchdog and let it promote us once frames actually decode.
       if (
-        this._tracksReceived.video &&
-        this._tracksReceived.audio &&
+        tracksReadyToStream(
+          this._audioOnly,
+          this._tracksReceived.video,
+          this._tracksReceived.audio,
+        ) &&
         !this._hasStartedPlaying
       ) {
         this._hasStartedPlaying = true;
-        this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
-        this._mediaMonitor?.arm(Date.now());
+        if (this._audioOnly) {
+          // No video track/frame will ever arrive — promote on audio-track
+          // arrival and do NOT arm the decoded-frame watchdog (it would time out
+          // and reconnect-loop forever). Hard drops are still caught by the
+          // ICE/connection-state handlers.
+          this._log("Audio-only: audio track negotiated — transitioning to streaming");
+          if (this._state === "connecting" || this._state === "reconnecting") {
+            this._setState("streaming");
+            this._startGamepadPoller();
+          }
+        } else {
+          this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
+          this._mediaMonitor?.arm(Date.now());
+        }
       }
 
       this._pushManagerStats();
