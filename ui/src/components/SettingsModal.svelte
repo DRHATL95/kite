@@ -174,6 +174,25 @@
         </div>
       </section>
 
+      <!-- ── Stream ──────────────────────────────────────────────────────── -->
+      <section class="settings-section">
+        <span class="settings-section__label">STREAM</span>
+        <div class="settings-row">
+          <div class="settings-row__text">
+            <span class="settings-row__title">Audio-only mode</span>
+            <span class="settings-row__desc">
+              Stream sound and input without video — Xbox sends no picture, saving
+              bandwidth and CPU. Applies on the next connect.
+            </span>
+          </div>
+          <Toggle
+            checked={settings.audioOnly}
+            label=""
+            onchange={(on) => settings.setAudioOnly(on)}
+          />
+        </div>
+      </section>
+
       <!-- ── Clipping ────────────────────────────────────────────────────── -->
       <section class="settings-section">
         <span class="settings-section__label">CLIPPING</span>
