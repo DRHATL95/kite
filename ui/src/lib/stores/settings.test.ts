@@ -45,3 +45,27 @@ describe("settings store — updateChannel", () => {
     expect(settings.updateChannel).toBe("stable");
   });
 });
+
+const AUDIO_ONLY_KEY = "xbox-remote:audio-only";
+
+describe("settings store — audioOnly", () => {
+  it("defaults to false when nothing persisted", async () => {
+    await seed();
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.audioOnly).toBe(false);
+  });
+
+  it("persists and reflects an audio-only change", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setAudioOnly(true);
+    expect(settings.audioOnly).toBe(true);
+    expect(persist.persisted.getItem(AUDIO_ONLY_KEY)).toBe("true");
+  });
+
+  it("restores a persisted audio-only=true on load", async () => {
+    await seed([[AUDIO_ONLY_KEY, "true"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.audioOnly).toBe(true);
+  });
+});
