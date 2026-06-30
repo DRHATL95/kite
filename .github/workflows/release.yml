@@ -1,8 +1,11 @@
 name: release
 
-# Nightly: every push to master -> rolling "nightly" release in the PUBLIC
+# Nightly: every push to dev    -> rolling "nightly" release in the PUBLIC
 #          releases repo (version <target>-nightly.<run_number>).
-# Stable:  pushing a v* tag    -> permanent vX.Y.Z archive + rolling "stable".
+# Stable:  pushing a v* tag      -> permanent vX.Y.Z archive + rolling "stable".
+#
+# Branch model: dev (nightly source) -> staging (soak/integration, no build) ->
+#               master (release; tag vX.Y.Z on master to cut stable).
 #
 # Single job on the SELF-HOSTED Linux runner producing BOTH platforms:
 #   - Windows installer CROSS-COMPILED via cargo-xwin.
@@ -12,7 +15,7 @@ name: release
 # repo stays private. Cross-repo auth uses the RELEASES_TOKEN PAT.
 on:
   push:
-    branches: [master]
+    branches: [dev]
     tags: ['v*']
 
 permissions:
@@ -131,7 +134,7 @@ jobs:
             else
               RANGE="${SHA}~20..${SHA}"
             fi
-            HEADER="Rolling nightly built from master — ${VERSION}"
+            HEADER="Rolling nightly built from dev — ${VERSION}"
           fi
           {
             echo "$HEADER"
