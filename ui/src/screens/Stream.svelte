@@ -53,6 +53,12 @@
 
   const nativeMode = connectionStore.nativeMode;
 
+  // Audio-only (browser path): no video track was negotiated. The <video> element
+  // is still rendered — it's the audio sink and drives the unmute/volume logic —
+  // but a minimal panel overlays its (black) surface, and splash dismissal keys
+  // off store state (like native), since onplaying may not fire for audio-only.
+  const audioOnly = $derived(connectionStore.audioOnly);
+
   // Native mode has no DOM <video>; route the volume slider's gain (0–1) to the
   // Rust audio sink. No-ops until the engine is connected (the command buffers).
   const onVolumeChange = nativeMode
@@ -197,7 +203,7 @@
   //   NativeConnection synthesises handshakeMs/videoArrivedAt into the snapshot
   //   (6c.6) so the step indicators (session→handshake→video) still advance.
   const showSplash = $derived(
-    nativeMode
+    nativeMode || audioOnly
       ? (connectionStore.state === "connecting" || connectionStore.state === "reconnecting")
       : shouldShowSplash(connectionStore.state, videoPlaying),
   );
@@ -245,6 +251,17 @@
         ></video>
       {/if}
 
+      {#if audioOnly && !showSplash}
+        <div class="audio-only-stage" role="status" aria-label="Audio-only stream">
+          <span class="audio-only-badge">AUDIO ONLY</span>
+          <p class="audio-only-name">{connectionStore.currentConsole?.deviceName ?? "Xbox"}</p>
+          <div class="audio-only-indicator">
+            <span class="audio-only-dot" aria-hidden="true"></span>
+            <span>Connected · audio flowing</span>
+          </div>
+        </div>
+      {/if}
+
       {#if showSplash}
         <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
       {/if}
@@ -286,6 +303,17 @@
           onplaying={() => (videoPlaying = true)}
           aria-label="Xbox console stream"
         ></video>
+      {/if}
+
+      {#if audioOnly && !showSplash}
+        <div class="audio-only-stage" role="status" aria-label="Audio-only stream">
+          <span class="audio-only-badge">AUDIO ONLY</span>
+          <p class="audio-only-name">{connectionStore.currentConsole?.deviceName ?? "Xbox"}</p>
+          <div class="audio-only-indicator">
+            <span class="audio-only-dot" aria-hidden="true"></span>
+            <span>Connected · audio flowing</span>
+          </div>
+        </div>
       {/if}
 
       {#if showSplash}
@@ -492,5 +520,57 @@
   .stage-fullbleed.native {
     background: transparent;
     border-color: transparent;
+  }
+
+  /* ── Audio-only panel (overlays the black <video> when no video track) ───── */
+  .audio-only-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 5; /* above the video, below splash / unmute / HUD / pill (z 20) */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    background: var(--video-bg);
+    text-align: center;
+    padding: var(--space-5);
+  }
+
+  .audio-only-badge {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.22em;
+    color: var(--text-dim);
+  }
+
+  .audio-only-name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    color: var(--text);
+  }
+
+  .audio-only-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+  }
+
+  .audio-only-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: audio-only-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes audio-only-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
   }
 </style>
