@@ -203,10 +203,14 @@
               Buffers the last few seconds while you play so you can save the moment
               that just happened. Off by default; only runs while enabled.
             </span>
+            {#if settings.audioOnly}
+              <span class="settings-row__desc">Clipping needs video — unavailable in audio-only mode.</span>
+            {/if}
           </div>
           <Toggle
             checked={settings.clip.enabled}
             label=""
+            disabled={settings.audioOnly}
             onchange={(on) => settings.setClip({ enabled: on })}
           />
         </div>
