@@ -2,6 +2,90 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ## STATUS — CURRENT (updated 2026-06-25; supersedes the 2026-06-19 block below)
+>
+> **Phases 0–6 are MERGED to `master`.** The native str0m WebRTC engine connects,
+> decodes H.264+Opus, renders into the real Tauri window via a GTK `GLArea` under
+> the transparent Svelte HUD, and keepalive holds. PR #15 (Phases 0–5) and PR #19
+> (Phase 6, merge `a02b25e`) are in. The `feat/native-webrtc-linux` branch is
+> stale/abandoned — work landed on `master`.
+>
+> **PR #20 MERGED (`1756a28`) — `glViewport`-per-render fix.** The `GLArea` is
+> hot-swapped into Tauri's already-mapped window and realizes at a **1×1**
+> allocation, so the GL context inherited a 1×1 viewport; the YUV→RGB shader draws
+> a `gl_VertexID` full-screen triangle scaled SOLELY by `glViewport` (which the
+> code never set), clipping every frame to one pixel. Fixed in
+> `src/rtc/media/render_gtk.rs` by setting
+> `glViewport(0,0, allocated_w*scale, allocated_h*scale)` each render. NECESSARY
+> but NOT sufficient — see the present-gap below.
+>
+> ### ⛔ BLOCKER (PAUSED 2026-06-25) — native video is BLACK-UNTIL-RESIZE (GTK "airspace" / native-window present gap)
+>
+> Symptom: after Connect, audio is fine and the `GLArea` draws every decoded frame
+> into its FBO at the CORRECT viewport (instrumented: first frame drawn ~9 s after
+> session-create; decode ~13–20 ms/frame, backlog ~1 — **decode and viewport are
+> NOT the cause**), but the frame is **not composited to the on-screen window until
+> a MANUAL window resize**, which fixes it INSTANTLY + PERMANENTLY.
+>
+> Owner-confirmed discriminators: **(F7)** during the black period the webview/HUD
+> is visible + transparent (the wry webview is a SEPARATE native X11 child window
+> compositing on its own) — only the **`GLArea` base** region is black ⇒ it is the
+> GLArea base not presenting, NOT webview opacity; **(F8)** inconsistent —
+> occasionally self-heals after a long wait (racy).
+>
+> **FIXES TRIED + RULED OUT (do NOT repeat — all failed live on CachyOS/KDE/XWayland, all reverted):**
+> 1. **Render timing** — `glib::timeout_add_local(16ms)` → `gl_area.add_tick_callback`
+>    (GdkFrameClock / vsync). No effect ⇒ not render timing.
+> 2. **One-off X11 configure** — a programmatic 1px grow/shrink window nudge on
+>    first frames. Video appeared only MOMENTARILY then went black ⇒ a single
+>    configure is not enough; AND the owner explicitly rejects resize-mimic hacks.
+> 3. **Map timing** — created the window hidden (`tauri.linux.conf.json
+>    "visible": false`) + `WebviewWindow::show()` after `native_render::mount()` so
+>    the FIRST map happens with the overlay+GLArea subtree present (matching the
+>    working `examples/render_live.rs`). No effect ⇒ a clean first-map-with-subtree
+>    is ALSO insufficient. (Also earlier: a bounded decode queue + drop-to-keyframe
+>    — wrong layer, caused IDR decode spikes. Reverted.)
+>
+> **REMAINING HYPOTHESIS (by elimination): GTK "airspace" / native-window stacking.**
+> The `GLArea` is a GTK3 *no-window* widget that blits its FBO into the *toplevel's*
+> GdkWindow during the toplevel paint; the wry webview is a *native X11 child
+> window* on top. Under `WEBKIT_DISABLE_COMPOSITING_MODE=1` on XWayland the GLArea
+> base region appears occluded / not-composited until a real (size-changing) resize
+> re-establishes the stacking/clip — and only that is permanent. The one structural
+> axis the WORKING `render_live.rs` differs on and we have NOT replicated: it builds
+> the webview INTO a `gtk::Fixed` overlay child with explicitly-managed bounds
+> (reset on `WindowEvent::Resized`); `mount()` reparents the BARE existing Tauri
+> webview as the overlay child with no bounds. **Blocker for that match:** wry's
+> undecorated-resize handler does
+> `webview.parent().parent().downcast::<gtk::Window>().unwrap()` (two-hop) — the
+> reason the vbox was removed and the overlay is the window's DIRECT child; wrapping
+> the webview in a `gtk::Fixed` breaks that two-hop (decorations are currently
+> `true` — unclear if that deactivates the handler).
+>
+> **RECOMMENDED NEXT STEP — EMPIRICAL, not source-analysis.** Two source-analysis
+> agent-workflows produced plausible-but-wrong fixes because this is empirical
+> XWayland behavior. Instead, instrument to log the **GdkWindow geometry + X11
+> stacking** of the `GLArea` vs the webview BEFORE and AFTER a *manual* resize
+> (owner resizes once; capture the delta) to pinpoint exactly what the resize
+> changes, then target that.
+>
+> **⚠️ LINUX-ONLY — cannot be worked on Windows.** The present-gap is a
+> Linux/XWayland compositing bug and `native-webrtc` does not build on stock
+> Windows (`ffmpeg-the-third`). Reproduction + fix must happen on the Linux box.
+>
+> **Debug note:** the app has NO stdout tracing — `tracing` goes to
+> `~/.local/share/com.xboxremote.app/logs/xbox-remote.<date>.log` (`logging.rs`
+> SinkLayer); that layer's `MsgVisitor` only keeps the `message` field, so INLINE
+> values into the format string (structured k=v fields are DROPPED).
+>
+> Key files: `src/lib.rs` `mod native_render::mount` (~922-1063) + the `.setup()`
+> window-show timing (~99-105); `src/rtc/media/render_gtk.rs` (`GtkGlRenderer`);
+> `examples/render_live.rs` (the WORKING reference).
+>
+> Lower-priority Phase-7 follow-ups: vsync/tearing; HW VA-API decode (throughput,
+> NOT the perceived delay); native diagnostics (RTT/jitter/last-KF/A-V-skew still
+> `—`); persist volume across reconnects; unify Windows/macOS.
+>
 > ## STATUS (updated 2026-06-19, live on CachyOS + real console)
 >
 > - **Phase 0 — ✅ COMPLETE** (live de-risk passed end-to-end on the Linux box +
