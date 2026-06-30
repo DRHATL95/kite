@@ -105,16 +105,19 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   + per-channel `latest.json`. It is public so the Tauri updater can fetch
   `latest.json` and installers anonymously while the code stays private.
 
-- **Nightly**: every push to `master` builds **both** platforms in one job and
+- **Branch model**: `dev` (nightly source) → `staging` (soak/integration, no
+  build) → `master` (release; tag `vX.Y.Z` on `master` to cut stable). Only `dev`
+  pushes and `v*` tags trigger CI — pushing `master`/`staging` builds nothing.
+- **Nightly**: every push to `dev` builds **both** platforms in one job and
   force-updates the rolling `nightly` release in the releases repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
   x86_64-pc-windows-msvc --bundles nsis`); the Linux AppImage is built natively
   on the same runner. Both updater artifacts are signed. Nightly version =
   `<target>-nightly.<run_number>` (committed `Cargo.toml` version = next
   unreleased `X.Y.Z`), injected via `--config` so the tree stays clean.
-- **Stable**: pushing a `vX.Y.Z` tag cuts a permanent `vX.Y.Z` archive release
-  **and** force-updates the rolling `stable` pointer. After cutting a stable, bump
-  the committed target.
+- **Stable**: pushing a `vX.Y.Z` tag (on `master`) cuts a permanent `vX.Y.Z`
+  archive release **and** force-updates the rolling `stable` pointer. After cutting
+  a stable, bump the committed target.
 - **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes **cross-repo**
   to the releases repo via the `RELEASES_TOKEN` PAT — ensure rolling release →
   upload binaries (`--clobber`) → swap `latest.json` last → prune stale assets.
@@ -139,8 +142,11 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   source of truth — re-run it to rebuild the box); the runner is on **Node 22**
   and runs as the unprivileged user **`ghrunner`** (not root) with a per-user
   rust toolchain in `/home/ghrunner/.cargo`.
-- **Gotchas**: every `master` push — even docs-only — produces a new nightly and
-  an update prompt. macOS is still build-from-source.
+- **Gotchas**: every `dev` push — even docs-only — produces a new nightly and an
+  update prompt; `master`/`staging` pushes build nothing (stable is tag-cut on
+  `master`). macOS is still build-from-source. Dependabot security updates target
+  the repo's **default branch** — set the GitHub default branch to `dev` if you
+  want them (and new PRs) to land on `dev` rather than `master`.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
