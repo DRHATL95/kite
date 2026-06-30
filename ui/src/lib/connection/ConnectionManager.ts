@@ -44,6 +44,7 @@ import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
+import { videoTransceiverDirection, tracksReadyToStream } from "./audioOnly.js";
 import { KeyboardTracker } from "./keyboardTracker.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
@@ -178,6 +179,8 @@ export class ConnectionManager implements ConnectionBackend {
 
   // ── Input stats ────────────────────────────────────────────────────────────
   private _gamepadPoller: GamepadPoller | null = null;
+  /** Active session's audio-only mode; set in connect(), reused across reconnects. */
+  private _audioOnly = false;
   private _keyboardTracker: KeyboardTracker | null = null;
   private _keyframeRequestsSent = 0;
 
@@ -254,7 +257,7 @@ export class ConnectionManager implements ConnectionBackend {
    *
    * app.js:50-69 (connect)
    */
-  async connect(xboxConsole: XHomeConsole): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean }): Promise<void> {
     // spec §3.7 duplicate-guard — app.js:51-54
     // Use a local snapshot so TypeScript's control-flow narrowing does NOT
     // eliminate "connecting" from this._state's type for the rest of the method.
@@ -279,6 +282,7 @@ export class ConnectionManager implements ConnectionBackend {
       (xboxConsole as Record<string, unknown>)["serverName"] as string ||
       "Xbox";
     this._consoleType = xboxConsole.consoleType ?? null;
+    this._audioOnly = !!opts?.audioOnly;
 
     try {
       await this._createSessionAndStream();
@@ -537,7 +541,9 @@ export class ConnectionManager implements ConnectionBackend {
     // ── Transceivers — app.js:250-255 ───────────────────────────────────────
     // spec §3.3: audio sendrecv (for chat/mic), video recvonly
     this._pc.addTransceiver("audio", { direction: "sendrecv" });
-    this._pc.addTransceiver("video", { direction: "recvonly" });
+    this._pc.addTransceiver("video", {
+      direction: videoTransceiverDirection(this._audioOnly),
+    });
 
     // ── Track + connection state + ICE handlers — app.js:258-260 ────────────
     this._tracksReceived = { video: false, audio: false };
@@ -646,13 +652,28 @@ export class ConnectionManager implements ConnectionBackend {
       // BEFORE media actually flows. Do NOT go to "streaming" here — arm the
       // media watchdog and let it promote us once frames actually decode.
       if (
-        this._tracksReceived.video &&
-        this._tracksReceived.audio &&
+        tracksReadyToStream(
+          this._audioOnly,
+          this._tracksReceived.video,
+          this._tracksReceived.audio,
+        ) &&
         !this._hasStartedPlaying
       ) {
         this._hasStartedPlaying = true;
-        this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
-        this._mediaMonitor?.arm(Date.now());
+        if (this._audioOnly) {
+          // No video track/frame will ever arrive — promote on audio-track
+          // arrival and do NOT arm the decoded-frame watchdog (it would time out
+          // and reconnect-loop forever). Hard drops are still caught by the
+          // ICE/connection-state handlers.
+          this._log("Audio-only: audio track negotiated — transitioning to streaming");
+          if (this._state === "connecting" || this._state === "reconnecting") {
+            this._setState("streaming");
+            this._startGamepadPoller();
+          }
+        } else {
+          this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
+          this._mediaMonitor?.arm(Date.now());
+        }
       }
 
       this._pushManagerStats();

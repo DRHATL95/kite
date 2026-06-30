@@ -26,6 +26,16 @@ function readLogVerbose(): boolean {
   }
 }
 
+const AUDIO_ONLY_KEY = "xbox-remote:audio-only";
+
+function readAudioOnly(): boolean {
+  try {
+    return persisted.getItem(AUDIO_ONLY_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 function readChannel(): UpdateChannel {
   try {
     const saved = persisted.getItem(CHANNEL_KEY);
@@ -46,6 +56,9 @@ class SettingsStore {
   /** Verbose ("diagnostic") logging, persisted across launches. */
   logVerbose: boolean = $state(readLogVerbose());
 
+  /** Decline video on the next connect (audio-only mode), persisted. */
+  audioOnly: boolean = $state(readAudioOnly());
+
   /** Switch channel and persist it. */
   setChannel(c: UpdateChannel): void {
     this.updateChannel = c;
@@ -61,6 +74,16 @@ class SettingsStore {
     this.logVerbose = v;
     try {
       persisted.setItem(LOG_VERBOSE_KEY, String(v));
+    } catch {
+      // best-effort persistence
+    }
+  }
+
+  /** Set audio-only mode and persist it. Applies on the next connect. */
+  setAudioOnly(v: boolean): void {
+    this.audioOnly = v;
+    try {
+      persisted.setItem(AUDIO_ONLY_KEY, String(v));
     } catch {
       // best-effort persistence
     }

@@ -37,7 +37,7 @@
     const stream = connectionStore.mediaStream;
     const streaming = connectionStore.state === "streaming";
     const c = settings.clip;
-    if (c.enabled && streaming && stream) {
+    if (c.enabled && streaming && stream && !connectionStore.audioOnly) {
       clipStore.attach(stream, { lengthSec: c.lengthSec, quality: c.quality });
     } else {
       clipStore.detach();

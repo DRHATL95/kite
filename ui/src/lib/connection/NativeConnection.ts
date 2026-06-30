@@ -88,7 +88,7 @@ export class NativeConnection implements ConnectionBackend {
    * Does not throw; failures arrive as a terminal `disconnected` event which
    * transitions state to "failed" and fires `onStateChange("failed")`.
    */
-  async connect(xboxConsole: XHomeConsole): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, _opts?: { audioOnly?: boolean }): Promise<void> {
     this._console = xboxConsole;
     this._connectStartedAt = Date.now();
     this._synth = {};
