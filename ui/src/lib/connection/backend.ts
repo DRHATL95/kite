@@ -19,7 +19,7 @@ import type { DiagnosticsSnapshot, SessionState } from "./types.js";
 export interface ConnectionBackend {
   /** Begin connecting to the given console. Does not throw; failures surface via
    * the `onStateChange("failed")` callback. */
-  connect(xboxConsole: XHomeConsole): Promise<void>;
+  connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean }): Promise<void>;
   /** Tear down the session and return to idle. */
   disconnect(): Promise<void>;
   /** Request a keyframe (IDR) from the console ("Fix Video"). */

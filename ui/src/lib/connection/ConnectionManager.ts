@@ -44,6 +44,7 @@ import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
+import { videoTransceiverDirection } from "./audioOnly.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -177,6 +178,8 @@ export class ConnectionManager implements ConnectionBackend {
 
   // ── Input stats ────────────────────────────────────────────────────────────
   private _gamepadPoller: GamepadPoller | null = null;
+  /** Active session's audio-only mode; set in connect(), reused across reconnects. */
+  private _audioOnly = false;
   private _keyframeRequestsSent = 0;
 
   // ── Idle warning ───────────────────────────────────────────────────────────
@@ -252,7 +255,7 @@ export class ConnectionManager implements ConnectionBackend {
    *
    * app.js:50-69 (connect)
    */
-  async connect(xboxConsole: XHomeConsole): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean }): Promise<void> {
     // spec §3.7 duplicate-guard — app.js:51-54
     // Use a local snapshot so TypeScript's control-flow narrowing does NOT
     // eliminate "connecting" from this._state's type for the rest of the method.
@@ -277,6 +280,7 @@ export class ConnectionManager implements ConnectionBackend {
       (xboxConsole as Record<string, unknown>)["serverName"] as string ||
       "Xbox";
     this._consoleType = xboxConsole.consoleType ?? null;
+    this._audioOnly = !!opts?.audioOnly;
 
     try {
       await this._createSessionAndStream();
@@ -535,7 +539,9 @@ export class ConnectionManager implements ConnectionBackend {
     // ── Transceivers — app.js:250-255 ───────────────────────────────────────
     // spec §3.3: audio sendrecv (for chat/mic), video recvonly
     this._pc.addTransceiver("audio", { direction: "sendrecv" });
-    this._pc.addTransceiver("video", { direction: "recvonly" });
+    this._pc.addTransceiver("video", {
+      direction: videoTransceiverDirection(this._audioOnly),
+    });
 
     // ── Track + connection state + ICE handlers — app.js:258-260 ────────────
     this._tracksReceived = { video: false, audio: false };

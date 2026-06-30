@@ -32,6 +32,7 @@ import type { SessionState, DiagnosticsSnapshot } from "../connection/types.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import { rtcNativeAvailable, rtcSaveClip } from "../ipc/commands.js";
+import { settings } from "./settings.svelte.js";
 
 /**
  * Map an internal reconnect/trigger reason to a user-facing failure message.
@@ -66,6 +67,9 @@ class ConnectionStore {
    * cleared on disconnect(). Drives the connecting splash artwork + name.
    */
   currentConsole: XHomeConsole | null = $state(null);
+
+  /** Whether the active/last session was started in audio-only mode (snapshot at connect). */
+  audioOnly: boolean = $state(false);
 
   /**
    * Current reconnect attempt number (1-based), 0 when not reconnecting.
@@ -247,9 +251,10 @@ class ConnectionStore {
     // round-trips + the engine's signaling connect, so without this the loading
     // screen lags a beat after Stream is pressed (feels like a freeze). The
     // backend re-asserts "connecting" shortly after; this just front-runs it.
+    this.audioOnly = settings.audioOnly;
     this.state = "connecting";
     try {
-      await this._impl.connect(xboxConsole);
+      await this._impl.connect(xboxConsole, { audioOnly: this.audioOnly });
     } catch (e) {
       // The backend normally surfaces failure via onStateChange("failed"); guard
       // the optimistic transition in case connect() rejects before any event.
