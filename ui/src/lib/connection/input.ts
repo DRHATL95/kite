@@ -285,6 +285,15 @@ const KEYBOARD_MAP: Record<string, KeyboardMapEntry> = {
 };
 
 /**
+ * True if `code` (a `KeyboardEvent.code`) maps to a gamepad button or axis.
+ * Used by the keyboard tracker to capture (and preventDefault) only the keys
+ * we actually translate, leaving every other key — F5, Ctrl+C, … — untouched.
+ */
+export function isMappedKey(code: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KEYBOARD_MAP, code);
+}
+
+/**
  * Build a virtual GamepadState from the set of currently pressed keyboard
  * codes.  Mirrors the logic in app.js:1798-1822 (updateKeyboardAxes) but
  * as a pure function that takes the key-set rather than mutating globals.

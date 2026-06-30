@@ -44,6 +44,7 @@ import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
+import { KeyboardTracker } from "./keyboardTracker.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -177,6 +178,7 @@ export class ConnectionManager implements ConnectionBackend {
 
   // ── Input stats ────────────────────────────────────────────────────────────
   private _gamepadPoller: GamepadPoller | null = null;
+  private _keyboardTracker: KeyboardTracker | null = null;
   private _keyframeRequestsSent = 0;
 
   // ── Idle warning ───────────────────────────────────────────────────────────
@@ -1013,9 +1015,15 @@ export class ConnectionManager implements ConnectionBackend {
       ch.send(new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength));
     };
 
-    this._gamepadPoller = new GamepadPoller(onEmit, null);
+    // Keyboard-as-gamepad fallback: the poller prefers a physical pad and only
+    // consults the keyboard when none is connected, so the two never conflict.
+    const keyboard = new KeyboardTracker();
+    keyboard.attach();
+    this._keyboardTracker = keyboard;
+
+    this._gamepadPoller = new GamepadPoller(onEmit, () => keyboard.pressed);
     this._gamepadPoller.start();
-    this._log("Started gamepad polling (60 Hz)");
+    this._log("Started gamepad polling (60 Hz) + keyboard input");
   }
 
   private _stopGamepadPoller(): void {
@@ -1023,6 +1031,10 @@ export class ConnectionManager implements ConnectionBackend {
       this._gamepadPoller.stop();
       this._gamepadPoller = null;
       this._log("Stopped gamepad polling");
+    }
+    if (this._keyboardTracker !== null) {
+      this._keyboardTracker.detach();
+      this._keyboardTracker = null;
     }
   }
 

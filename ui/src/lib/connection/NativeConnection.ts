@@ -40,6 +40,7 @@ import type { ConnectionManagerCallbacks } from "./ConnectionManager.js";
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
 
 import { GamepadPoller } from "./input.js";
+import { KeyboardTracker } from "./keyboardTracker.js";
 import { mapStats, completeSnapshot } from "./nativeStats.js";
 import { RECONNECT_MAX_ATTEMPTS } from "./constants.js";
 
@@ -62,6 +63,7 @@ export class NativeConnection implements ConnectionBackend {
   private _generation = 0;
   private _unlisten: UnlistenFn | null = null;
   private _poller: GamepadPoller | null = null;
+  private _keyboardTracker: KeyboardTracker | null = null;
   private _console: XHomeConsole | null = null;
 
   // ── Synthesised snapshot fields ────────────────────────────────────────────
@@ -104,6 +106,12 @@ export class NativeConnection implements ConnectionBackend {
       this._handleEvent(event);
     });
 
+    // Keyboard-as-gamepad fallback (same as the browser path): consulted only
+    // when no physical pad is connected.
+    const keyboard = new KeyboardTracker();
+    keyboard.attach();
+    this._keyboardTracker = keyboard;
+
     // Start the gamepad poller. On 'gamepad' emits forward state to the engine;
     // 'metadata' emits are ignored (the native engine handles client-metadata itself).
     this._poller = new GamepadPoller((emit) => {
@@ -113,7 +121,7 @@ export class NativeConnection implements ConnectionBackend {
         });
       }
       // metadata → no-op
-    });
+    }, () => keyboard.pressed);
     this._poller.start();
   }
 
@@ -134,6 +142,11 @@ export class NativeConnection implements ConnectionBackend {
     if (this._poller) {
       this._poller.stop();
       this._poller = null;
+    }
+
+    if (this._keyboardTracker) {
+      this._keyboardTracker.detach();
+      this._keyboardTracker = null;
     }
 
     this._setState("idle");
