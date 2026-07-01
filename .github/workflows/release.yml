@@ -30,6 +30,12 @@ jobs:
       XWIN_ACCEPT_LICENSE: "1"
       APPIMAGE_EXTRACT_AND_RUN: "1"
       RELEASES_REPO: ${{ github.repository }}
+      # Linux (AppImage) builds are DISABLED for the 1.0 Windows-first phase:
+      # WebKitGTK renders WebRTC video black, so the AppImage isn't shippable yet
+      # (the native Linux engine is the 1.1 headline). This gates every Linux step
+      # below — flip to 'true' to re-enable Linux nightly + stable builds. Nothing
+      # is removed; the build/stage/manifest/upload logic all remain.
+      BUILD_LINUX: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,6 +83,7 @@ jobs:
             --bundles nsis --config ci-version.json
 
       - name: Tauri build (signed AppImage for Linux x64)
+        if: env.BUILD_LINUX == 'true'
         shell: bash
         run: |
           cargo tauri build --bundles appimage --config ci-version.json
@@ -88,8 +95,10 @@ jobs:
           mkdir -p dist
           cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Kite_${v}_x64-setup.exe"     "dist/kite_${v}_x64-setup.exe"
           cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Kite_${v}_x64-setup.exe.sig" "dist/kite_${v}_x64-setup.exe.sig"
-          cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage"     "dist/kite_${v}_amd64.AppImage"
-          cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage.sig" "dist/kite_${v}_amd64.AppImage.sig"
+          if [ "${BUILD_LINUX}" = "true" ]; then
+            cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage"     "dist/kite_${v}_amd64.AppImage"
+            cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage.sig" "dist/kite_${v}_amd64.AppImage.sig"
+          fi
 
       - name: Build latest.json
         shell: bash
@@ -99,12 +108,19 @@ jobs:
           # Asset URLs point at the rolling pointer release on this repo.
           base="https://github.com/${RELEASES_REPO}/releases/download/${POINTER}"
           export VERSION
+          # Linux entry only when enabled; make-latest-json.sh omits it when the
+          # LINUX_* vars are empty, producing a valid Windows-only manifest.
+          LINUX_SIG_FILE=""; LINUX_URL=""
+          if [ "${BUILD_LINUX}" = "true" ]; then
+            LINUX_SIG_FILE="dist/kite_${VERSION}_amd64.AppImage.sig"
+            LINUX_URL="${base}/kite_${VERSION}_amd64.AppImage"
+          fi
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           NOTES='${{ steps.v.outputs.name }}' \
           WIN_SIG_FILE="dist/kite_${VERSION}_x64-setup.exe.sig" \
           WIN_URL="${base}/kite_${VERSION}_x64-setup.exe" \
-          LINUX_SIG_FILE="dist/kite_${VERSION}_amd64.AppImage.sig" \
-          LINUX_URL="${base}/kite_${VERSION}_amd64.AppImage" \
+          LINUX_SIG_FILE="$LINUX_SIG_FILE" \
+          LINUX_URL="$LINUX_URL" \
           bash scripts/ci/make-latest-json.sh > dist/latest.json
           cat dist/latest.json
 
@@ -162,9 +178,13 @@ jobs:
           assets=(
             "kite_${VERSION}_x64-setup.exe"
             "kite_${VERSION}_x64-setup.exe.sig"
-            "kite_${VERSION}_amd64.AppImage"
-            "kite_${VERSION}_amd64.AppImage.sig"
           )
+          if [ "${BUILD_LINUX}" = "true" ]; then
+            assets+=(
+              "kite_${VERSION}_amd64.AppImage"
+              "kite_${VERSION}_amd64.AppImage.sig"
+            )
+          fi
 
           # Update the rolling pointer IN PLACE: ensure release -> upload binaries
           # (clobber) -> swap latest.json LAST -> prune stale assets. Never delete
