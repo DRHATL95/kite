@@ -447,7 +447,7 @@ impl XboxAuth {
         let (status, message) = match &outcome {
             Ok(()) => (
                 "200 OK",
-                "Signed in to Xbox Remote — you can close this tab.",
+                "Signed in to Kite — you can close this tab.",
             ),
             Err(_) => (
                 "502 Bad Gateway",
@@ -455,7 +455,7 @@ impl XboxAuth {
             ),
         };
         let body = format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Xbox Remote</title></head>\
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kite</title></head>\
              <body style=\"font-family:system-ui,sans-serif;background:#0f1115;color:#e6e6e6;\
              display:flex;min-height:100vh;align-items:center;justify-content:center\">\
              <p style=\"font-size:1.1rem\">{message}</p></body></html>"

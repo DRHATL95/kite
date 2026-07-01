@@ -1,5 +1,5 @@
 /**
- * Xbox Remote — load-bearing protocol constants
+ * Kite — load-bearing protocol constants
  *
  * Every value in this file is taken VERBATIM from ui/public/app.js.
  * Do NOT change any value without also updating app.js and re-verifying

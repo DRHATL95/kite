@@ -221,7 +221,7 @@ export async function sendSessionKeepalive(
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 /**
- * Persist a recorded clip to disk under <Videos>/Xbox Remote Clips/.
+ * Persist a recorded clip to disk under <Videos>/Kite Clips/.
  * Bytes are sent as a raw IPC body (no JSON serialisation); the file name
  * travels in the X-Clip-Name header.  Returns the absolute saved path.
  *
