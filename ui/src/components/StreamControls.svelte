@@ -30,8 +30,14 @@
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
 
   const showClip = $derived(
-    settings.clip.enabled && connectionStore.state === "streaming",
+    settings.clip.enabled &&
+      connectionStore.state === "streaming" &&
+      !connectionStore.audioOnly,
   );
+
+  // Video-oriented controls (Fix Video / Immersive / Clip) are meaningless in
+  // audio-only mode, where no video track is streamed — hide them.
+  const showVideoControls = $derived(!connectionStore.audioOnly);
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -262,17 +268,19 @@
     <span class="ctrl-sep" aria-hidden="true"></span>
   {/if}
 
-  <!-- Immersive (focus) mode toggle (ghost button) -->
-  <button
-    class="ctrl-btn"
-    onclick={toggleFocusMode}
-    aria-pressed={focusMode}
-    title={focusMode
-      ? "Exit immersive mode (Esc) — bring back the app controls"
-      : "Immersive mode — hide the app controls for a distraction-free view (Esc to exit)"}
-  >
-    {focusMode ? "Exit Immersive" : "Immersive"}
-  </button>
+  <!-- Immersive (focus) mode toggle (ghost button) — video only -->
+  {#if showVideoControls}
+    <button
+      class="ctrl-btn"
+      onclick={toggleFocusMode}
+      aria-pressed={focusMode}
+      title={focusMode
+        ? "Exit immersive mode (Esc) — bring back the app controls"
+        : "Immersive mode — hide the app controls for a distraction-free view (Esc to exit)"}
+    >
+      {focusMode ? "Exit Immersive" : "Immersive"}
+    </button>
+  {/if}
 
   <!-- Fullscreen toggle (ghost button) -->
   <button
@@ -286,14 +294,16 @@
     {isFullscreen ? "Exit FS" : "Fullscreen"}
   </button>
 
-  <!-- Fix Video / keyframe request (ghost button) -->
-  <button
-    class="ctrl-btn"
-    onclick={requestKeyframe}
-    title="Fix Video — refresh the picture if it looks blocky, smeared, or frozen"
-  >
-    Fix Video
-  </button>
+  <!-- Fix Video / keyframe request (ghost button) — video only -->
+  {#if showVideoControls}
+    <button
+      class="ctrl-btn"
+      onclick={requestKeyframe}
+      title="Fix Video — refresh the picture if it looks blocky, smeared, or frozen"
+    >
+      Fix Video
+    </button>
+  {/if}
 
   <!-- Clip (only when clipping is enabled + streaming) -->
   {#if showClip}
