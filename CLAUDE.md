@@ -86,7 +86,8 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 - **Branch model**: `dev` (nightly source) → `staging` (soak/integration, no
   build) → `main` (release, the **default branch**; tag `vX.Y.Z` on `main` to cut
   stable). Only `dev` pushes and `v*` tags trigger CI — pushing `main`/`staging`
-  builds nothing. PRs target `dev`; promote `dev`→`main` (fast-forward) then tag.
+  builds nothing. PRs target `dev`; promote `dev`→`main` via PR (main is
+  branch-protected: require-PR + enforce-admins, no direct/force pushes) then tag.
 - **Nightly**: every push to `dev` builds **both** platforms in one job and
   force-updates the rolling `nightly` release on this repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
