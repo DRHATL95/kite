@@ -104,8 +104,6 @@
     </div>
   {/if}
 
-  <!-- Right: HUD hint -->
-  <span class="hud-hint" aria-label="Press backtick to toggle diagnostics HUD">` HUD</span>
 </div>
 
 <style>
@@ -178,14 +176,4 @@
     font-weight: 600;
   }
 
-  /* ── HUD hint (right-aligned) ───────────────────────────────────────────── */
-
-  .hud-hint {
-    margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-dim);
-    white-space: nowrap;
-    user-select: none;
-  }
 </style>
