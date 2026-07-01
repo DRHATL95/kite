@@ -1,4 +1,4 @@
-# Xbox Remote - Implementation Summary
+# Kite - Implementation Summary
 
 ## What Was Implemented
 
@@ -121,7 +121,7 @@ pnpm --dir ui run build && cargo build --release
 #### Test 1: Window Visibility
 ```bash
 pnpm --dir ui run build && cargo run
-# You should see "Xbox Remote" window on your desktop
+# You should see "Kite" window on your desktop
 ```
 
 #### Test 2: Authentication

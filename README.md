@@ -1,4 +1,4 @@
-# Xbox Remote
+# Kite
 
 A desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. Implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
 
@@ -156,7 +156,7 @@ cargo run
 
 ## Building a Windows Installer
 
-Xbox Remote uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
+Kite uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
 
 ```powershell
 pnpm --dir ui install
@@ -167,7 +167,7 @@ cargo tauri build
 The installer is written to:
 
 ```text
-target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
+target\release\bundle\nsis\Kite_<version>_x64-setup.exe
 ```
 
 Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.

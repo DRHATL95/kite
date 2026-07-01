@@ -5,7 +5,7 @@
 // Thin binary shim. All application logic lives in the library crate
 // (`src/lib.rs`) so that examples, integration tests, and future binaries can
 // reuse the modules — Cargo's example/test/bin targets link against the
-// library, not the binary. See `xbox_remote::run`.
+// library, not the binary. See `kite::run`.
 fn main() {
-    xbox_remote::run();
+    kite::run();
 }

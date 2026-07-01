@@ -72,7 +72,7 @@ pub fn run() {
             let (log_state, log_guard) = logging::init_logging(&log_dir);
             app.manage(log_state);
             app.manage(log_guard);
-            tracing::info!("xbox-remote starting; logs at {}", log_dir.display());
+            tracing::info!("kite starting; logs at {}", log_dir.display());
 
             // Initialize app state
             let auth = auth::XboxAuth::new();
@@ -539,7 +539,7 @@ mod tauri_commands {
 
         let dir = dirs::video_dir()
             .ok_or_else(|| "could not resolve Videos directory".to_string())?
-            .join("Xbox Remote Clips");
+            .join("Kite Clips");
         std::fs::create_dir_all(&dir).map_err(|e| format!("create dir failed: {e}"))?;
 
         let path = clip_file_path(&dir, name)?;
@@ -736,7 +736,7 @@ mod tauri_commands {
     fn clips_dir() -> Result<std::path::PathBuf, String> {
         let dir = dirs::video_dir()
             .ok_or_else(|| "could not resolve Videos directory".to_string())?
-            .join("Xbox Remote Clips");
+            .join("Kite Clips");
         std::fs::create_dir_all(&dir).map_err(|e| format!("create clips dir: {e}"))?;
         Ok(dir)
     }

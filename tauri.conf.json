@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Xbox Remote",
+  "productName": "Kite",
   "version": "0.6.0",
-  "identifier": "com.xboxremote.app",
+  "identifier": "io.github.drhatl95.kite",
   "build": {
     "frontendDist": "./ui/dist"
   },
@@ -32,7 +32,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Xbox Remote",
+        "title": "Kite",
         "width": 1280,
         "height": 800,
         "resizable": true,

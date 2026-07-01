@@ -22,10 +22,10 @@ fn main() -> wry::Result<()> {
     use wry::dpi::{LogicalPosition, LogicalSize};
     use wry::{Rect, WebViewBuilder, WebViewBuilderExtUnix};
 
-    use xbox_remote::auth::XboxAuth;
-    use xbox_remote::rtc::engine;
-    use xbox_remote::rtc::media::frame_sink::SharedFrame;
-    use xbox_remote::rtc::media::render_gtk::GtkGlRenderer;
+    use kite::auth::XboxAuth;
+    use kite::rtc::engine;
+    use kite::rtc::media::frame_sink::SharedFrame;
+    use kite::rtc::media::render_gtk::GtkGlRenderer;
 
     if std::env::var_os("GDK_BACKEND").is_none() {
         unsafe { std::env::set_var("GDK_BACKEND", "x11") };

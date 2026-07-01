@@ -2,7 +2,7 @@ use crate::auth::XboxTokens;
 use crate::error::{Result, XboxError};
 use std::path::PathBuf;
 
-const KEYRING_SERVICE: &str = "xbox-remote";
+const KEYRING_SERVICE: &str = "kite";
 const KEYRING_USER: &str = "tokens";
 
 /// Max chars per keychain entry. Windows Credential Manager caps a single

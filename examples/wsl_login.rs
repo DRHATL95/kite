@@ -14,15 +14,15 @@
 //! Then open the printed URL in any browser, sign in, and return here.
 
 use std::time::{Duration, Instant};
-use xbox_remote::auth::XboxAuth;
-use xbox_remote::xhome::XHomeClient;
+use kite::auth::XboxAuth;
+use kite::xhome::XHomeClient;
 
 #[tokio::main]
 async fn main() {
     // Surface the auth/xhome `info!`/`error!` traces (the auth-code exchange runs
     // on a background task and otherwise fails silently). Override with RUST_LOG.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,xbox_remote=debug"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,kite=debug"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
