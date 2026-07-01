@@ -1,0 +1,55 @@
+name: ci
+
+# Vet every pull request into dev or master before merge (frontend type-check +
+# unit tests, and cargo test). Runs on pull_request only — fork PRs get NO
+# secrets, and the release workflow stays push/tag-triggered, so signing keys
+# are never exposed to contributor PRs. Wire these as required status checks in
+# the branch-protection rule once they've run once.
+on:
+  pull_request:
+    branches: [dev, master]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: frontend (check + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install deps
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Type-check (svelte-check)
+        working-directory: ui
+        run: pnpm run check
+      - name: Unit tests (vitest)
+        working-directory: ui
+        run: pnpm exec vitest run
+
+  rust:
+    name: rust (cargo test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # cargo embeds ui/dist via generate_context!() at compile time, so the
+      # frontend must be built before `cargo test` or the macro can't find it.
+      - name: Build frontend (embedded by Tauri)
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: cargo test
+        run: cargo test
