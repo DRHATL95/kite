@@ -280,8 +280,9 @@ const KEYBOARD_MAP: Record<string, KeyboardMapEntry> = {
   ArrowDown:         { type: "button", index: 13 },
   ArrowLeft:         { type: "button", index: 14 },
   ArrowRight:        { type: "button", index: 15 },
-  // Guide / Nexus                           app.js:1785-1787
-  Backquote:         { type: "button", index: 16 },
+  // NB: Backquote (`) is intentionally NOT mapped to Guide/Nexus — it is the
+  // DiagnosticsHud toggle key, and double-mapping it fired the Xbox Guide on
+  // every HUD toggle. Guide stays available via a physical controller.
 };
 
 /**

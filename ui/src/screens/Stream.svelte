@@ -211,6 +211,7 @@
     connectingSteps({
       handshakeComplete: connectionStore.snapshot?.handshakeMs != null,
       videoArrived: connectionStore.snapshot?.videoArrivedAt != null,
+      audioOnly,
     }),
   );
 
@@ -343,9 +344,6 @@
         <span class="stage-pill__label">{stateLabel(connectionStore.state)}</span>
       </div>
 
-      <!-- ── HUD hint — top-right ─────────────────────────────────────────── -->
-      <span class="stage-hud-hint" aria-label="Press backtick to toggle diagnostics HUD">` HUD</span>
-
       <!-- ── Floating controls bar — bottom-centre ─────────────────────────── -->
       <StreamControls
         video={nativeMode ? null : videoEl}
@@ -453,20 +451,6 @@
     white-space: nowrap;
   }
 
-  /* ── HUD hint — top-right ───────────────────────────────────────────────── */
-
-  .stage-hud-hint {
-    position: absolute;
-    top: var(--space-3);
-    right: var(--space-3);
-    z-index: 20;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: color-mix(in srgb, var(--text-dim) 70%, transparent);
-    white-space: nowrap;
-    user-select: none;
-    pointer-events: none;
-  }
 
   /* ── Unmute overlay (shared between Player and Stage) ───────────────────── */
 

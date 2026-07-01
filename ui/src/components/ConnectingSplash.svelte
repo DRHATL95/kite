@@ -157,6 +157,13 @@
     opacity: 0.6;
   }
 
+  /* Audio-only: the video step can never complete — show it dimmed + struck,
+     but still legible (0.35 was too faint to read). */
+  .step--na {
+    opacity: 0.55;
+    text-decoration: line-through;
+  }
+
   @keyframes splashFloat {
     0%, 100% { transform: translateY(0); }
     50%      { transform: translateY(-6px); }
