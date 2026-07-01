@@ -93,3 +93,36 @@ describe("settings store — minimizeToTray", () => {
     expect(settings.minimizeToTray).toBe(true);
   });
 });
+
+const SHOW_HUD_KEY = "kite:show-diagnostics-hud";
+
+describe("settings store — showDiagnosticsHud", () => {
+  it("defaults ON for nightly when nothing persisted", async () => {
+    await seed([[CHANNEL_KEY, "nightly"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.showDiagnosticsHud).toBe(true);
+  });
+
+  it("defaults OFF for stable when nothing persisted", async () => {
+    await seed(); // no channel → stable
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.showDiagnosticsHud).toBe(false);
+  });
+
+  it("a persisted value overrides the channel default", async () => {
+    await seed([
+      [CHANNEL_KEY, "nightly"],
+      [SHOW_HUD_KEY, "false"],
+    ]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.showDiagnosticsHud).toBe(false);
+  });
+
+  it("persists and reflects a change", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setShowDiagnosticsHud(true);
+    expect(settings.showDiagnosticsHud).toBe(true);
+    expect(persist.persisted.getItem(SHOW_HUD_KEY)).toBe("true");
+  });
+});
