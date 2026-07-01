@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const CHANNEL_KEY = "xbox-remote:update-channel";
+const CHANNEL_KEY = "kite:update-channel";
 
 beforeEach(() => {
   vi.resetModules();
@@ -46,7 +46,7 @@ describe("settings store — updateChannel", () => {
   });
 });
 
-const AUDIO_ONLY_KEY = "xbox-remote:audio-only";
+const AUDIO_ONLY_KEY = "kite:audio-only";
 
 describe("settings store — audioOnly", () => {
   it("defaults to false when nothing persisted", async () => {

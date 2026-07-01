@@ -134,7 +134,7 @@ curl http://localhost:8080/auth/callback
 #### Test 3: Console Discovery
 After authenticating, you should see your consoles. Check logs:
 ```bash
-RUST_LOG=info ./target/release/xbox-remote
+RUST_LOG=info ./target/release/kite
 # Look for: "Found X consoles"
 ```
 

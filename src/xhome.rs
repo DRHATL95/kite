@@ -1105,7 +1105,7 @@ impl XHomeClient {
     ///
     /// When `XBOX_DUMP_SDP` is set in the environment, the local offer and the
     /// Xbox answer are appended to a local capture file (default
-    /// `<tmp>/xbox-remote-sdp-capture.txt`, override with `XBOX_DUMP_SDP_PATH`)
+    /// `<tmp>/kite-sdp-capture.txt`, override with `XBOX_DUMP_SDP_PATH`)
     /// for Phase-0 SRTP-mode classification (DTLS-SRTP vs SDES). Local-only
     /// diagnostics: the answer carries the DTLS fingerprint, not a long-lived
     /// secret. Written raw (bypassing log redaction) so the crypto lines survive.
@@ -1124,7 +1124,7 @@ impl XHomeClient {
 
         let path = std::env::var_os("XBOX_DUMP_SDP_PATH")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("xbox-remote-sdp-capture.txt"));
+            .unwrap_or_else(|| std::env::temp_dir().join("kite-sdp-capture.txt"));
 
         let mut buf = String::new();
         buf.push_str("================ SDP EXCHANGE CAPTURE ================\n");

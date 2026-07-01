@@ -125,7 +125,7 @@
       <span class="signed-in-label">signed in</span>
     </div>
     <div class="header-right">
-      <span class="wordmark">XBOX REMOTE</span>
+      <span class="wordmark">Kite</span>
       <button
         type="button"
         class="settings-gear"

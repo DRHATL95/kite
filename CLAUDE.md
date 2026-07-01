@@ -160,7 +160,8 @@ sudo apt-get install -y \
 **Linux/Wayland.** WebKitGTK on native Wayland renders WebRTC video black and can
 abort with "Gdk-Message: Error 71". The app therefore defaults to XWayland —
 `src/main.rs` sets `GDK_BACKEND=x11` + `WEBKIT_DISABLE_COMPOSITING_MODE=1` on Linux
-(each only if unset). Opt out with `XBOX_REMOTE_NATIVE_WAYLAND=1`, or override either
+(each only if unset). Opt out with `KITE_NATIVE_WAYLAND=1` (legacy alias
+`XBOX_REMOTE_NATIVE_WAYLAND=1`), or override either
 variable directly. (NVIDIA users who want to keep native Wayland can instead try
 `__NV_DISABLE_EXPLICIT_SYNC=1`.)
 

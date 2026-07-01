@@ -13,10 +13,10 @@ import { persisted } from "../persist/store.js";
 
 export type UpdateChannel = "stable" | "nightly";
 
-const CHANNEL_KEY = "xbox-remote:update-channel";
+const CHANNEL_KEY = "kite:update-channel";
 const DEFAULT_CHANNEL: UpdateChannel = "stable";
 
-const LOG_VERBOSE_KEY = "xbox-remote:log-verbose";
+const LOG_VERBOSE_KEY = "kite:log-verbose";
 
 function readLogVerbose(): boolean {
   try {
@@ -26,7 +26,7 @@ function readLogVerbose(): boolean {
   }
 }
 
-const AUDIO_ONLY_KEY = "xbox-remote:audio-only";
+const AUDIO_ONLY_KEY = "kite:audio-only";
 
 function readAudioOnly(): boolean {
   try {

@@ -9,7 +9,7 @@
    *   - Fullscreen toggle: requestFullscreen on the stream container element.
    *   - Keyframe button: connectionStore.requestKeyframe().
    *   - Volume slider (0–100): persisted to the durable settings store under
-   *     'xbox-remote-volume'.  Applied to the video element directly.
+   *     'kite-volume'.  Applied to the video element directly.
    *   - Disconnect button: calls onDisconnect prop.
    *
    * Props:
@@ -72,7 +72,7 @@
 
   // ── Volume state ──────────────────────────────────────────────────────────────
 
-  const VOLUME_KEY = "xbox-remote-volume";
+  const VOLUME_KEY = "kite-volume";
 
   /** Read the persisted volume as a 0–100 integer, defaulting to 80. */
   function readSavedVolumePct(): number {
