@@ -22,7 +22,7 @@
   import type { XHomeConsole } from "$lib/ipc/types.js";
   import Button from "$lib/design/Button.svelte";
   import Badge from "$lib/design/Badge.svelte";
-  import SettingsModal from "../components/SettingsModal.svelte";
+  import SettingsView from "../components/settings/SettingsView.svelte";
   import ConsoleArt from "../components/ConsoleArt.svelte";
   import { consoleTypeLabel } from "$lib/console/consoleArt.js";
 
@@ -211,7 +211,7 @@
     </div>
   </div>
 
-  <SettingsModal bind:open={settingsOpen} onClose={() => (settingsOpen = false)} />
+  <SettingsView open={settingsOpen} onClose={() => (settingsOpen = false)} />
 </div>
 
 <style>
