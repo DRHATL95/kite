@@ -1,13 +1,13 @@
 name: ci
 
-# Vet every pull request into dev or master before merge (frontend type-check +
+# Vet every pull request into dev or main before merge (frontend type-check +
 # unit tests, and cargo test). Runs on pull_request only — fork PRs get NO
 # secrets, and the release workflow stays push/tag-triggered, so signing keys
 # are never exposed to contributor PRs. Wire these as required status checks in
 # the branch-protection rule once they've run once.
 on:
   pull_request:
-    branches: [dev, master]
+    branches: [dev, main]
 
 permissions:
   contents: read

@@ -84,8 +84,9 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   old two-repo split existed; consolidated to one public repo 2026-06-30).
 
 - **Branch model**: `dev` (nightly source) → `staging` (soak/integration, no
-  build) → `master` (release; tag `vX.Y.Z` on `master` to cut stable). Only `dev`
-  pushes and `v*` tags trigger CI — pushing `master`/`staging` builds nothing.
+  build) → `main` (release, the **default branch**; tag `vX.Y.Z` on `main` to cut
+  stable). Only `dev` pushes and `v*` tags trigger CI — pushing `main`/`staging`
+  builds nothing. PRs target `dev`; promote `dev`→`main` (fast-forward) then tag.
 - **Nightly**: every push to `dev` builds **both** platforms in one job and
   force-updates the rolling `nightly` release on this repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
@@ -93,7 +94,7 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   on the same runner. Both updater artifacts are signed. Nightly version =
   `<target>-nightly.<run_number>` (committed `Cargo.toml` version = next
   unreleased `X.Y.Z`), injected via `--config` so the tree stays clean.
-- **Stable**: pushing a `vX.Y.Z` tag (on `master`) cuts a permanent `vX.Y.Z`
+- **Stable**: pushing a `vX.Y.Z` tag (on `main`) cuts a permanent `vX.Y.Z`
   archive release **and** force-updates the rolling `stable` pointer. After cutting
   a stable, bump the committed target.
 - **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes to this repo's
@@ -122,10 +123,11 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   and runs as the unprivileged user **`ghrunner`** (not root) with a per-user
   rust toolchain in `/home/ghrunner/.cargo`.
 - **Gotchas**: every `dev` push — even docs-only — produces a new nightly and an
-  update prompt; `master`/`staging` pushes build nothing (stable is tag-cut on
-  `master`). macOS is still build-from-source. Dependabot security updates target
-  the repo's **default branch** — set the GitHub default branch to `dev` if you
-  want them (and new PRs) to land on `dev` rather than `master`.
+  update prompt; `main`/`staging` pushes build nothing (stable is tag-cut on
+  `main`). macOS is still build-from-source. The GitHub **default branch is
+  `main`**; `.github/dependabot.yml` pins `target-branch: dev` for all three
+  ecosystems (cargo, npm, github-actions) so dependency-update PRs land on `dev`
+  (not the default) and flow through the normal release path.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
