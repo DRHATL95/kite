@@ -76,18 +76,18 @@ Do not skip the frontend build; the installer embeds the current `ui/dist` outpu
 ### Releases & Auto-Update (CI/CD)
 
 Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
-**self-hosted** Linux runner (Proxmox LXC CT 106). The project uses **two repos**:
+**self-hosted** Linux runner (Proxmox LXC CT 106).
 
-- **Code (private)**: `DRHATL95/xbox-remote` — source + the CI workflow.
-- **Releases (public)**: `DRHATL95/xbox-remote-releases` — only binaries + `.sig`
-  + per-channel `latest.json`. It is public so the Tauri updater can fetch
-  `latest.json` and installers anonymously while the code stays private.
+- **Single public repo**: `DRHATL95/kite` — source + CI + the release binaries.
+  Public so the Tauri updater can fetch `latest.json` + installers anonymously
+  (private-repo release assets aren't anonymously downloadable, which is why the
+  old two-repo split existed; consolidated to one public repo 2026-06-30).
 
 - **Branch model**: `dev` (nightly source) → `staging` (soak/integration, no
   build) → `master` (release; tag `vX.Y.Z` on `master` to cut stable). Only `dev`
   pushes and `v*` tags trigger CI — pushing `master`/`staging` builds nothing.
 - **Nightly**: every push to `dev` builds **both** platforms in one job and
-  force-updates the rolling `nightly` release in the releases repo. Windows NSIS
+  force-updates the rolling `nightly` release on this repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
   x86_64-pc-windows-msvc --bundles nsis`); the Linux AppImage is built natively
   on the same runner. Both updater artifacts are signed. Nightly version =
@@ -96,17 +96,18 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 - **Stable**: pushing a `vX.Y.Z` tag (on `master`) cuts a permanent `vX.Y.Z`
   archive release **and** force-updates the rolling `stable` pointer. After cutting
   a stable, bump the committed target.
-- **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes **cross-repo**
-  to the releases repo via the `RELEASES_TOKEN` PAT — ensure rolling release →
-  upload binaries (`--clobber`) → swap `latest.json` last → prune stale assets.
+- **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes to this repo's
+  own Releases via the built-in `GITHUB_TOKEN` (`permissions: contents: write`;
+  `RELEASES_REPO=${{ github.repository }}`) — ensure rolling release → upload
+  binaries (`--clobber`) → swap `latest.json` last → prune stale assets.
 - **In-app updates**: the app checks the active channel's `latest.json` on launch
   (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`).
-  Two channels: `…/releases/download/{nightly,stable}/latest.json` on the public
-  releases repo. On Linux the updater only updates **AppImage** installs.
-- **Secrets** (on the private repo): `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`)
-  for signing — public key embedded in `tauri.conf.json`; and `RELEASES_TOKEN`, a
-  PAT with `contents:write` on the releases repo for cross-repo publishing. The
-  signing private key lives at `~/.tauri/xbox-remote-updater.key` — keep a backup;
+  Two channels: `github.com/DRHATL95/kite/releases/download/{nightly,stable}/latest.json`.
+  On Linux the updater only updates **AppImage** installs.
+- **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) for signing — public
+  key embedded in `tauri.conf.json`. (The old cross-repo `RELEASES_TOKEN` PAT is
+  no longer used — publishing is same-repo via `GITHUB_TOKEN`.) The signing
+  private key lives at `~/.tauri/xbox-remote-updater.key` — keep a backup;
   **never commit it**.
 - **Runner**: a self-hosted GitHub Actions runner on CT 106 (label set
   `[self-hosted, Linux, X64]`). Build deps baked in: clang/lld/llvm, nsis, rust

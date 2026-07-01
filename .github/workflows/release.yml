@@ -1,7 +1,7 @@
 name: release
 
-# Nightly: every push to dev    -> rolling "nightly" release in the PUBLIC
-#          releases repo (version <target>-nightly.<run_number>).
+# Nightly: every push to dev    -> rolling "nightly" release on THIS repo
+#          (version <target>-nightly.<run_number>).
 # Stable:  pushing a v* tag      -> permanent vX.Y.Z archive + rolling "stable".
 #
 # Branch model: dev (nightly source) -> staging (soak/integration, no build) ->
@@ -10,16 +10,16 @@ name: release
 # Single job on the SELF-HOSTED Linux runner producing BOTH platforms:
 #   - Windows installer CROSS-COMPILED via cargo-xwin.
 #   - Linux AppImage built NATIVELY on the same runner.
-# Releases are published CROSS-REPO to DRHATL95/xbox-remote-releases (public) so
-# the in-app updater can read latest.json + binaries anonymously, while this code
-# repo stays private. Cross-repo auth uses the RELEASES_TOKEN PAT.
+# Releases are published to THIS repo's own GitHub Releases (public), so the
+# in-app updater can read latest.json + binaries anonymously. Auth uses the
+# built-in GITHUB_TOKEN (contents: write) — no cross-repo PAT.
 on:
   push:
     branches: [dev]
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release:
@@ -29,7 +29,7 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       XWIN_ACCEPT_LICENSE: "1"
       APPIMAGE_EXTRACT_AND_RUN: "1"
-      RELEASES_REPO: DRHATL95/xbox-remote-releases
+      RELEASES_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,7 +96,7 @@ jobs:
         run: |
           VERSION='${{ steps.v.outputs.version }}'
           POINTER='${{ steps.v.outputs.pointer_tag }}'
-          # Asset URLs point at the rolling pointer release in the PUBLIC releases repo.
+          # Asset URLs point at the rolling pointer release on this repo.
           base="https://github.com/${RELEASES_REPO}/releases/download/${POINTER}"
           export VERSION
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -147,10 +147,10 @@ jobs:
           [ -s dist/notes.md ] || echo "$HEADER" > dist/notes.md
           echo "---- release notes ----"; cat dist/notes.md
 
-      - name: Publish release + assets (cross-repo to the public releases repo)
+      - name: Publish release + assets (to this repo's GitHub Releases)
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION='${{ steps.v.outputs.version }}'
           POINTER='${{ steps.v.outputs.pointer_tag }}'

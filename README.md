@@ -42,7 +42,7 @@ xcode-select --install
 
 1. Clone the repository:
 ```powershell
-git clone https://github.com/DRHATL95/xbox-remote.git
+git clone https://github.com/DRHATL95/kite.git
 cd xbox-remote
 ```
 
