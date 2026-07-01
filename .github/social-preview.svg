@@ -1,0 +1,39 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1019"/>
+      <stop offset="1" stop-color="#05080f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.74" cy="0.34" r="0.5">
+      <stop offset="0" stop-color="#36cfe8" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#36cfe8" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 H0 V40" fill="none" stroke="#5b8cff" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+
+  <!-- Kite badge (right), scaled from icons/kite.svg -->
+  <g transform="translate(838 141) scale(0.35)">
+    <rect x="6" y="6" width="1012" height="1012" rx="230" fill="#0E1116" stroke="#ffffff" stroke-opacity="0.10" stroke-width="8"/>
+    <path d="M512 162 L313 377 L512 377 Z" fill="#38BDF8"/>
+    <path d="M512 162 L711 377 L512 377 Z" fill="#2DD4BF"/>
+    <path d="M313 377 L512 711 L512 377 Z" fill="#2DD4BF"/>
+    <path d="M711 377 L512 711 L512 377 Z" fill="#38BDF8"/>
+    <path d="M512 162 L512 711 M313 377 L711 377" fill="none" stroke="#0E1116" stroke-width="14" stroke-linecap="round"/>
+    <path d="M512 711 C 550 798 609 808 604 879 C 598 948 555 959 582 1002" fill="none" stroke="#2DD4BF" stroke-width="18" stroke-linecap="round"/>
+    <path d="M604 829 l22 27 l-22 27 l-22 -27 z" fill="#38BDF8"/>
+    <path d="M575 948 l19 24 l-19 24 l-19 -24 z" fill="#38BDF8"/>
+  </g>
+
+  <!-- Wordmark + tagline (left) -->
+  <text x="112" y="296" font-family="Segoe UI, Arial, sans-serif" font-size="168" font-weight="700" fill="#e7edf6" letter-spacing="1">Kite</text>
+  <rect x="118" y="330" width="132" height="6" rx="3" fill="#36cfe8"/>
+  <text x="118" y="392" font-family="Segoe UI, Arial, sans-serif" font-size="38" font-weight="600" fill="#36cfe8" letter-spacing="0.5">Xbox Remote Play, from your desktop</text>
+  <text x="118" y="446" font-family="Consolas, 'Courier New', monospace" font-size="24" fill="#808da3">Stream your console over the internet · Rust + Tauri + Svelte</text>
+</svg>

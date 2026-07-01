@@ -205,7 +205,7 @@ Kite is an unofficial, third-party project — **not affiliated with, endorsed b
 
 ## License
 
-This project is open source. Please ensure compliance with Xbox's terms of service when using.
+[MIT](./LICENSE) © David Howard. Provided as-is; use it responsibly and in accordance with Xbox's terms of service.
 
 ## Acknowledgments
 
