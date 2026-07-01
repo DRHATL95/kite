@@ -10,6 +10,7 @@ pub mod auth;
 pub mod clip;
 pub mod error;
 pub mod logging;
+pub mod releases;
 // `rtc` compiles in the default build: its pure protocol modules (input/protocol/
 // clip_tap) and trait seams carry no codec/transport deps and are unit-tested
 // without the feature. Only the str0m/ffmpeg-backed engine + adapters inside it
@@ -160,6 +161,7 @@ pub fn run() {
             tauri_commands::save_clip,
             updater::check_update,
             updater::install_update,
+            releases::get_releases,
             logging::log_event,
             logging::get_recent_logs,
             logging::set_log_verbosity,
