@@ -48,7 +48,11 @@
     <button onclick={() => void openLogDir()}>Folder</button>
   </div>
   <ul class="logview__list">
-    {#each logStore.filtered as r (r.ts + r.message)}
+    <!-- No key: log rows are display-only (append/replace), and `ts + message`
+         is NOT unique — batched flushes and repeated messages collide, which
+         throws `each_key_duplicate` and aborts the HUD panel's render. An
+         unkeyed each diffs by position and can never collide. -->
+    {#each logStore.filtered as r}
       <li class="logview__row logview__row--{r.level.toLowerCase()}">
         <span class="logview__lvl">{r.level}</span>
         <span class="logview__tgt">{r.target}</span>
