@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -32,9 +31,6 @@ fn resolve_client_id_from(env: Option<String>) -> String {
 fn resolve_client_id() -> String {
     resolve_client_id_from(std::env::var("XBOX_CLIENT_ID").ok())
 }
-
-/// Token cache filename
-const TOKEN_CACHE_FILE: &str = "xbox_tokens.json";
 
 /// Xbox Live authentication tokens
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,19 +224,14 @@ impl XboxAuth {
         }
     }
 
-    /// Path to the pre-keychain plaintext token file (used only for one-time migration).
-    fn legacy_cache_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("xbox-remote").join(TOKEN_CACHE_FILE))
-    }
-
     fn token_store() -> Result<TokenStore<KeyringBackend>> {
-        Ok(TokenStore::new(
-            KeyringBackend::new()?,
-            Self::legacy_cache_path(),
-        ))
+        // Tokens are stored only in the OS keychain. (Pre-1.0 builds also
+        // migrated a legacy plaintext token file into the keychain on first
+        // launch; that one-time migration was retired for 1.0.)
+        Ok(TokenStore::new(KeyringBackend::new()?, None))
     }
 
-    /// Load cached tokens from the OS keychain (with one-time migration from legacy file).
+    /// Load cached tokens from the OS keychain.
     pub async fn load_cached_tokens(&self) -> Result<bool> {
         let store = Self::token_store()?;
         let tokens = match store.load()? {

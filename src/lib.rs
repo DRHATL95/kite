@@ -38,14 +38,17 @@ pub fn run() {
     //
     // Each variable is only set if the user hasn't already set it (so they can
     // override individually), and the entire workaround is skipped when
-    // XBOX_REMOTE_NATIVE_WAYLAND is set — for setups where native Wayland already
-    // works and the user prefers it (e.g. HiDPI/latency reasons).
+    // KITE_NATIVE_WAYLAND is set (legacy alias: XBOX_REMOTE_NATIVE_WAYLAND) — for
+    // setups where native Wayland already works and the user prefers it (e.g.
+    // HiDPI/latency reasons).
     //
     // SAFETY: runs at the very top of run() (the first thing main() calls),
     // before any other thread is spawned, so there is no concurrent access to the
     // environment.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none() {
+    if std::env::var_os("KITE_NATIVE_WAYLAND").is_none()
+        && std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none()
+    {
         if std::env::var_os("GDK_BACKEND").is_none() {
             unsafe { std::env::set_var("GDK_BACKEND", "x11") };
         }
@@ -70,7 +73,7 @@ pub fn run() {
             let log_dir = app
                 .path()
                 .app_log_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("xbox-remote-logs"));
+                .unwrap_or_else(|_| std::env::temp_dir().join("kite-logs"));
             let (log_state, log_guard) = logging::init_logging(&log_dir);
             app.manage(log_state);
             app.manage(log_guard);

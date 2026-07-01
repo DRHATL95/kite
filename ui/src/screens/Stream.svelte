@@ -265,7 +265,7 @@
       {/if}
 
       {#if showSplash}
-        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
+        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} onCancel={onDisconnect} />
       {/if}
 
       <!-- ── Unmute affordance (autoplay policy fallback — browser path only) ── -->
@@ -321,7 +321,7 @@
       {/if}
 
       {#if showSplash}
-        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
+        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} onCancel={onDisconnect} />
       {/if}
 
       <!-- ── Unmute affordance (autoplay policy fallback — browser path only) ── -->

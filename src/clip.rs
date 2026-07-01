@@ -646,7 +646,7 @@ mod tests {
             video: vec![VideoAu { bytes: kf, pts_sec: 0.0, is_keyframe: true }],
             audio: vec![], start_sec: 0.0,
         };
-        let dir = std::env::temp_dir().join("xbox-remote-clip-test");
+        let dir = std::env::temp_dir().join("kite-clip-test");
         let path = save_assembled_clip(&clip, &dir).expect("save ok");
         assert!(path.exists());
         assert_eq!(path.extension().and_then(|e| e.to_str()), Some("mp4"));

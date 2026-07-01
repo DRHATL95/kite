@@ -86,7 +86,8 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 - **Branch model**: `dev` (nightly source) → `staging` (soak/integration, no
   build) → `main` (release, the **default branch**; tag `vX.Y.Z` on `main` to cut
   stable). Only `dev` pushes and `v*` tags trigger CI — pushing `main`/`staging`
-  builds nothing. PRs target `dev`; promote `dev`→`main` (fast-forward) then tag.
+  builds nothing. PRs target `dev`; promote `dev`→`main` via PR (main is
+  branch-protected: require-PR + enforce-admins, no direct/force pushes) then tag.
 - **Nightly**: every push to `dev` builds **both** platforms in one job and
   force-updates the rolling `nightly` release on this repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
@@ -108,7 +109,7 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 - **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) for signing — public
   key embedded in `tauri.conf.json`. (The old cross-repo `RELEASES_TOKEN` PAT is
   no longer used — publishing is same-repo via `GITHUB_TOKEN`.) The signing
-  private key lives at `~/.tauri/xbox-remote-updater.key` — keep a backup;
+  private key lives at `~/.tauri/kite-updater.key` — keep a backup;
   **never commit it**.
 - **Runner**: a self-hosted GitHub Actions runner on CT 106 (label set
   `[self-hosted, Linux, X64]`). Build deps baked in: clang/lld/llvm, nsis, rust
@@ -160,7 +161,8 @@ sudo apt-get install -y \
 **Linux/Wayland.** WebKitGTK on native Wayland renders WebRTC video black and can
 abort with "Gdk-Message: Error 71". The app therefore defaults to XWayland —
 `src/main.rs` sets `GDK_BACKEND=x11` + `WEBKIT_DISABLE_COMPOSITING_MODE=1` on Linux
-(each only if unset). Opt out with `XBOX_REMOTE_NATIVE_WAYLAND=1`, or override either
+(each only if unset). Opt out with `KITE_NATIVE_WAYLAND=1` (legacy alias
+`XBOX_REMOTE_NATIVE_WAYLAND=1`), or override either
 variable directly. (NVIDIA users who want to keep native Wayland can instead try
 `__NV_DISABLE_EXPLICIT_SYNC=1`.)
 
