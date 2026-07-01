@@ -40,8 +40,8 @@
     </div>
 
     <!-- Wordmark -->
-    <h1 class="brand" style="--i: 1;" aria-label="Xbox Remote">
-      <span>XBOX</span><span class="brand__accent">REMOTE</span>
+    <h1 class="brand" style="--i: 1;" aria-label="Kite">
+      <span>Kite</span>
     </h1>
 
     <p class="login-subtitle" style="--i: 2;">Stream your console. Anywhere on your network.</p>
@@ -142,11 +142,6 @@
     line-height: 1;
     color: var(--text);
     user-select: none;
-  }
-
-  .brand__accent {
-    color: var(--accent);
-    text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
   .login-subtitle {

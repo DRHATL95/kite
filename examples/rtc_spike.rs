@@ -6,8 +6,8 @@
 //!      handshake (handshake → control-auth → config) that starts the encoder.
 //!   2. The received H.264 access units decode to a real picture of the dashboard.
 //!
-//! Reuses production signaling (`xbox_remote::xhome`), auth (`xbox_remote::auth`)
-//! and the Phase-1 protocol builders (`xbox_remote::rtc::protocol`) verbatim —
+//! Reuses production signaling (`kite::xhome`), auth (`kite::auth`)
+//! and the Phase-1 protocol builders (`kite::rtc::protocol`) verbatim —
 //! the point of the lib+bin split.
 //!
 //! Run (sign in via the app first so tokens are in the OS keychain):
@@ -32,11 +32,11 @@ use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, Input, Output, Rtc};
 use tokio::net::UdpSocket;
 
-use xbox_remote::auth::XboxAuth;
-use xbox_remote::rtc::protocol::{
+use kite::auth::XboxAuth;
+use kite::rtc::protocol::{
     self, InboundMsg, config_messages, control_authorization, gamepad_changed, keyframe_request,
 };
-use xbox_remote::xhome::{XHomeClient, XHomeConsole};
+use kite::xhome::{XHomeClient, XHomeConsole};
 
 const SPIKE_DEADLINE: Duration = Duration::from_secs(30);
 const TARGET_VIDEO_FRAMES: usize = 100;
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,xbox_remote=info".into()),
+                .unwrap_or_else(|_| "info,kite=info".into()),
         )
         .with_target(true)
         .init();

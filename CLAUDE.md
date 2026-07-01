@@ -4,35 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Xbox Remote is a desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. It implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and browser-side WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
-
-> ### 🚧 In progress: Native Rust WebRTC (Linux-first) — merged to `master`
->
-> Linux's WebKitGTK ships **without** WebRTC, so the browser `<video>` path can't
-> stream on Linux. The WebRTC media client now lives in a **native Rust engine**
-> (str0m) behind the **`native-webrtc`** Cargo feature, Linux-first. **The browser
-> path remains the default on all platforms and is unaffected** (the feature is off
-> by default). **Status: Phases 0–6 MERGED to `master`** (PR #15 = Phases 0–5; PR
-> #19 = Phase 6 = native engine rendered into the real Tauri window; PR #20 = a
-> `glViewport`-per-render fix). **⛔ KNOWN BLOCKER (PAUSED): native video is
-> BLACK-UNTIL-RESIZE** — a Linux/XWayland GTK "airspace"/native-window compositing
-> gap (the `GLArea` draws every frame but isn't composited to the window until a
-> manual resize; decode is fine). Three further fixes were tried + ruled out +
-> reverted. **This gap is Linux-only and `native-webrtc` does NOT build on Windows,
-> so it cannot be reproduced/fixed on Windows.** Full diagnosis + ruled-out fixes +
-> the recommended empirical next step are the **source of truth in the CURRENT
-> STATUS block at the top of**
-> `docs/superpowers/plans/2026-06-19-native-rust-webrtc.md` (also
-> `…-phase{2,3}.md` + `specs/2026-06-19-native-webrtc-sdp-findings.md`). Source:
-> `src/rtc/`; render mount in `src/lib.rs`.
->
-> **OS note for a fresh instance:** `cargo test` (no features) runs the **106
-> codec-free unit tests on any OS**. `cargo build --features native-webrtc` needs
-> str0m + ffmpeg-the-third + cpal + opus and is **Linux-first** — `ffmpeg-the-third`
-> typically won't build on stock Windows, and the live `XBOX_E2E` test needs the
-> Linux box + a console. Don't expect the native feature build or live tests to work
-> on Windows; the Windows-side work is Phase 7 (unify) + planning. See the plan's
-> HANDOFF section.
+Kite is a desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. It implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and browser-side WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
 
 ## Build & Run
 
@@ -96,7 +68,7 @@ cargo tauri build
 The installer output is under (default host target):
 
 ```text
-target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
+target\release\bundle\nsis\Kite_<version>_x64-setup.exe
 ```
 
 Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
@@ -156,7 +128,7 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
-> `pnpm --dir ui run build`, then `cargo clean -p xbox-remote && cargo run` so the new
+> `pnpm --dir ui run build`, then `cargo clean -p kite && cargo run` so the new
 > assets are re-embedded. Skipping the rebuild ships stale UI; skipping `cargo clean -p`
 > can serve a cached copy. (A previous misconfiguration set `devUrl` without installing the
 > Tauri CLI, which made `cargo run` show "localhost refused to connect" — removed.)
@@ -251,7 +223,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 - `send_ice_candidate(session_path, candidate)` — forwards ICE candidate to xHome
 - `send_sdp_answer(session_path, sdp)` — forwards SDP answer to xHome
 - `send_keepalive(session_path)` — sends API-side keepalive
-- `save_clip(payload)` — remuxes an encoded-frame clip payload into an MP4 under `<Videos>/Xbox Remote Clips/` (or writes a fallback blob as-is); returns the saved path
+- `save_clip(payload)` — remuxes an encoded-frame clip payload into an MP4 under `<Videos>/Kite Clips/` (or writes a fallback blob as-is); returns the saved path
 
 ### xHome API Endpoints
 
@@ -277,7 +249,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 2. **XSTS audience** — must use `gssv` audience (`https://gssv.xboxlive.com/`) for the streaming XSTS token; the default Xbox Live audience will be rejected by the xHome API.
 3. **Keepalive drift** — use `keepAlivePulseInSeconds` from the session config response, not a hardcoded interval; Xbox disconnects after ~56 seconds if the interval is wrong.
 4. **Token expiry** — XSTS tokens expire in ~1 hour; call `check_auth_status()` before API calls and prompt re-auth if expired.
-5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `pnpm --dir ui run build` (regenerates `ui/dist`), then `cargo clean -p xbox-remote && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
+5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `pnpm --dir ui run build` (regenerates `ui/dist`), then `cargo clean -p kite && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
 6. **Edition 2024** — requires Rust 1.85+. Run `rustup update stable` if the build fails with edition errors.
 
 ## Error Handling
