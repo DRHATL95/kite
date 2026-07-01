@@ -56,6 +56,24 @@ function readChannel(): UpdateChannel {
   return DEFAULT_CHANNEL;
 }
 
+const SHOW_HUD_KEY = "kite:show-diagnostics-hud";
+
+/**
+ * Whether the diagnostics HUD (button + panel) is shown. The HUD is a developer
+ * tool, so when the user has never set it, default it ON for nightly builds and
+ * OFF for stable — but an explicit choice always wins.
+ */
+function readShowDiagnosticsHud(): boolean {
+  try {
+    const saved = persisted.getItem(SHOW_HUD_KEY);
+    if (saved === "true") return true;
+    if (saved === "false") return false;
+    return readChannel() === "nightly";
+  } catch {
+    return false;
+  }
+}
+
 class SettingsStore {
   /** Active auto-update channel (reactive). */
   updateChannel: UpdateChannel = $state(readChannel());
@@ -71,6 +89,9 @@ class SettingsStore {
 
   /** Hide the window to the system tray on close instead of quitting, persisted. */
   minimizeToTray: boolean = $state(readMinimizeToTray());
+
+  /** Show the diagnostics HUD (default on for nightly, off for stable), persisted. */
+  showDiagnosticsHud: boolean = $state(readShowDiagnosticsHud());
 
   /** Switch channel and persist it. */
   setChannel(c: UpdateChannel): void {
@@ -107,6 +128,16 @@ class SettingsStore {
     this.minimizeToTray = v;
     try {
       persisted.setItem(MINIMIZE_TO_TRAY_KEY, String(v));
+    } catch {
+      // best-effort persistence
+    }
+  }
+
+  /** Set diagnostics-HUD visibility and persist it. */
+  setShowDiagnosticsHud(v: boolean): void {
+    this.showDiagnosticsHud = v;
+    try {
+      persisted.setItem(SHOW_HUD_KEY, String(v));
     } catch {
       // best-effort persistence
     }

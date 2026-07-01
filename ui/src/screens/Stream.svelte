@@ -33,6 +33,7 @@
 
   import { onDestroy } from "svelte";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
+  import { settings } from "$lib/stores/settings.svelte.js";
   import StreamControls from "../components/StreamControls.svelte";
   import StreamStatus from "../components/StreamStatus.svelte";
   import DiagnosticsHud from "../components/DiagnosticsHud.svelte";
@@ -278,7 +279,9 @@
       {/if}
 
       <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────── -->
-      <DiagnosticsHud />
+      {#if settings.showDiagnosticsHud}
+        <DiagnosticsHud />
+      {/if}
     </div>
 
     <!-- ── Controls bar (bottom) ───────────────────────────────────────────── -->
@@ -332,7 +335,9 @@
       {/if}
 
       <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────── -->
-      <DiagnosticsHud />
+      {#if settings.showDiagnosticsHud}
+        <DiagnosticsHud />
+      {/if}
 
       <!-- ── Floating status pill — top-left ─────────────────────────────── -->
       <div class="stage-pill" role="status" aria-live="polite" aria-atomic="true">

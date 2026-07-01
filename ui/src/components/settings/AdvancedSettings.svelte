@@ -7,6 +7,21 @@
 
 <div class="settings-row">
   <div class="settings-row__text">
+    <span class="settings-row__title">Show diagnostics HUD</span>
+    <span class="settings-row__desc">
+      Overlay a live diagnostics panel (video / network / packet stats + logs) on
+      the stream, via the corner HUD button or the ` key. On by default for
+      nightly builds, off for stable.
+    </span>
+  </div>
+  <Toggle
+    checked={settings.showDiagnosticsHud}
+    label=""
+    onchange={(on) => settings.setShowDiagnosticsHud(on)}
+  />
+</div>
+<div class="settings-row">
+  <div class="settings-row__text">
     <span class="settings-row__title">Verbose logging</span>
     <span class="settings-row__desc">
       Capture full protocol detail (SDP/ICE/stats) to reproduce a bug. Off keeps
