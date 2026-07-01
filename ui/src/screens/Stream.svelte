@@ -211,6 +211,7 @@
     connectingSteps({
       handshakeComplete: connectionStore.snapshot?.handshakeMs != null,
       videoArrived: connectionStore.snapshot?.videoArrivedAt != null,
+      audioOnly,
     }),
   );
 
