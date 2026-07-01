@@ -24,7 +24,7 @@ Registration needs a short-lived token (kept out of the committed script). From
 a machine with `gh` logged in:
 
 ```bash
-gh api -X POST repos/DRHATL95/xbox-remote/actions/runners/registration-token -q .token
+gh api -X POST repos/DRHATL95/kite/actions/runners/registration-token -q .token
 ```
 
 Then either re-run the script with the token:
@@ -37,7 +37,7 @@ or register by hand in `/opt/actions-runner`:
 
 ```bash
 RUNNER_ALLOW_RUNASROOT=1 ./config.sh --unattended --replace \
-  --url https://github.com/DRHATL95/xbox-remote --token <TOKEN> --name ct106 --work _work
+  --url https://github.com/DRHATL95/kite --token <TOKEN> --name ct106 --work _work
 ./svc.sh install root && ./svc.sh start
 ```
 
@@ -50,5 +50,5 @@ resolve in jobs. Labels are the defaults: `self-hosted, Linux, X64`.
 ```bash
 node --version            # v22.x
 gh --version; cargo-xwin --version
-gh api repos/DRHATL95/xbox-remote/actions/runners -q '.runners[] | "\(.name) \(.status)"'
+gh api repos/DRHATL95/kite/actions/runners -q '.runners[] | "\(.name) \(.status)"'
 ```

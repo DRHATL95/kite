@@ -10,7 +10,7 @@ pub fn channel_endpoint(channel: &str) -> String {
     } else {
         "stable"
     };
-    format!("https://github.com/DRHATL95/xbox-remote-releases/releases/download/{ch}/latest.json")
+    format!("https://github.com/DRHATL95/kite/releases/download/{ch}/latest.json")
 }
 
 use serde::Serialize;
@@ -140,7 +140,7 @@ mod tests {
     fn uses_github_releases_host() {
         let url = channel_endpoint("stable");
         assert!(
-            url.starts_with("https://github.com/DRHATL95/xbox-remote-releases/releases/download/"),
+            url.starts_with("https://github.com/DRHATL95/kite/releases/download/"),
             "unexpected endpoint host: {url}"
         );
     }

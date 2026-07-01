@@ -13,7 +13,7 @@ set -euo pipefail
 NODE_MAJOR=22
 RUNNER_USER=ghrunner
 RUNNER_DIR=/opt/actions-runner
-GH_REPO_URL=https://github.com/DRHATL95/xbox-remote
+GH_REPO_URL=https://github.com/DRHATL95/kite
 RUNNER_TOKEN=""
 
 while [ $# -gt 0 ]; do
