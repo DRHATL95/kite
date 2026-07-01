@@ -14,7 +14,7 @@
 import { THEME_IDS, DEFAULT_THEME } from "$lib/design/themes.js";
 import { persisted } from "../persist/store.js";
 
-const STORAGE_KEY = "xbox-remote-theme";
+const STORAGE_KEY = "kite-theme";
 
 /** Read the persisted theme id, falling back to the default. */
 function readInitial(): string {

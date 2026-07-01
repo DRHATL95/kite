@@ -6,7 +6,7 @@ vi.mock("./updater.js", () => ({
   applyUpdate: vi.fn(),
 }));
 
-const CHANNEL_KEY = "xbox-remote:update-channel";
+const CHANNEL_KEY = "kite:update-channel";
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provision the Xbox Remote CI runner (Proxmox LXC CT 106) from a fresh
+# Provision the Kite CI runner (Proxmox LXC CT 106) from a fresh
 # Ubuntu 22.04 root shell. Idempotent: safe to re-run. Run as root.
 #
 #   ./setup-ct106.sh                            # provision toolchain only

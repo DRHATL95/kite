@@ -94,7 +94,7 @@ There are no feature flags. `cargo run` builds and launches the full Tauri app.
 ## Project Structure
 
 ```
-xbox-remote/
+kite/
 ├── src/
 │   ├── main.rs              # Tauri entry point and command registration
 │   ├── auth.rs              # OAuth device-code flow and token chain
