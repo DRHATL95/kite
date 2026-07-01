@@ -33,3 +33,7 @@ nul
 
 # Brainstorming visual companion
 .superpowers/
+
+# Dev-workflow artifacts (specs/plans) — kept local, never committed to the
+# public repo. Removed the tracked docs/ tree when the repo went public.
+/docs/
