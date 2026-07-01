@@ -130,7 +130,7 @@
     align-items: center;
     justify-content: center;
     padding: 3px var(--space-2);
-    background: rgba(0, 0, 0, 0.55);
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
     backdrop-filter: blur(4px);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -145,7 +145,7 @@
   }
 
   .hud-toggle:hover {
-    background: rgba(0, 0, 0, 0.75);
+    background: var(--surface);
     color: var(--text);
     border-color: var(--text-dim);
   }
