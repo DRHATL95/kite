@@ -86,10 +86,10 @@ jobs:
         run: |
           v='${{ steps.v.outputs.version }}'
           mkdir -p dist
-          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "dist/xbox-remote_${v}_x64-setup.exe"
-          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "dist/xbox-remote_${v}_x64-setup.exe.sig"
-          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage"     "dist/xbox-remote_${v}_amd64.AppImage"
-          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage.sig" "dist/xbox-remote_${v}_amd64.AppImage.sig"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Kite_${v}_x64-setup.exe"     "dist/kite_${v}_x64-setup.exe"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Kite_${v}_x64-setup.exe.sig" "dist/kite_${v}_x64-setup.exe.sig"
+          cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage"     "dist/kite_${v}_amd64.AppImage"
+          cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage.sig" "dist/kite_${v}_amd64.AppImage.sig"
 
       - name: Build latest.json
         shell: bash
@@ -101,10 +101,10 @@ jobs:
           export VERSION
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           NOTES='${{ steps.v.outputs.name }}' \
-          WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
-          WIN_URL="${base}/xbox-remote_${VERSION}_x64-setup.exe" \
-          LINUX_SIG_FILE="dist/xbox-remote_${VERSION}_amd64.AppImage.sig" \
-          LINUX_URL="${base}/xbox-remote_${VERSION}_amd64.AppImage" \
+          WIN_SIG_FILE="dist/kite_${VERSION}_x64-setup.exe.sig" \
+          WIN_URL="${base}/kite_${VERSION}_x64-setup.exe" \
+          LINUX_SIG_FILE="dist/kite_${VERSION}_amd64.AppImage.sig" \
+          LINUX_URL="${base}/kite_${VERSION}_amd64.AppImage" \
           bash scripts/ci/make-latest-json.sh > dist/latest.json
           cat dist/latest.json
 
@@ -160,10 +160,10 @@ jobs:
           source scripts/ci/github-release.sh
 
           assets=(
-            "xbox-remote_${VERSION}_x64-setup.exe"
-            "xbox-remote_${VERSION}_x64-setup.exe.sig"
-            "xbox-remote_${VERSION}_amd64.AppImage"
-            "xbox-remote_${VERSION}_amd64.AppImage.sig"
+            "kite_${VERSION}_x64-setup.exe"
+            "kite_${VERSION}_x64-setup.exe.sig"
+            "kite_${VERSION}_amd64.AppImage"
+            "kite_${VERSION}_amd64.AppImage.sig"
           )
 
           # Update the rolling pointer IN PLACE: ensure release -> upload binaries
