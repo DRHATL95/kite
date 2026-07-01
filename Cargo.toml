@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # Tauri framework
-tauri = { version = "2.11", features = ["devtools"] }
+tauri = { version = "2.11", features = ["devtools", "tray-icon"] }
 tauri-plugin-shell = "2.3"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

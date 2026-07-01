@@ -16,6 +16,7 @@ pub mod logging;
 // are gated behind `native-webrtc` (see src/rtc/mod.rs).
 pub mod rtc;
 pub mod token_store;
+pub mod tray;
 pub mod updater;
 pub mod xhome;
 
@@ -95,6 +96,12 @@ pub fn run() {
                 rtc: Mutex::new(None),
             });
             app.manage(updater::PendingUpdate::default());
+
+            // Always-on system tray (Show/Quit + restore-on-click). Non-fatal:
+            // if it fails, the app still runs and close simply quits.
+            if let Err(e) = tray::build_tray(app) {
+                tracing::warn!("tray icon setup failed (continuing without tray): {e}");
+            }
 
             // Mount the native GTK video surface UNDER the transparent web HUD.
             // Linux + native-webrtc only; the browser path (Windows/macOS, or

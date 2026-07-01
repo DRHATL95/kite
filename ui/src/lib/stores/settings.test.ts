@@ -69,3 +69,27 @@ describe("settings store — audioOnly", () => {
     expect(settings.audioOnly).toBe(true);
   });
 });
+
+const MINIMIZE_TO_TRAY_KEY = "kite:minimize-to-tray";
+
+describe("settings store — minimizeToTray", () => {
+  it("defaults to false when nothing persisted", async () => {
+    await seed();
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.minimizeToTray).toBe(false);
+  });
+
+  it("persists and reflects a minimize-to-tray change", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setMinimizeToTray(true);
+    expect(settings.minimizeToTray).toBe(true);
+    expect(persist.persisted.getItem(MINIMIZE_TO_TRAY_KEY)).toBe("true");
+  });
+
+  it("restores a persisted minimize-to-tray=true on load", async () => {
+    await seed([[MINIMIZE_TO_TRAY_KEY, "true"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.minimizeToTray).toBe(true);
+  });
+});

@@ -36,6 +36,16 @@ function readAudioOnly(): boolean {
   }
 }
 
+const MINIMIZE_TO_TRAY_KEY = "kite:minimize-to-tray";
+
+function readMinimizeToTray(): boolean {
+  try {
+    return persisted.getItem(MINIMIZE_TO_TRAY_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 function readChannel(): UpdateChannel {
   try {
     const saved = persisted.getItem(CHANNEL_KEY);
@@ -58,6 +68,9 @@ class SettingsStore {
 
   /** Decline video on the next connect (audio-only mode), persisted. */
   audioOnly: boolean = $state(readAudioOnly());
+
+  /** Hide the window to the system tray on close instead of quitting, persisted. */
+  minimizeToTray: boolean = $state(readMinimizeToTray());
 
   /** Switch channel and persist it. */
   setChannel(c: UpdateChannel): void {
@@ -84,6 +97,16 @@ class SettingsStore {
     this.audioOnly = v;
     try {
       persisted.setItem(AUDIO_ONLY_KEY, String(v));
+    } catch {
+      // best-effort persistence
+    }
+  }
+
+  /** Set minimize-to-tray and persist it. */
+  setMinimizeToTray(v: boolean): void {
+    this.minimizeToTray = v;
+    try {
+      persisted.setItem(MINIMIZE_TO_TRAY_KEY, String(v));
     } catch {
       // best-effort persistence
     }
