@@ -108,7 +108,7 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
 - **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) for signing — public
   key embedded in `tauri.conf.json`. (The old cross-repo `RELEASES_TOKEN` PAT is
   no longer used — publishing is same-repo via `GITHUB_TOKEN`.) The signing
-  private key lives at `~/.tauri/xbox-remote-updater.key` — keep a backup;
+  private key lives at `~/.tauri/kite-updater.key` — keep a backup;
   **never commit it**.
 - **Runner**: a self-hosted GitHub Actions runner on CT 106 (label set
   `[self-hosted, Linux, X64]`). Build deps baked in: clang/lld/llvm, nsis, rust
