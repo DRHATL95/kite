@@ -1,4 +1,4 @@
-//! Xbox Remote library crate.
+//! Kite library crate.
 //!
 //! The application logic lives here as a library so that **examples**
 //! (`examples/*.rs`), **integration tests** (`tests/*.rs`), and future binaries
@@ -523,7 +523,7 @@ mod tauri_commands {
         }
     }
 
-    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Xbox Remote Clips/.
+    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Kite Clips/.
     /// Bytes arrive as a raw IPC body; the file name is passed via the X-Clip-Name header.
     /// Returns the absolute path of the written file.
     #[tauri::command]
@@ -729,7 +729,7 @@ mod tauri_commands {
         }
     }
 
-    /// Resolve the clips directory (`<Videos>/Xbox Remote Clips/`), creating it
+    /// Resolve the clips directory (`<Videos>/Kite Clips/`), creating it
     /// if absent. Shared between `save_clip` (browser path) and `rtc_save_clip`
     /// (native path).
     #[cfg(feature = "native-webrtc")]

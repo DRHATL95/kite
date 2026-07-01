@@ -272,7 +272,7 @@
         <span class="settings-section__label">ABOUT</span>
         <div class="settings-row">
           <div class="settings-row__text">
-            <span class="settings-row__title">Xbox Remote</span>
+            <span class="settings-row__title">Kite</span>
             <span class="settings-row__desc">
               {appVersion ? `Version ${appVersion}` : "Version unavailable"}
             </span>

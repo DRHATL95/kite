@@ -1,5 +1,5 @@
 /**
- * dataChannels.ts — Xbox Remote WebRTC data-channel setup + Xbox handshake
+ * dataChannels.ts — Kite WebRTC data-channel setup + Xbox handshake
  *
  * Creates the four required data channels, runs the message-channel handshake
  * sequence, sends the post-handshake control/config messages, and routes

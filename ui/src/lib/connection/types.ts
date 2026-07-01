@@ -1,5 +1,5 @@
 /**
- * types.ts — Shared connection-layer types for Xbox Remote.
+ * types.ts — Shared connection-layer types for Kite.
  *
  * DiagnosticsSnapshot is the central data structure fed to the diagnostics HUD.
  * Fields are split into two groups:

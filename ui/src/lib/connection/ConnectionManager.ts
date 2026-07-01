@@ -1,5 +1,5 @@
 /**
- * ConnectionManager.ts — Xbox Remote streaming state machine
+ * ConnectionManager.ts — Kite streaming state machine
  *
  * Pure-TS class (no Svelte imports).  Owns the session lifecycle, WebRTC peer
  * connection, keepalives, handshake event routing, reconnect logic, and stats

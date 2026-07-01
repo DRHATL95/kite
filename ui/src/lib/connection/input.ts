@@ -1,5 +1,5 @@
 /**
- * input.ts — Xbox Remote gamepad input encoder
+ * input.ts — Kite gamepad input encoder
  *
  * Pure, deterministic packet encoder for the Xbox xHome input channel.
  * All encoding is derived byte-for-byte from ui/public/app.js.
