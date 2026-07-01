@@ -1,0 +1,28 @@
+version: 2
+
+# Dependency-update PRs target `dev` (the active development branch), NOT the
+# default branch (`main`) — new work lands on dev and flows into a release.
+updates:
+  # Rust crates (Cargo.toml / Cargo.lock at the repo root)
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+
+  # Frontend deps (pnpm — package.json / pnpm-lock.yaml under ui/)
+  - package-ecosystem: npm
+    directory: "/ui"
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+
+  # GitHub Actions used in .github/workflows/
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5

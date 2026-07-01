@@ -5,7 +5,7 @@ name: release
 # Stable:  pushing a v* tag      -> permanent vX.Y.Z archive + rolling "stable".
 #
 # Branch model: dev (nightly source) -> staging (soak/integration, no build) ->
-#               master (release; tag vX.Y.Z on master to cut stable).
+#               main (release; tag vX.Y.Z on main to cut stable).
 #
 # Single job on the SELF-HOSTED Linux runner producing BOTH platforms:
 #   - Windows installer CROSS-COMPILED via cargo-xwin.
