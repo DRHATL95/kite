@@ -32,6 +32,11 @@ import type { SessionState, DiagnosticsSnapshot } from "../connection/types.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import { rtcNativeAvailable, rtcSaveClip } from "../ipc/commands.js";
+import {
+  CONNECT_TIMEOUT_MS,
+  CONNECT_TIMEOUT_MESSAGE,
+  isConnectSettled,
+} from "../connection/connectTimeout.js";
 import { settings } from "./settings.svelte.js";
 
 /**
@@ -106,6 +111,15 @@ class ConnectionStore {
   private _native: boolean = false;
 
   /**
+   * Watchdog timer for the initial connect. Armed in connect(), cleared once the
+   * connect settles (isConnectSettled). If it fires while still in progress the
+   * store forces a `failed` state, so an unresponsive console can't hang the
+   * connecting splash forever — including the native path, which has no timeout
+   * of its own.
+   */
+  private _connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
    * The shared callbacks object.  Built once; passed to whichever backend
    * init() constructs.  Kept as a field so init() can reuse it when building
    * the NativeConnection without duplicating the callback wiring.
@@ -117,6 +131,8 @@ class ConnectionStore {
     this._callbacks = {
       onStateChange: (s: SessionState) => {
         this.state = s;
+        // The connect either succeeded or ended — disarm the connect watchdog.
+        if (isConnectSettled(s)) this._clearConnectTimer();
         // Reset the live counter whenever we leave reconnecting state.
         if (s !== "reconnecting") this.reconnectAttempt = 0;
         // Capture a user-facing failure reason when we give up.
@@ -253,11 +269,15 @@ class ConnectionStore {
     // backend re-asserts "connecting" shortly after; this just front-runs it.
     this.audioOnly = settings.audioOnly;
     this.state = "connecting";
+    // Arm the connect watchdog: if we never reach a settled state within
+    // CONNECT_TIMEOUT_MS, _onConnectTimeout forces a failure.
+    this._armConnectTimer();
     try {
       await this._impl.connect(xboxConsole, { audioOnly: this.audioOnly });
     } catch (e) {
       // The backend normally surfaces failure via onStateChange("failed"); guard
       // the optimistic transition in case connect() rejects before any event.
+      this._clearConnectTimer();
       if (this.state === "connecting") {
         this.state = "failed";
         this.failureReason = mapFailureReason(this._impl.lastTriggerReason);
@@ -266,10 +286,44 @@ class ConnectionStore {
     }
   }
 
+  // ── Connect watchdog ────────────────────────────────────────────────────────
+  //
+  // A single timer guards the initial connect. The user-visible "connecting"
+  // state lives here in the store, but the backends' own timeouts are uneven
+  // (the native engine path has none), so this store-level net catches a connect
+  // that never progresses — regardless of backend.
+
+  private _armConnectTimer(): void {
+    this._clearConnectTimer();
+    this._connectTimer = setTimeout(() => this._onConnectTimeout(), CONNECT_TIMEOUT_MS);
+  }
+
+  private _clearConnectTimer(): void {
+    if (this._connectTimer !== null) {
+      clearTimeout(this._connectTimer);
+      this._connectTimer = null;
+    }
+  }
+
+  private _onConnectTimeout(): void {
+    this._clearConnectTimer();
+    // Race guard: the connect may have settled between the timer firing and this
+    // callback running.
+    if (isConnectSettled(this.state)) return;
+    // Present a failure. Teardown + navigation are handled by App.svelte's 3s
+    // failed→console-list auto-return (the same path a backend-reported failure
+    // takes), so we deliberately do NOT disconnect here — that would emit an
+    // intermediate "idle" and flicker the router.
+    this.state = "failed";
+    this.failureReason = CONNECT_TIMEOUT_MESSAGE;
+  }
+
   /**
    * User-initiated disconnect.  Resets state to 'idle' and clears the stream.
    */
   async disconnect(): Promise<void> {
+    // Cancel any in-flight connect watchdog (covers the splash "Cancel" button).
+    this._clearConnectTimer();
     await this._impl.disconnect();
     // Clear media stream reference so UI can clean up srcObject
     this.mediaStream = null;
