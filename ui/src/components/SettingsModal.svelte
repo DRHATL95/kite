@@ -174,6 +174,25 @@
         </div>
       </section>
 
+      <!-- ── Window ──────────────────────────────────────────────────────── -->
+      <section class="settings-section">
+        <span class="settings-section__label">WINDOW</span>
+        <div class="settings-row">
+          <div class="settings-row__text">
+            <span class="settings-row__title">Keep running in the tray when closed</span>
+            <span class="settings-row__desc">
+              Closing the window hides Kite to the system tray instead of quitting —
+              handy for audio-only. Restore it from the tray icon; use Quit Kite to exit.
+            </span>
+          </div>
+          <Toggle
+            checked={settings.minimizeToTray}
+            label=""
+            onchange={(on) => settings.setMinimizeToTray(on)}
+          />
+        </div>
+      </section>
+
       <!-- ── Stream ──────────────────────────────────────────────────────── -->
       <section class="settings-section">
         <span class="settings-section__label">STREAM</span>
