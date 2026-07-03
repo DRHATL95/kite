@@ -560,6 +560,9 @@ export class ConnectionManager implements ConnectionBackend {
     // ── Create offer — app.js:269-274 ───────────────────────────────────────
     const offer = await this._pc.createOffer();
     if (offer.sdp) {
+      // In audio-only mode the video transceiver direction is "inactive"
+      // (see videoTransceiverDirection), so this cap lands on an inactive
+      // m-line and is inert — a harmless no-op, no guard needed here.
       offer.sdp = applyVideoBitrateCap(offer.sdp, this._quality.maxBitrateKbps);
     }
     this._log(`Created SDP offer (${offer.sdp?.length ?? 0} bytes)`);

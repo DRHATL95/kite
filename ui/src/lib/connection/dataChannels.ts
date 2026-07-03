@@ -223,7 +223,9 @@ function sendConfigMessages(
   if (messageChannel.readyState !== "open") return;
   const dims = dimensions ?? { width: 1920, height: 1080 };
 
-  // Config targets and payloads — taken verbatim from app.js:528-535
+  // Config targets and payloads — taken verbatim from app.js:528-535, except
+  // dimensionschanged: its content is computed from the requested resolution
+  // (default 1920×1080) via buildDimensionsPayload(), not a fixed literal.
   const configs: { target: string; content: string }[] = [
     {
       target: "/streaming/systemUi/configuration",

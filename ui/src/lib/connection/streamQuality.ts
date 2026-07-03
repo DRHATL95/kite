@@ -21,7 +21,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualityParams> = {
   low:    { width: 1280, height: 720,  maxBitrateKbps: 4000 },
 };
 
-const PRESET_IDS = new Set<string>(["auto", "high", "medium", "low"]);
+const PRESET_IDS = new Set<string>(Object.keys(QUALITY_PRESETS));
 
 export function isQualityPreset(v: unknown): v is QualityPreset {
   return typeof v === "string" && PRESET_IDS.has(v);
