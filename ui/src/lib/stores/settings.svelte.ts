@@ -9,6 +9,7 @@ import {
   saveClipSettings,
   type ClipSettings,
 } from "../settings/clipSettings.js";
+import { isQualityPreset, type QualityPreset } from "../connection/streamQuality.js";
 import { persisted } from "../persist/store.js";
 
 export type UpdateChannel = "stable" | "nightly";
@@ -74,6 +75,18 @@ function readShowDiagnosticsHud(): boolean {
   }
 }
 
+const STREAM_QUALITY_KEY = "kite:stream-quality";
+
+function readStreamQuality(): QualityPreset {
+  try {
+    const saved = persisted.getItem(STREAM_QUALITY_KEY);
+    if (isQualityPreset(saved)) return saved;
+  } catch {
+    // persistence unavailable — use default
+  }
+  return "auto";
+}
+
 class SettingsStore {
   /** Active auto-update channel (reactive). */
   updateChannel: UpdateChannel = $state(readChannel());
@@ -86,6 +99,9 @@ class SettingsStore {
 
   /** Decline video on the next connect (audio-only mode), persisted. */
   audioOnly: boolean = $state(readAudioOnly());
+
+  /** Stream quality preset (resolution + bitrate cap). Applies on the next connect. */
+  streamQuality: QualityPreset = $state(readStreamQuality());
 
   /** Hide the window to the system tray on close instead of quitting, persisted. */
   minimizeToTray: boolean = $state(readMinimizeToTray());
@@ -118,6 +134,16 @@ class SettingsStore {
     this.audioOnly = v;
     try {
       persisted.setItem(AUDIO_ONLY_KEY, String(v));
+    } catch {
+      // best-effort persistence
+    }
+  }
+
+  /** Set the stream quality preset and persist it. Applies on the next connect. */
+  setStreamQuality(p: QualityPreset): void {
+    this.streamQuality = p;
+    try {
+      persisted.setItem(STREAM_QUALITY_KEY, p);
     } catch {
       // best-effort persistence
     }
