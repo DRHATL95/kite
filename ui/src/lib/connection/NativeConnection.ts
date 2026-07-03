@@ -38,6 +38,7 @@ import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend } from "./backend.js";
 import type { ConnectionManagerCallbacks } from "./ConnectionManager.js";
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
+import type { QualityParams } from "./streamQuality.js";
 
 import { GamepadPoller } from "./input.js";
 import { KeyboardTracker } from "./keyboardTracker.js";
@@ -88,7 +89,7 @@ export class NativeConnection implements ConnectionBackend {
    * Does not throw; failures arrive as a terminal `disconnected` event which
    * transitions state to "failed" and fires `onStateChange("failed")`.
    */
-  async connect(xboxConsole: XHomeConsole, _opts?: { audioOnly?: boolean }): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, _opts?: { audioOnly?: boolean; quality?: QualityParams }): Promise<void> {
     this._console = xboxConsole;
     this._connectStartedAt = Date.now();
     this._synth = {};

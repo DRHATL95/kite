@@ -38,6 +38,7 @@ import {
   isConnectSettled,
 } from "../connection/connectTimeout.js";
 import { settings } from "./settings.svelte.js";
+import { paramsForQuality } from "../connection/streamQuality.js";
 
 /**
  * Map an internal reconnect/trigger reason to a user-facing failure message.
@@ -268,12 +269,13 @@ class ConnectionStore {
     // screen lags a beat after Stream is pressed (feels like a freeze). The
     // backend re-asserts "connecting" shortly after; this just front-runs it.
     this.audioOnly = settings.audioOnly;
+    const quality = paramsForQuality(settings.streamQuality);
     this.state = "connecting";
     // Arm the connect watchdog: if we never reach a settled state within
     // CONNECT_TIMEOUT_MS, _onConnectTimeout forces a failure.
     this._armConnectTimer();
     try {
-      await this._impl.connect(xboxConsole, { audioOnly: this.audioOnly });
+      await this._impl.connect(xboxConsole, { audioOnly: this.audioOnly, quality });
     } catch (e) {
       // The backend normally surfaces failure via onStateChange("failed"); guard
       // the optimistic transition in case connect() rejects before any event.

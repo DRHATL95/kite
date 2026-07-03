@@ -38,6 +38,8 @@ import {
 } from "./constants.js";
 
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
+import { applyVideoBitrateCap } from "./sdpBitrate.js";
+import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend } from "./backend.js";
@@ -181,6 +183,7 @@ export class ConnectionManager implements ConnectionBackend {
   private _gamepadPoller: GamepadPoller | null = null;
   /** Active session's audio-only mode; set in connect(), reused across reconnects. */
   private _audioOnly = false;
+  private _quality: QualityParams = QUALITY_PRESETS.auto;
   private _keyboardTracker: KeyboardTracker | null = null;
   private _keyframeRequestsSent = 0;
 
@@ -257,7 +260,7 @@ export class ConnectionManager implements ConnectionBackend {
    *
    * app.js:50-69 (connect)
    */
-  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean }): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams }): Promise<void> {
     // spec §3.7 duplicate-guard — app.js:51-54
     // Use a local snapshot so TypeScript's control-flow narrowing does NOT
     // eliminate "connecting" from this._state's type for the rest of the method.
@@ -283,6 +286,7 @@ export class ConnectionManager implements ConnectionBackend {
       "Xbox";
     this._consoleType = xboxConsole.consoleType ?? null;
     this._audioOnly = !!opts?.audioOnly;
+    this._quality = opts?.quality ?? QUALITY_PRESETS.auto;
 
     try {
       await this._createSessionAndStream();
@@ -472,6 +476,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._handshakeAckAt = null;
 
     this._channels = createDataChannels(this._pc, {
+      dimensions: { width: this._quality.width, height: this._quality.height },
       onHandshakeComplete: () => {
         this._handshakeAckAt = Date.now();
         this._log("HandshakeAck received — channels fully active");
@@ -554,6 +559,9 @@ export class ConnectionManager implements ConnectionBackend {
 
     // ── Create offer — app.js:269-274 ───────────────────────────────────────
     const offer = await this._pc.createOffer();
+    if (offer.sdp) {
+      offer.sdp = applyVideoBitrateCap(offer.sdp, this._quality.maxBitrateKbps);
+    }
     this._log(`Created SDP offer (${offer.sdp?.length ?? 0} bytes)`);
     await this._pc.setLocalDescription(offer);
 
