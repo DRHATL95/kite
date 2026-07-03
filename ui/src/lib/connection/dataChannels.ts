@@ -24,6 +24,8 @@ import {
   KEYFRAME_DELAY_MS,
 } from "./constants.js";
 
+import { buildDimensionsPayload } from "./streamQuality.js";
+
 import type {
   HandshakeMessage,
   MessageChannelMessage,
@@ -93,6 +95,10 @@ export interface DataChannelHandlers {
    * Optional logging callback.  Receives human-readable diagnostic strings.
    */
   onLog?: (msg: string) => void;
+
+  /** Session config (NOT a callback): target dimensions for the dimensionschanged
+   *  message. Absent ⇒ 1920×1080 (unchanged). */
+  dimensions?: { width: number; height: number };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -212,8 +218,10 @@ function sendInputStart(
 function sendConfigMessages(
   messageChannel: RTCDataChannel,
   log: (msg: string) => void,
+  dimensions?: { width: number; height: number },
 ): void {
   if (messageChannel.readyState !== "open") return;
+  const dims = dimensions ?? { width: 1920, height: 1080 };
 
   // Config targets and payloads — taken verbatim from app.js:528-535
   const configs: { target: string; content: string }[] = [
@@ -239,16 +247,7 @@ function sendConfigMessages(
     },
     {
       target: "/streaming/characteristics/dimensionschanged",
-      content: JSON.stringify({
-        horizontal: 1920,
-        vertical: 1080,
-        preferredWidth: 1920,
-        preferredHeight: 1080,
-        safeAreaLeft: 0,
-        safeAreaTop: 0,
-        safeAreaRight: 1920,
-        safeAreaBottom: 1080,
-      }),
+      content: JSON.stringify(buildDimensionsPayload(dims.width, dims.height)),
     },
   ];
 
@@ -351,7 +350,7 @@ function onHandshakeComplete(
   sendInputStart(channels.control, log);
 
   // Step 3: streaming config messages
-  sendConfigMessages(channels.message, log);
+  sendConfigMessages(channels.message, log, handlers.dimensions);
 
   // Notify the ConnectionManager
   handlers.onHandshakeComplete?.();
