@@ -134,3 +134,71 @@ describe("controllerMapping — applyRemap cross-type", () => {
     expect(r.buttons[6].value).toBe(0);
   });
 });
+
+import {
+  validateMapping, loadMapping, saveMapping,
+  sourceToOptionKey, optionKeyToSource, describeSource, SOURCE_OPTION_GROUPS,
+} from "./controllerMapping.js";
+
+function mem(init: Record<string, string> = {}) {
+  const m = new Map(Object.entries(init));
+  return { getItem: (k: string) => (m.has(k) ? m.get(k)! : null), setItem: (k: string, v: string) => void m.set(k, v), _m: m };
+}
+
+describe("controllerMapping — persistence", () => {
+  it("round-trips a valid override map", () => {
+    const s = mem();
+    saveMapping(s, { a: { kind: "button", index: 1 }, lsUp: { kind: "axis", axis: 1, sign: -1 } });
+    expect(loadMapping(s)).toEqual({ a: { kind: "button", index: 1 }, lsUp: { kind: "axis", axis: 1, sign: -1 } });
+  });
+  it("returns a FRESH empty object when nothing stored (not the shared singleton)", () => {
+    const a = loadMapping(mem());
+    const b = loadMapping(mem());
+    expect(a).toEqual({});
+    a.x = { kind: "none" };
+    expect(b).toEqual({}); // not aliased
+  });
+  it("corrupt JSON → fresh {}", () => {
+    expect(loadMapping(mem({ "kite:controller-mapping": "{not json" }))).toEqual({});
+  });
+  it("PRESERVES unknown-but-valid keys (downgrade-safe) and drops malformed entries", () => {
+    const raw = JSON.stringify({
+      a: { kind: "button", index: 1 },
+      futureThing: { kind: "button", index: 3 }, // unknown output id, valid Source
+      bad1: { kind: "button" },                   // malformed
+      bad2: { kind: "axis", axis: 9, sign: 2 },   // out of range
+      bad3: "nope",
+    });
+    expect(validateMapping(JSON.parse(raw))).toEqual({
+      a: { kind: "button", index: 1 },
+      futureThing: { kind: "button", index: 3 },
+    });
+  });
+  it("validateMapping tolerates non-objects", () => {
+    expect(validateMapping(null)).toEqual({});
+    expect(validateMapping(42)).toEqual({});
+  });
+});
+
+describe("controllerMapping — option keys + describe", () => {
+  it("option keys are reversible", () => {
+    const srcs = [{ kind: "none" }, { kind: "button", index: 6 }, { kind: "axis", axis: 0, sign: -1 }] as const;
+    for (const s of srcs) expect(optionKeyToSource(sourceToOptionKey(s))).toEqual(s);
+  });
+  it("optionKeyToSource rejects junk → none", () => {
+    expect(optionKeyToSource("garbage")).toEqual({ kind: "none" });
+    expect(optionKeyToSource("axis:9:2")).toEqual({ kind: "none" });
+  });
+  it("describeSource labels", () => {
+    expect(describeSource({ kind: "none" })).toBe("None");
+    expect(describeSource({ kind: "button", index: 0 })).toBe("A");
+    expect(describeSource({ kind: "button", index: 6 })).toBe("Left Trigger");
+    expect(describeSource({ kind: "axis", axis: 0, sign: 1 })).toBe("Left Stick →");
+  });
+  it("SOURCE_OPTION_GROUPS covers none + 17 buttons + 8 axis dirs", () => {
+    const all = SOURCE_OPTION_GROUPS.flatMap((g) => g.sources);
+    expect(all.filter((s) => s.kind === "none")).toHaveLength(1);
+    expect(all.filter((s) => s.kind === "button")).toHaveLength(17);
+    expect(all.filter((s) => s.kind === "axis")).toHaveLength(8);
+  });
+});
