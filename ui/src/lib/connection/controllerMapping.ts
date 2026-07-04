@@ -214,11 +214,11 @@ export function optionKeyToSource(key: string): Source {
   const parts = key.split(":");
   if (parts[0] === "button") {
     const i = Number(parts[1]);
-    if (Number.isInteger(i) && i >= 0 && i <= 16) return { kind: "button", index: i };
+    if (parts[1] !== "" && Number.isInteger(i) && i >= 0 && i <= 16) return { kind: "button", index: i };
   } else if (parts[0] === "axis") {
     const a = Number(parts[1]);
     const s = Number(parts[2]);
-    if ((a === 0 || a === 1 || a === 2 || a === 3) && (s === 1 || s === -1)) {
+    if (parts[1] !== "" && parts[2] !== "" && (a === 0 || a === 1 || a === 2 || a === 3) && (s === 1 || s === -1)) {
       return { kind: "axis", axis: a as 0 | 1 | 2 | 3, sign: s as 1 | -1 };
     }
   }
@@ -240,10 +240,6 @@ export function describeSource(src: Source): string {
   if (src.kind === "none") return "None";
   if (src.kind === "button") return BUTTON_LABELS[src.index] ?? `Button ${src.index}`;
   return AXIS_LABELS[`${src.axis}:${src.sign}`] ?? `Axis ${src.axis}${src.sign > 0 ? "+" : "-"}`;
-}
-
-export function describeOutput(id: string): string {
-  return OUTPUTS_BY_ID[id]?.label ?? id;
 }
 
 /** Grouped source options for the <select>. */

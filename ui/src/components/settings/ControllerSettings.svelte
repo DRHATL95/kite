@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { settings } from "$lib/stores/settings.svelte.js";
   import {
     OUTPUTS, GROUPS, OUTPUTS_BY_ID, SOURCE_OPTION_GROUPS,
@@ -21,6 +22,8 @@
   let capturingId = $state<string | null>(null);
   let captureStatus = $state("");
   let cancelCapture: (() => void) | null = null;
+
+  onDestroy(() => cancelCapture?.());
 
   function detect(id: string): void {
     cancelCapture?.();

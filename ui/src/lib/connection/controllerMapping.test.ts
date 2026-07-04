@@ -189,6 +189,10 @@ describe("controllerMapping — option keys + describe", () => {
     expect(optionKeyToSource("garbage")).toEqual({ kind: "none" });
     expect(optionKeyToSource("axis:9:2")).toEqual({ kind: "none" });
   });
+  it("optionKeyToSource rejects empty numeric segments → none", () => {
+    expect(optionKeyToSource("button:")).toEqual({ kind: "none" });
+    expect(optionKeyToSource("axis:0:")).toEqual({ kind: "none" });
+  });
   it("describeSource labels", () => {
     expect(describeSource({ kind: "none" })).toBe("None");
     expect(describeSource({ kind: "button", index: 0 })).toBe("A");
