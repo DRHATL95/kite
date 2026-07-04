@@ -88,7 +88,7 @@ export const OUTPUTS: OutputDef[] = [
 ];
 
 export const OUTPUTS_BY_ID: Record<string, OutputDef> = Object.fromEntries(
-  OUTPUTS.map((o) => [o.id, o]),
+  OUTPUTS.map((o) => [o.id, o] as const),
 );
 
 /** Field-order-independent structural equality for two Sources. */

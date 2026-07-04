@@ -1,6 +1,7 @@
 {
   "extends": "@tsconfig/svelte",
   "compilerOptions": {
+    "target": "ES2019",
     "strict": true,
     "moduleResolution": "bundler",
     "types": ["svelte", "vite/client"],
