@@ -19,6 +19,9 @@
       Target resolution + max bitrate for the stream. Auto adapts to your network;
       Low (720p) saves bandwidth. Applies on the next connect.
     </span>
+    {#if settings.audioOnly}
+      <span class="settings-row__desc">Stream quality applies to video — unavailable in audio-only mode.</span>
+    {/if}
   </div>
   <div class="clip-chips">
     {#each STREAM_QUALITIES as q (q.id)}
@@ -26,6 +29,7 @@
         type="button"
         class="clip-chip"
         class:clip-chip--on={settings.streamQuality === q.id}
+        disabled={settings.audioOnly}
         onclick={() => settings.setStreamQuality(q.id)}
       >{q.label}</button>
     {/each}
