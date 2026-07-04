@@ -4,7 +4,37 @@
 
   const CLIP_LENGTHS = [15, 30, 60] as const;
   const CLIP_QUALITIES = ["low", "med", "high"] as const;
+  const STREAM_QUALITIES = [
+    { id: "auto", label: "Auto" },
+    { id: "high", label: "High" },
+    { id: "medium", label: "Medium" },
+    { id: "low", label: "Low" },
+  ] as const;
 </script>
+
+<div class="settings-row">
+  <div class="settings-row__text">
+    <span class="settings-row__title">Stream quality</span>
+    <span class="settings-row__desc">
+      Target resolution + max bitrate for the stream. Auto adapts to your network;
+      Low (720p) saves bandwidth. Applies on the next connect.
+    </span>
+    {#if settings.audioOnly}
+      <span class="settings-row__desc">Stream quality applies to video — unavailable in audio-only mode.</span>
+    {/if}
+  </div>
+  <div class="clip-chips">
+    {#each STREAM_QUALITIES as q (q.id)}
+      <button
+        type="button"
+        class="clip-chip"
+        class:clip-chip--on={settings.streamQuality === q.id}
+        disabled={settings.audioOnly}
+        onclick={() => settings.setStreamQuality(q.id)}
+      >{q.label}</button>
+    {/each}
+  </div>
+</div>
 
 <div class="settings-row">
   <div class="settings-row__text">

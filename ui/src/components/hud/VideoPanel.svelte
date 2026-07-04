@@ -75,8 +75,8 @@
     <Stat label="Dropped"    value={snapshot?.framesDropped ?? null} tone={droppedTone()} />
     <Stat label="Freezes"    value={snapshot?.freezeCount ?? null} tone={freezeTone()} />
     <Stat label="Freeze dur" value={freezeDurSec} unit="s" tone={freezeTone()} />
-    <Stat label="Inbound"    value={snapshot?.inboundVideoKbps ?? null} unit="kbps" />
-    <Stat label="Available"  value={availKbps} unit="kbps" />
+    <Stat label="Bitrate"    value={snapshot?.inboundVideoKbps ?? null} unit="kbps" />
+    <Stat label="Avail. bw"  value={availKbps} unit="kbps" />
   </div>
 </Panel>
 

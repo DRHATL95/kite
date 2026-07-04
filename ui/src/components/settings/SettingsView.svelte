@@ -205,10 +205,14 @@
     cursor: pointer;
     transition: background 120ms ease, border-color 120ms ease;
   }
-  .settings-content :global(.clip-chip:hover) { background: var(--surface-2); }
+  .settings-content :global(.clip-chip:hover:not(:disabled)) { background: var(--surface-2); }
   .settings-content :global(.clip-chip--on) {
     background: color-mix(in srgb, var(--accent, var(--text)) 16%, transparent);
     border-color: var(--accent, var(--text));
   }
   .settings-content :global(.clip-chip:focus-visible) { box-shadow: var(--focus-ring); }
+  .settings-content :global(.clip-chip:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 </style>

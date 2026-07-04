@@ -126,3 +126,33 @@ describe("settings store — showDiagnosticsHud", () => {
     expect(persist.persisted.getItem(SHOW_HUD_KEY)).toBe("true");
   });
 });
+
+const STREAM_QUALITY_KEY = "kite:stream-quality";
+
+describe("settings store — streamQuality", () => {
+  it("defaults to auto when nothing persisted", async () => {
+    await seed();
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.streamQuality).toBe("auto");
+  });
+
+  it("persists and reflects a quality change", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setStreamQuality("medium");
+    expect(settings.streamQuality).toBe("medium");
+    expect(persist.persisted.getItem(STREAM_QUALITY_KEY)).toBe("medium");
+  });
+
+  it("restores a persisted quality on load", async () => {
+    await seed([[STREAM_QUALITY_KEY, "low"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.streamQuality).toBe("low");
+  });
+
+  it("normalises an unknown persisted value to auto", async () => {
+    await seed([[STREAM_QUALITY_KEY, "ultra"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.streamQuality).toBe("auto");
+  });
+});
