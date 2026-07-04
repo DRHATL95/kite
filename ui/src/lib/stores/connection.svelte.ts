@@ -270,12 +270,13 @@ class ConnectionStore {
     // backend re-asserts "connecting" shortly after; this just front-runs it.
     this.audioOnly = settings.audioOnly;
     const quality = paramsForQuality(settings.streamQuality);
+    const controllerMapping = settings.controllerMapping;
     this.state = "connecting";
     // Arm the connect watchdog: if we never reach a settled state within
     // CONNECT_TIMEOUT_MS, _onConnectTimeout forces a failure.
     this._armConnectTimer();
     try {
-      await this._impl.connect(xboxConsole, { audioOnly: this.audioOnly, quality });
+      await this._impl.connect(xboxConsole, { audioOnly: this.audioOnly, quality, controllerMapping });
     } catch (e) {
       // The backend normally surfaces failure via onStateChange("failed"); guard
       // the optimistic transition in case connect() rejects before any event.

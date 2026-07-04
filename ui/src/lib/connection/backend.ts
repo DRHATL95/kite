@@ -16,11 +16,12 @@ import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
 import type { QualityParams } from "./streamQuality.js";
+import type { ControllerMapping } from "./controllerMapping.js";
 
 export interface ConnectionBackend {
   /** Begin connecting to the given console. Does not throw; failures surface via
    * the `onStateChange("failed")` callback. */
-  connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams }): Promise<void>;
+  connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams; controllerMapping?: ControllerMapping }): Promise<void>;
   /** Tear down the session and return to idle. */
   disconnect(): Promise<void>;
   /** Request a keyframe (IDR) from the console ("Fix Video"). */
