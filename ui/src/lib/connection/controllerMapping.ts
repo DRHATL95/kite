@@ -98,3 +98,61 @@ export function sourcesEqual(a: Source, b: Source): boolean {
   if (a.kind === "axis" && b.kind === "axis") return a.axis === b.axis && a.sign === b.sign;
   return a.kind === "none" && b.kind === "none";
 }
+
+function clamp01(n: number): number {
+  return n < 0 ? 0 : n > 1 ? 1 : n;
+}
+
+/**
+ * Physical source magnitude in [0,1].
+ * - Digital buttons (all indices EXCEPT 6/7): pressed ? 1 : 0 (IGNORE value — the
+ *   encoder keys the bitmask off .pressed; some drivers report pressed digital
+ *   buttons with value 0).
+ * - Trigger buttons (6, 7): clamp01(value) — genuine analog.
+ * - Axis: max(0, sign*axis); zeroed below STICK_DEADZONE so a resting stick used
+ *   as a source contributes no phantom signal.
+ */
+export function sourceMagnitude(state: GamepadState, src: Source): number {
+  switch (src.kind) {
+    case "none":
+      return 0;
+    case "button": {
+      const b = state.buttons[src.index];
+      if (!b) return 0;
+      if (src.index === 6 || src.index === 7) return clamp01(b.value);
+      return b.pressed ? 1 : 0;
+    }
+    case "axis": {
+      const mag = Math.max(0, src.sign * (state.axes[src.axis] ?? 0));
+      return mag < STICK_DEADZONE ? 0 : mag;
+    }
+  }
+}
+
+/** Re-index a physical GamepadState into a logical one per the mapping. Pure. */
+export function applyRemap(state: GamepadState, mapping: ControllerMapping): GamepadState {
+  const buttons: GamepadButton[] = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+  const axisPlus: [number, number, number, number] = [0, 0, 0, 0];
+  const axisMinus: [number, number, number, number] = [0, 0, 0, 0];
+
+  for (const out of OUTPUTS) {
+    const src = mapping[out.id] ?? out.defaultSource;
+    const mag = sourceMagnitude(state, src);
+    const dest = out.destination;
+    if (dest.kind === "digital") {
+      const on = mag >= AXIS_ACTIVE_THRESHOLD;
+      buttons[dest.buttonIndex] = { pressed: on, value: on ? 1 : 0 };
+    } else if (dest.kind === "trigger") {
+      buttons[dest.buttonIndex] = { pressed: mag > 0, value: mag };
+    } else {
+      if (dest.sign > 0) axisPlus[dest.axis] = mag;
+      else axisMinus[dest.axis] = mag;
+    }
+  }
+
+  const axes: [number, number, number, number] = [0, 0, 0, 0];
+  for (let i = 0; i < 4; i++) {
+    axes[i] = Math.max(-1, Math.min(1, axisPlus[i] - axisMinus[i]));
+  }
+  return { buttons, axes };
+}

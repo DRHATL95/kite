@@ -3,6 +3,8 @@ import { BUTTON_BITS } from "./constants.js";
 import {
   OUTPUTS, OUTPUTS_BY_ID, GROUPS, DEFAULT_MAPPING, AXIS_ACTIVE_THRESHOLD, sourcesEqual,
 } from "./controllerMapping.js";
+import { encodeGamepadFrame, type GamepadState } from "./input.js";
+import { sourceMagnitude, applyRemap } from "./controllerMapping.js";
 
 describe("controllerMapping — model", () => {
   it("has 25 outputs: 15 digital + 2 trigger + 8 stick", () => {
@@ -50,5 +52,85 @@ describe("controllerMapping — model", () => {
     expect(sourcesEqual({ kind: "button", index: 4 }, { kind: "button", index: 5 })).toBe(false);
     expect(sourcesEqual({ kind: "none" }, { kind: "button", index: 0 })).toBe(false);
     expect(sourcesEqual({ kind: "axis", axis: 0, sign: 1 }, { kind: "axis", axis: 0, sign: -1 })).toBe(false);
+  });
+});
+
+/** Build a GamepadState with 17 neutral buttons + given overrides. */
+function gp(over: Partial<{ buttons: Record<number, { pressed: boolean; value: number }>; axes: [number, number, number, number] }> = {}): GamepadState {
+  const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+  for (const [i, b] of Object.entries(over.buttons ?? {})) buttons[Number(i)] = b;
+  return { buttons, axes: over.axes ?? [0, 0, 0, 0] };
+}
+
+describe("controllerMapping — applyRemap identity (keystone)", () => {
+  const cases: [string, GamepadState][] = [
+    ["neutral", gp()],
+    ["A pressed value1", gp({ buttons: { 0: { pressed: true, value: 1 } } })],
+    ["A pressed value0 (buggy driver)", gp({ buttons: { 0: { pressed: true, value: 0 } } })],
+    ["Guide pressed value0.4", gp({ buttons: { 16: { pressed: true, value: 0.4 } } })],
+    ["partial LT", gp({ buttons: { 6: { pressed: true, value: 0.37 } } })],
+    ["sticks", gp({ axes: [0.5, -0.8, -0.2, 0.9] })],
+    ["sub-deadzone drift", gp({ axes: [0.03, -0.05, 0.0, 0.07] })],
+  ];
+  for (const [name, state] of cases) {
+    it(`identity remap reproduces the full 38-byte frame: ${name}`, () => {
+      const remapped = applyRemap(state, {});
+      expect(Array.from(encodeGamepadFrame(remapped, 7, 123.5)))
+        .toEqual(Array.from(encodeGamepadFrame(state, 7, 123.5)));
+    });
+  }
+
+  it("identity holds for a short (<17) physical buttons array", () => {
+    const short: GamepadState = { buttons: Array.from({ length: 11 }, () => ({ pressed: false, value: 0 })), axes: [0, 0, 0, 0] };
+    const r = applyRemap(short, {});
+    expect(r.buttons).toHaveLength(17);
+    expect(Array.from(encodeGamepadFrame(r, 1, 0))).toEqual(Array.from(encodeGamepadFrame(short, 1, 0)));
+  });
+});
+
+describe("controllerMapping — sourceMagnitude", () => {
+  it("digital button uses pressed, ignoring value", () => {
+    expect(sourceMagnitude(gp({ buttons: { 0: { pressed: true, value: 0 } } }), { kind: "button", index: 0 })).toBe(1);
+    expect(sourceMagnitude(gp({ buttons: { 0: { pressed: false, value: 0.9 } } }), { kind: "button", index: 0 })).toBe(0);
+  });
+  it("trigger button (6/7) uses analog value", () => {
+    expect(sourceMagnitude(gp({ buttons: { 6: { pressed: true, value: 0.4 } } }), { kind: "button", index: 6 })).toBeCloseTo(0.4);
+  });
+  it("axis source is deadzoned below STICK_DEADZONE", () => {
+    expect(sourceMagnitude(gp({ axes: [0.05, 0, 0, 0] }), { kind: "axis", axis: 0, sign: 1 })).toBe(0);
+    expect(sourceMagnitude(gp({ axes: [0.6, 0, 0, 0] }), { kind: "axis", axis: 0, sign: 1 })).toBeCloseTo(0.6);
+    expect(sourceMagnitude(gp({ axes: [0.6, 0, 0, 0] }), { kind: "axis", axis: 0, sign: -1 })).toBe(0);
+  });
+  it("none and missing index are 0", () => {
+    expect(sourceMagnitude(gp(), { kind: "none" })).toBe(0);
+    expect(sourceMagnitude(gp(), { kind: "button", index: 99 })).toBe(0);
+  });
+});
+
+describe("controllerMapping — applyRemap cross-type", () => {
+  it("swaps A and B", () => {
+    const r = applyRemap(gp({ buttons: { 0: { pressed: true, value: 1 } } }), { a: { kind: "button", index: 1 }, b: { kind: "button", index: 0 } });
+    expect(r.buttons[0].pressed).toBe(false); // A driven by physical B (not pressed)
+    expect(r.buttons[1].pressed).toBe(true);  // B driven by physical A (pressed)
+  });
+  it("button → trigger emits full deflection", () => {
+    const r = applyRemap(gp({ buttons: { 0: { pressed: true, value: 1 } } }), { lt: { kind: "button", index: 0 } });
+    expect(r.buttons[6].value).toBe(1);
+  });
+  it("stick deflection → button fires at threshold", () => {
+    const r = applyRemap(gp({ axes: [0.9, 0, 0, 0] }), { a: { kind: "axis", axis: 0, sign: 1 } });
+    expect(r.buttons[0].pressed).toBe(true);
+    const r2 = applyRemap(gp({ axes: [0.3, 0, 0, 0] }), { a: { kind: "axis", axis: 0, sign: 1 } });
+    expect(r2.buttons[0].pressed).toBe(false);
+  });
+  it("opposing half-axes combine and clamp", () => {
+    // lsLeft ← axis0+ , lsRight ← axis0+ (both driven by same +axis) → subtract to 0
+    const r = applyRemap(gp({ axes: [0.7, 0, 0, 0] }), { lsLeft: { kind: "axis", axis: 0, sign: 1 } });
+    // lsLeft(dest axis0 sign-1) now driven by +0.7 → axisMinus[0]=0.7; lsRight default axis0+ → axisPlus[0]=0.7; net 0
+    expect(r.axes[0]).toBeCloseTo(0);
+  });
+  it("resting stick source to a trigger yields 0 (deadzone)", () => {
+    const r = applyRemap(gp({ axes: [0.05, 0, 0, 0] }), { lt: { kind: "axis", axis: 0, sign: 1 } });
+    expect(r.buttons[6].value).toBe(0);
   });
 });
