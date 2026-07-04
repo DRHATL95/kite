@@ -215,6 +215,13 @@ struct XSTSAuthResponse {
     display_claims: DisplayClaims,
 }
 
+/// True when the XSTS token should be refreshed — it is within 5 minutes of
+/// expiry (or already expired). Pure for testability; used by both
+/// `load_cached_tokens` (startup) and `ensure_valid_tokens` (pre-session).
+fn needs_refresh(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    expires_at <= now + chrono::Duration::minutes(5)
+}
+
 impl XboxAuth {
     pub fn new() -> Self {
         Self {
@@ -240,7 +247,7 @@ impl XboxAuth {
         };
 
         // Check if tokens are still valid (with 5 min buffer)
-        if tokens.expires_at > Utc::now() + chrono::Duration::minutes(5) {
+        if !needs_refresh(tokens.expires_at, Utc::now()) {
             info!("Cached tokens are still valid");
             *self.tokens.lock().await = Some(tokens);
             return Ok(true);
@@ -264,6 +271,28 @@ impl XboxAuth {
         }
 
         Ok(false)
+    }
+
+    /// Ensure the in-memory XSTS token is valid for an imminent API call,
+    /// refreshing it via the stored refresh token if it is within the expiry
+    /// buffer. Called before creating an xHome session so a reconnect after ~1h
+    /// doesn't 401 on a stale token. Err means interactive re-auth is required.
+    pub async fn ensure_valid_tokens(&self) -> Result<()> {
+        let (expires_at, refresh_token) = {
+            let guard = self.tokens.lock().await;
+            let t = guard
+                .as_ref()
+                .ok_or_else(|| XboxError::AuthError("Not authenticated".to_string()))?;
+            (t.expires_at, t.refresh_token.clone())
+        };
+        if !needs_refresh(expires_at, Utc::now()) {
+            return Ok(());
+        }
+        let rt = refresh_token.ok_or_else(|| {
+            XboxError::AuthError("Token expired and no refresh token; sign in again".to_string())
+        })?;
+        info!("XSTS token near expiry — refreshing before session creation");
+        self.refresh_tokens(&rt).await
     }
 
     /// Save tokens to the OS keychain.
@@ -689,6 +718,19 @@ mod tests {
     #[test]
     fn falls_back_to_default_when_absent() {
         assert_eq!(resolve_client_id_from(None), DEFAULT_CLIENT_ID);
+    }
+
+    #[test]
+    fn needs_refresh_true_within_buffer_or_expired() {
+        let now = Utc::now();
+        // already expired → refresh
+        assert!(needs_refresh(now - chrono::Duration::minutes(1), now));
+        // within the 5-minute buffer → refresh
+        assert!(needs_refresh(now + chrono::Duration::minutes(3), now));
+        // exactly at the 5-minute edge → refresh (boundary is inclusive)
+        assert!(needs_refresh(now + chrono::Duration::minutes(5), now));
+        // comfortably valid → no refresh
+        assert!(!needs_refresh(now + chrono::Duration::minutes(30), now));
     }
 
     #[test]

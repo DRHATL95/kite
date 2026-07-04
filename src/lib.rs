@@ -419,10 +419,29 @@ mod tauri_commands {
         play_path: Option<String>,
         state: State<'_, AppState>,
     ) -> Result<String, String> {
+        // Self-heal auth before creating the session. The persistent XHomeClient
+        // mints its gsToken once at login and never refreshes it, and the XSTS
+        // token also expires ~1h — so a reconnect (or a connect from an idle
+        // console list) after expiry would 401 and surface as a generic failure.
+        // Refresh the XSTS if near expiry (auth-before-xhome lock order), then
+        // re-login for a fresh gsToken, then create the session.
+        state
+            .auth
+            .lock()
+            .await
+            .ensure_valid_tokens()
+            .await
+            .map_err(|e| format!("Session auth refresh failed: {}", e))?;
+
         let mut xhome = state.xhome.lock().await;
         let client = xhome
             .as_mut()
             .ok_or_else(|| "Not authenticated. Please login first.".to_string())?;
+
+        client
+            .login()
+            .await
+            .map_err(|e| format!("xHome re-login failed: {}", e))?;
 
         let stream_config = client
             .create_session(&server_id, play_path.as_deref())
