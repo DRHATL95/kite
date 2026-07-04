@@ -58,6 +58,7 @@ pub struct XboxAuth {
 
 /// Token endpoint response (authorization-code exchange and refresh share it).
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // `error` mirrors the token endpoint's error field; unused but kept for Debug/diagnostics
 struct TokenResponse {
     access_token: Option<String>,
     refresh_token: Option<String>,
@@ -192,6 +193,7 @@ fn parse_redirect_query(request: &str) -> Result<(String, String)> {
 /// Xbox Live authentication response
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[allow(dead_code)] // `display_claims` mirrors the API response; unused but kept for Debug/diagnostics
 struct XboxLiveAuthResponse {
     token: String,
     display_claims: DisplayClaims,
