@@ -5,6 +5,7 @@
     sourceToOptionKey, optionKeyToSource, describeSource,
     type Source,
   } from "$lib/connection/controllerMapping.js";
+  import { startCapture } from "$lib/connection/gamepadCapture.js";
 
   function effective(id: string): Source {
     return settings.controllerMapping[id] ?? OUTPUTS_BY_ID[id].defaultSource;
@@ -16,6 +17,26 @@
     settings.setControllerBinding(id, optionKeyToSource((e.currentTarget as HTMLSelectElement).value));
   }
   const hasOverrides = $derived(Object.keys(settings.controllerMapping).length > 0);
+
+  let capturingId = $state<string | null>(null);
+  let captureStatus = $state("");
+  let cancelCapture: (() => void) | null = null;
+
+  function detect(id: string): void {
+    cancelCapture?.();
+    capturingId = id;
+    captureStatus = `Press a button on your controller to bind ${OUTPUTS_BY_ID[id].label}…`;
+    cancelCapture = startCapture((src) => {
+      if (src) {
+        settings.setControllerBinding(id, src);
+        captureStatus = `Bound ${OUTPUTS_BY_ID[id].label} → ${describeSource(src)}`;
+      } else {
+        captureStatus = "Capture cancelled.";
+      }
+      capturingId = null;
+      cancelCapture = null;
+    });
+  }
 </script>
 
 <div class="settings-row">
@@ -32,6 +53,8 @@
     onclick={() => settings.resetControllerMapping()}
   >Reset all</button>
 </div>
+
+<p class="remap-status" role="status" aria-live="polite">{captureStatus}</p>
 
 {#each GROUPS as group (group)}
   <h3 class="remap-group">{group}</h3>
@@ -62,6 +85,13 @@
             onclick={() => settings.resetControllerBinding(out.id)}
           >⟳</button>
         {/if}
+        <button
+          type="button"
+          class="remap-icon remap-detect"
+          class:remap-detect--active={capturingId === out.id}
+          aria-label={`Detect input for ${out.label}`}
+          onclick={() => detect(out.id)}
+        >{capturingId === out.id ? "…" : "⌖"}</button>
       </div>
     </div>
   {/each}
@@ -114,6 +144,16 @@
   }
   .remap-icon:hover { background: var(--surface-2); color: var(--text); }
   .remap-icon:focus-visible { box-shadow: var(--focus-ring); }
+
+  .remap-status {
+    margin: 0;
+    min-height: 1.25rem;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+  }
+  .remap-detect { width: auto; padding: 0 var(--space-2); }
+  .remap-detect--active { border-color: var(--accent, var(--text)); color: var(--text); }
 
   @media (max-width: 520px) {
     .remap-row { flex-direction: column; align-items: stretch; }

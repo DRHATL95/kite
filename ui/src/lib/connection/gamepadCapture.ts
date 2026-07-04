@@ -34,3 +34,73 @@ export function detectActiveSource(now: GamepadSnapshot, baseline: GamepadSnapsh
   }
   return null;
 }
+
+/**
+ * Capture the next physical input. Baseline is taken on the first observed frame,
+ * so an already-held control does not capture. Escape (capture-phase,
+ * stopImmediatePropagation) cancels without also closing SettingsView. Returns a
+ * cancel function. Resolves onResult(null) on cancel/timeout.
+ */
+export function startCapture(onResult: (s: Source | null) => void, timeoutMs = 10_000): () => void {
+  let raf = 0;
+  let baseline: GamepadSnapshot | null = null;
+  let done = false;
+  let startTs = -1;
+  let sawPadAtStart = false;
+  let firstFrame = true;
+
+  const zeroLike = (pad: Gamepad): GamepadSnapshot => ({
+    buttons: Array.from(pad.buttons).map(() => 0),
+    axes: Array.from(pad.axes).map(() => 0),
+  });
+
+  const finish = (s: Source | null): void => {
+    if (done) return;
+    done = true;
+    if (raf) cancelAnimationFrame(raf);
+    window.removeEventListener("keydown", onKey, true);
+    onResult(s);
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      finish(null);
+    }
+  };
+  const firstPad = (): Gamepad | null => {
+    const gps = typeof navigator !== "undefined" ? navigator.getGamepads() : null;
+    if (!gps) return null;
+    return gps[0] || gps[1] || gps[2] || gps[3] || null;
+  };
+  const loop = (ts: number): void => {
+    if (done) return;
+    if (startTs < 0) startTs = ts;
+    if (ts - startTs > timeoutMs) { finish(null); return; }
+    const pad = firstPad();
+    if (firstFrame) { sawPadAtStart = !!pad; firstFrame = false; }
+    if (pad) {
+      const s = snapshotOf(pad);
+      if (!baseline) {
+        // Warm pad (visible at t0): baseline = its current state, so a control
+        // already held when Detect started is ignored. Cold pad (WebView2 gates
+        // gamepad visibility behind a gesture, so it only appears once the user
+        // presses): that first press IS the intended input — baseline against
+        // zero and capture it on this very frame.
+        baseline = sawPadAtStart ? s : zeroLike(pad);
+        if (!sawPadAtStart) {
+          const found = detectActiveSource(s, baseline);
+          if (found) { finish(found); return; }
+        }
+      } else {
+        const found = detectActiveSource(s, baseline);
+        if (found) { finish(found); return; }
+      }
+    }
+    raf = requestAnimationFrame(loop);
+  };
+
+  window.addEventListener("keydown", onKey, true);
+  raf = requestAnimationFrame(loop);
+  return () => finish(null);
+}
