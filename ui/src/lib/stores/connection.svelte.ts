@@ -334,6 +334,7 @@ class ConnectionStore {
     // Clear media stream reference so UI can clean up srcObject
     this.mediaStream = null;
     this.currentConsole = null;
+    this.videoHidden = false;
   }
 
   /**

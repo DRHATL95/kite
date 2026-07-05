@@ -53,7 +53,7 @@ describe("setVideoReceiverEnabled", () => {
     expect(setVideoReceiverEnabled([a, v], true)).toBe(true);
     expect(v.track.enabled).toBe(true);
   });
-  it("returns false and mutates nothing when there is no video receiver", () => {
+  it("returns false when the receiver list has no video receiver", () => {
     const a = { track: { kind: "audio", enabled: true } };
     expect(setVideoReceiverEnabled([a], false)).toBe(false);
     expect(a.track.enabled).toBe(true);

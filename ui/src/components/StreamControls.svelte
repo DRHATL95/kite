@@ -278,7 +278,7 @@
     <span class="ctrl-sep" aria-hidden="true"></span>
   {/if}
 
-  <!-- Hide/Show video (in-session audio-only) — visible whenever a video track exists -->
+  <!-- Hide/Show video (in-session audio-only) — visible whenever a video track could exist (browser, non-audio-only) -->
   {#if showHideVideoToggle}
     <button
       class="ctrl-btn"
