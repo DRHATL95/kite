@@ -28,16 +28,26 @@
   import { settings } from "$lib/stores/settings.svelte.js";
   import { persisted } from "$lib/persist/store.js";
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
+  import { videoControlsActive } from "$lib/connection/audioOnly.js";
 
   const showClip = $derived(
     settings.clip.enabled &&
       connectionStore.state === "streaming" &&
-      !connectionStore.audioOnly,
+      videoControlsActive(connectionStore.audioOnly, connectionStore.videoHidden),
   );
 
   // Video-oriented controls (Fix Video / Immersive / Clip) are meaningless in
-  // audio-only mode, where no video track is streamed — hide them.
-  const showVideoControls = $derived(!connectionStore.audioOnly);
+  // audio-only mode (no video track streamed) or while the user has hidden
+  // video in-session — hide them in both cases.
+  const showVideoControls = $derived(
+    videoControlsActive(connectionStore.audioOnly, connectionStore.videoHidden),
+  );
+
+  // The Hide/Show toggle itself stays visible whenever a real video track could
+  // exist — i.e. NOT audio-only mode and NOT native mode (native has no DOM
+  // video track to disable; audio-only never negotiated one) — so the user can
+  // always un-hide, independent of showVideoControls.
+  const showHideVideoToggle = $derived(!connectionStore.audioOnly && !connectionStore.nativeMode);
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -266,6 +276,20 @@
 
     <!-- Separator -->
     <span class="ctrl-sep" aria-hidden="true"></span>
+  {/if}
+
+  <!-- Hide/Show video (in-session audio-only) — visible whenever a video track could exist (browser, non-audio-only) -->
+  {#if showHideVideoToggle}
+    <button
+      class="ctrl-btn"
+      onclick={() => connectionStore.toggleVideoHidden()}
+      aria-pressed={connectionStore.videoHidden}
+      title={connectionStore.videoHidden
+        ? "Show video"
+        : "Hide video — drop to the audio-only view (saves CPU/GPU); audio keeps playing"}
+    >
+      {connectionStore.videoHidden ? "Show Video" : "Hide Video"}
+    </button>
   {/if}
 
   <!-- Immersive (focus) mode toggle (ghost button) — video only -->

@@ -26,6 +26,9 @@ export interface ConnectionBackend {
   disconnect(): Promise<void>;
   /** Request a keyframe (IDR) from the console ("Fix Video"). */
   requestKeyframe(): void;
+  /** Hide/show video locally by disabling the video receive track (decode off).
+   *  Browser only; a no-op natively. */
+  setVideoHidden(hidden: boolean): void;
   /** Attach/detach the encoded-frame clip tap (browser only; a no-op natively). */
   setEncodedTap(tap: EncodedTap | null): void;
   /** Whether Insertable Streams clip tapping is available (false natively). */

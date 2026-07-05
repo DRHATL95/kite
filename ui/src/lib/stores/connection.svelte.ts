@@ -77,6 +77,9 @@ class ConnectionStore {
   /** Whether the active/last session was started in audio-only mode (snapshot at connect). */
   audioOnly: boolean = $state(false);
 
+  /** In-session: hide video locally (audio keeps playing). Transient per session. */
+  videoHidden: boolean = $state(false);
+
   /**
    * Current reconnect attempt number (1-based), 0 when not reconnecting.
    * Updated by onReconnectAttempt — does NOT depend on the StatsSampler snapshot
@@ -269,6 +272,7 @@ class ConnectionStore {
     // screen lags a beat after Stream is pressed (feels like a freeze). The
     // backend re-asserts "connecting" shortly after; this just front-runs it.
     this.audioOnly = settings.audioOnly;
+    this.videoHidden = false;
     const quality = paramsForQuality(settings.streamQuality);
     const controllerMapping = settings.controllerMapping;
     this.state = "connecting";
@@ -331,6 +335,7 @@ class ConnectionStore {
     // Clear media stream reference so UI can clean up srcObject
     this.mediaStream = null;
     this.currentConsole = null;
+    this.videoHidden = false;
   }
 
   /**
@@ -338,6 +343,12 @@ class ConnectionStore {
    */
   requestKeyframe(): void {
     this._impl.requestKeyframe();
+  }
+
+  /** Toggle the in-session video hide and drive the active backend. */
+  toggleVideoHidden(): void {
+    this.videoHidden = !this.videoHidden;
+    this._impl.setVideoHidden(this.videoHidden);
   }
 
   /** Attach (or detach with null) the encoded-frame clip tap on the backend. */

@@ -40,6 +40,7 @@
   import ConnectingSplash from "../components/ConnectingSplash.svelte";
   import { connectingSteps, shouldShowSplash } from "$lib/console/connectingSplash.js";
   import { rtcSetVolume } from "$lib/ipc/commands.js";
+  import { audioViewActive } from "$lib/connection/audioOnly.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@
   // but a minimal panel overlays its (black) surface, and splash dismissal keys
   // off store state (like native), since onplaying may not fire for audio-only.
   const audioOnly = $derived(connectionStore.audioOnly);
+  const audioView = $derived(audioViewActive(connectionStore.audioOnly, connectionStore.videoHidden));
 
   // Native mode has no DOM <video>; route the volume slider's gain (0–1) to the
   // Rust audio sink. No-ops until the engine is connected (the command buffers).
@@ -253,7 +255,7 @@
         ></video>
       {/if}
 
-      {#if audioOnly && !showSplash}
+      {#if audioView && !showSplash}
         <div class="audio-only-stage" role="status" aria-label="Audio-only stream">
           <span class="audio-only-badge">AUDIO ONLY</span>
           <p class="audio-only-name">{connectionStore.currentConsole?.deviceName ?? "Xbox"}</p>
@@ -309,7 +311,7 @@
         ></video>
       {/if}
 
-      {#if audioOnly && !showSplash}
+      {#if audioView && !showSplash}
         <div class="audio-only-stage" role="status" aria-label="Audio-only stream">
           <span class="audio-only-badge">AUDIO ONLY</span>
           <p class="audio-only-name">{connectionStore.currentConsole?.deviceName ?? "Xbox"}</p>

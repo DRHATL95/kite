@@ -23,3 +23,34 @@ export function tracksReadyToStream(
 ): boolean {
   return audioOnly ? hasAudio : hasVideo && hasAudio;
 }
+
+/** The audio-only panel shows when the stream is audio-only OR video is hidden. */
+export function audioViewActive(audioOnly: boolean, videoHidden: boolean): boolean {
+  return audioOnly || videoHidden;
+}
+
+/** Video-only controls (Immersive / Fix Video / Clip) are meaningful only when a
+ *  video track exists AND is not hidden. */
+export function videoControlsActive(audioOnly: boolean, videoHidden: boolean): boolean {
+  return !audioOnly && !videoHidden;
+}
+
+/** Duck-typed receiver so this is testable without a real RTCPeerConnection. */
+type VideoToggleReceiver = { track?: { kind: string; enabled: boolean } | null };
+
+/**
+ * Enable/disable the video receiver's track (decode on/off). Mutates the found
+ * receiver's `track.enabled`; returns true iff a video track was present.
+ * ConnectionManager calls this with `pc.getReceivers()`.
+ */
+export function setVideoReceiverEnabled(
+  receivers: readonly VideoToggleReceiver[],
+  enabled: boolean,
+): boolean {
+  const r = receivers.find((rx) => rx.track?.kind === "video");
+  if (r?.track) {
+    r.track.enabled = enabled;
+    return true;
+  }
+  return false;
+}

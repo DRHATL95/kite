@@ -46,7 +46,7 @@ import type { ConnectionBackend } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
-import { videoTransceiverDirection, tracksReadyToStream } from "./audioOnly.js";
+import { videoTransceiverDirection, tracksReadyToStream, setVideoReceiverEnabled } from "./audioOnly.js";
 import { KeyboardTracker } from "./keyboardTracker.js";
 import { DEFAULT_MAPPING, type ControllerMapping } from "./controllerMapping.js";
 
@@ -184,6 +184,8 @@ export class ConnectionManager implements ConnectionBackend {
   private _gamepadPoller: GamepadPoller | null = null;
   /** Active session's audio-only mode; set in connect(), reused across reconnects. */
   private _audioOnly = false;
+  /** Whether video is hidden this session (receive track disabled). Reused across reconnects. */
+  private _videoHidden = false;
   private _quality: QualityParams = QUALITY_PRESETS.auto;
   private _controllerMapping: ControllerMapping = DEFAULT_MAPPING;
   private _keyboardTracker: KeyboardTracker | null = null;
@@ -290,6 +292,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._audioOnly = !!opts?.audioOnly;
     this._quality = opts?.quality ?? QUALITY_PRESETS.auto;
     this._controllerMapping = opts?.controllerMapping ?? DEFAULT_MAPPING;
+    this._videoHidden = false;
 
     try {
       await this._createSessionAndStream();
@@ -335,6 +338,17 @@ export class ConnectionManager implements ConnectionBackend {
     this._keyframeRequestsSent++;
     this._log("Sent manual keyframe request");
     this._pushManagerStats();
+  }
+
+  /** Hide/show video locally: disable/enable the video receive track (decode off/on). */
+  setVideoHidden(hidden: boolean): void {
+    this._videoHidden = hidden;
+    this._applyVideoHidden();
+  }
+
+  /** Apply the current hidden state to the live video receiver (no-op if none yet). */
+  private _applyVideoHidden(): void {
+    setVideoReceiverEnabled(this._pc?.getReceivers() ?? [], !this._videoHidden);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -660,6 +674,9 @@ export class ConnectionManager implements ConnectionBackend {
           );
         }
       }
+
+      // Re-apply the in-session hidden state to the (possibly new) video receiver.
+      this._applyVideoHidden();
 
       // Dual-track gate — spec §3.10; app.js:627-666
       // Both tracks negotiated. NOTE: ontrack fires during setRemoteDescription,
