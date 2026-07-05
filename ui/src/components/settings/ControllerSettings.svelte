@@ -61,10 +61,10 @@
 
 {#each GROUPS as group (group)}
   <h3 class="remap-group">{group}</h3>
-  {#each OUTPUTS.filter((o) => o.group === group) as out (out.id)}
-    <div class="settings-row remap-row">
-      <span class="settings-row__title remap-row__label" id={`remap-label-${out.id}`}>{out.label}</span>
-      <div class="remap-row__controls">
+  <div class="remap-grid">
+    {#each OUTPUTS.filter((o) => o.group === group) as out (out.id)}
+      <div class="remap-cell">
+        <span class="remap-cell__label" id={`remap-label-${out.id}`}>{out.label}</span>
         <select
           class="remap-select"
           aria-labelledby={`remap-label-${out.id}`}
@@ -96,8 +96,8 @@
           onclick={() => detect(out.id)}
         >{capturingId === out.id ? "…" : "⌖"}</button>
       </div>
-    </div>
-  {/each}
+    {/each}
+  </div>
 {/each}
 
 <style>
@@ -110,20 +110,27 @@
     color: var(--text-dim);
     text-transform: uppercase;
   }
-  .remap-row { gap: var(--space-3); }
-  .remap-row__label { flex-shrink: 0; }
-  .remap-row__controls {
+  .remap-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-4);
+    margin-top: var(--space-2);
+  }
+  .remap-cell {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    flex: 1;
     min-width: 0;
-    justify-content: flex-end;
+  }
+  .remap-cell__label {
+    flex-shrink: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--text);
   }
   .remap-select {
     flex: 1;
-    min-width: 12rem;
-    max-width: 20rem;
+    min-width: 0;
     padding: var(--space-1) var(--space-2);
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -158,9 +165,7 @@
   .remap-detect { width: auto; padding: 0 var(--space-2); }
   .remap-detect--active { border-color: var(--accent, var(--text)); color: var(--text); }
 
-  @media (max-width: 520px) {
-    .remap-row { flex-direction: column; align-items: stretch; }
-    .remap-row__controls { justify-content: flex-start; }
-    .remap-select { max-width: none; }
+  @media (max-width: 560px) {
+    .remap-grid { grid-template-columns: 1fr; }
   }
 </style>
