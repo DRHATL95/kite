@@ -4,11 +4,11 @@ import { SETTINGS_CATEGORIES, DEFAULT_CATEGORY, isValidCategory } from "./settin
 describe("settingsNav", () => {
   it("lists the five categories in display order", () => {
     expect(SETTINGS_CATEGORIES.map((c) => c.id)).toEqual([
+      "general",
       "stream",
       "controller",
-      "general",
-      "diagnostics",
       "about",
+      "diagnostics",
     ]);
   });
 
