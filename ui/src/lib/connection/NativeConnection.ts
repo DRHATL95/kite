@@ -162,6 +162,9 @@ export class NativeConnection implements ConnectionBackend {
     });
   }
 
+  /** No-op: native video renders via the GTK GLArea, not a DOM receiver track. */
+  setVideoHidden(_hidden: boolean): void {}
+
   /**
    * Attach/detach the encoded-frame clip tap.
    * NO-OP in native mode: clips go through `rtc_save_clip` (task 6c.8).
