@@ -596,6 +596,7 @@ mod tauri_commands {
 
     /// Minimal gamepad button state mirroring the JS `GamepadButton` interface.
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)] // fields mirror the JS DTO shape for deserialization; not read on the Rust side
     pub struct GamepadButtonDto {
         pub pressed: bool,
         pub value: f64,
@@ -606,6 +607,7 @@ mod tauri_commands {
     /// `buttons`: full Standard Gamepad button array.
     /// `axes`: [leftX, leftY, rightX, rightY] in the range −1..+1.
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)] // fields mirror the JS DTO shape for deserialization; not read on the Rust side
     pub struct GamepadStateDto {
         pub buttons: Vec<GamepadButtonDto>,
         pub axes: [f64; 4],

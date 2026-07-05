@@ -99,6 +99,7 @@ struct RegionSettings {
 #[derive(Debug, Deserialize)]
 struct ConsoleListResponse {
     #[serde(rename = "totalItems")]
+    #[allow(dead_code)] // API-mirror field; not consumed, kept for Debug/diagnostics
     total_items: u32,
     results: Vec<XHomeConsole>,
 }
@@ -158,6 +159,7 @@ struct SessionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // `detailed_session_state` is an API-mirror field kept for Debug/diagnostics
 struct SessionStateResponse {
     state: String,
     #[serde(rename = "detailedSessionState")]
@@ -174,6 +176,7 @@ struct SessionStateResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)] // net fields are API-mirror data kept for Debug/diagnostics; not consumed yet
 struct ServerDetails {
     #[serde(rename = "ipAddress")]
     ip_address: Option<String>,
@@ -192,6 +195,7 @@ struct ServerDetails {
 
 /// Configuration response from session
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // `server_details` is an API-mirror field kept for Debug/diagnostics
 struct SessionConfiguration {
     #[serde(rename = "keepAlivePulseInSeconds")]
     keep_alive_pulse_in_seconds: Option<u32>,
@@ -200,6 +204,7 @@ struct SessionConfiguration {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // `code`/`message` are API-mirror fields kept for Debug/diagnostics
 struct ErrorDetails {
     code: Option<String>,
     message: Option<String>,
@@ -251,7 +256,7 @@ impl XHomeClient {
             .json(&login_request)
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -307,7 +312,7 @@ impl XHomeClient {
             .header("x-gssv-client", "XboxComBrowser")
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -353,7 +358,7 @@ impl XHomeClient {
             .body("{}")
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         let status = response.status();
         let response_text = response.text().await.unwrap_or_default();
@@ -442,7 +447,7 @@ impl XHomeClient {
         )
         .await
         .map_err(|_| XboxError::StreamError("Session request timed out after 30s".to_string()))?
-        .map_err(|e| XboxError::NetworkError(e))?;
+        .map_err(XboxError::NetworkError)?;
 
         debug!("Got response with status: {}", response.status());
 
@@ -478,7 +483,7 @@ impl XHomeClient {
 
         // If session is provisioning, we need to poll until it's ready
         let session_path = session_response.session_path.clone();
-        let (exchange_response, server_details, keepalive_seconds) =
+        let (exchange_response, _server_details, keepalive_seconds) =
             if session_response.state.as_deref() == Some("Provisioning") {
                 info!("Session is provisioning, waiting for it to be ready...");
                 self.wait_for_session_ready(&session_path).await?
@@ -530,22 +535,19 @@ impl XHomeClient {
         }
 
         // Try to parse as JSON
-        if let Ok(json_response) = serde_json::from_str::<SdpExchangeResponse>(trimmed) {
-            if let Some(sdp) = json_response.sdp.or(json_response.exchange_response) {
-                if sdp.trim().starts_with("v=") {
+        if let Ok(json_response) = serde_json::from_str::<SdpExchangeResponse>(trimmed)
+            && let Some(sdp) = json_response.sdp.or(json_response.exchange_response)
+                && sdp.trim().starts_with("v=") {
                     return Ok(sdp);
                 }
-            }
-        }
 
         // Try generic JSON value
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(trimmed) {
             for key in &["sdp", "exchangeSdp", "offer", "exchangeResponse"] {
-                if let Some(sdp) = json_value.get(*key).and_then(|v| v.as_str()) {
-                    if sdp.trim().starts_with("v=") {
+                if let Some(sdp) = json_value.get(*key).and_then(|v| v.as_str())
+                    && sdp.trim().starts_with("v=") {
                         return Ok(sdp.to_string());
                     }
-                }
             }
         }
 
@@ -588,7 +590,7 @@ impl XHomeClient {
                 .header("x-gssv-client", "XboxComBrowser")
                 .send()
                 .await
-                .map_err(|e| XboxError::NetworkError(e))?;
+                .map_err(XboxError::NetworkError)?;
 
             if !response.status().is_success() {
                 let status = response.status();
@@ -632,8 +634,8 @@ impl XHomeClient {
                     };
 
                     // Try to get SDP from state response first
-                    if let Some(sdp) = state_response.sdp {
-                        if sdp.trim().starts_with("v=") {
+                    if let Some(sdp) = state_response.sdp
+                        && sdp.trim().starts_with("v=") {
                             info!("Got SDP from state response");
                             return Ok((
                                 Some(sdp),
@@ -641,10 +643,9 @@ impl XHomeClient {
                                 keepalive_seconds,
                             ));
                         }
-                    }
-                    if let Some(exchange) = state_response.exchange_response {
-                        if let Ok(extracted) = self.extract_sdp_from_response(&exchange) {
-                            if extracted.trim().starts_with("v=") {
+                    if let Some(exchange) = state_response.exchange_response
+                        && let Ok(extracted) = self.extract_sdp_from_response(&exchange)
+                            && extracted.trim().starts_with("v=") {
                                 info!("Got SDP from exchangeResponse in state");
                                 return Ok((
                                     Some(extracted),
@@ -652,11 +653,9 @@ impl XHomeClient {
                                     keepalive_seconds,
                                 ));
                             }
-                        }
-                    }
-                    if let Some(ref server_details) = state_response.server_details {
-                        if let Some(ref sdp) = server_details.sdp {
-                            if sdp.trim().starts_with("v=") {
+                    if let Some(ref server_details) = state_response.server_details
+                        && let Some(ref sdp) = server_details.sdp
+                            && sdp.trim().starts_with("v=") {
                                 info!("Got SDP from serverDetails");
                                 return Ok((
                                     Some(sdp.clone()),
@@ -664,8 +663,6 @@ impl XHomeClient {
                                     keepalive_seconds,
                                 ));
                             }
-                        }
-                    }
 
                     // Return what we have from state
                     return Ok((None, state_response.server_details, keepalive_seconds));
@@ -713,7 +710,7 @@ impl XHomeClient {
             .header("x-gssv-client", "XboxComBrowser")
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -783,7 +780,7 @@ impl XHomeClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         let status = response.status();
         let response_text = response.text().await.unwrap_or_default();
@@ -823,7 +820,7 @@ impl XHomeClient {
             .header("x-gssv-client", "XboxComBrowser")
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         let status = response.status();
         let response_text = response
@@ -855,11 +852,10 @@ impl XHomeClient {
                                     continue;
                                 }
                                 // Remove "a=" prefix if present (Xbox sends "a=candidate:...")
-                                let clean_cand = if cand.starts_with("a=") {
-                                    cand[2..].to_string()
-                                } else {
-                                    cand.to_string()
-                                };
+                                let clean_cand = cand
+                                    .strip_prefix("a=")
+                                    .unwrap_or(cand)
+                                    .to_string();
 
                                 // Get sdpMid and sdpMLineIndex from the response
                                 let sdp_mid = item
@@ -888,13 +884,12 @@ impl XHomeClient {
             } else if let Some(arr) = json_value.as_array() {
                 // Direct array format
                 for item in arr {
-                    if let Some(cand) = item.get("candidate").and_then(|v| v.as_str()) {
-                        if !cand.contains("end-of-candidates") {
-                            let clean_cand = if cand.starts_with("a=") {
-                                cand[2..].to_string()
-                            } else {
-                                cand.to_string()
-                            };
+                    if let Some(cand) = item.get("candidate").and_then(|v| v.as_str())
+                        && !cand.contains("end-of-candidates") {
+                            let clean_cand = cand
+                                .strip_prefix("a=")
+                                .unwrap_or(cand)
+                                .to_string();
                             let sdp_mid = item
                                 .get("sdpMid")
                                 .and_then(|v| v.as_str())
@@ -910,7 +905,6 @@ impl XHomeClient {
                                 sdp_m_line_index,
                             });
                         }
-                    }
                 }
             }
         }
@@ -944,9 +938,8 @@ impl XHomeClient {
             .header("x-gssv-client", "XboxComBrowser")
             .send()
             .await
-        {
-            if response.status().is_success() {
-                if let Ok(text) = response.text().await {
+            && response.status().is_success()
+                && let Ok(text) = response.text().await {
                     info!("Configuration for ICE: {}", text);
                     if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&text) {
                         // Check serverDetails.stunServerAddresses (this is what Xbox uses!)
@@ -1039,8 +1032,7 @@ impl XHomeClient {
 
                         // Check for turn servers at top level
                         if let Some(turn) = json_value.get("turnServers").or(json_value.get("turn"))
-                        {
-                            if let Some(arr) = turn.as_array() {
+                            && let Some(arr) = turn.as_array() {
                                 for server in arr {
                                     let urls: Vec<String> = server
                                         .get("urls")
@@ -1076,11 +1068,8 @@ impl XHomeClient {
                                     }
                                 }
                             }
-                        }
                     }
                 }
-            }
-        }
 
         // Add Microsoft STUN and Google STUN as fallbacks
         if servers.is_empty() {
@@ -1224,7 +1213,7 @@ impl XHomeClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         let status = response.status();
         let response_text = response.text().await.map_err(|e| {
@@ -1253,12 +1242,11 @@ impl XHomeClient {
 
             // Look for SDP in various possible field names
             for key in &["sdp", "exchangeResponse", "answer", "exchangeSdp"] {
-                if let Some(sdp) = json_value.get(*key).and_then(|v| v.as_str()) {
-                    if sdp.trim().starts_with("v=") {
+                if let Some(sdp) = json_value.get(*key).and_then(|v| v.as_str())
+                    && sdp.trim().starts_with("v=") {
                         info!("Got SDP answer ({} bytes)", sdp.len());
                         return Ok(sdp.to_string());
                     }
-                }
             }
 
             // If the whole response looks like SDP
@@ -1308,7 +1296,7 @@ impl XHomeClient {
                 .header("x-gssv-client", "XboxComBrowser")
                 .send()
                 .await
-                .map_err(|e| XboxError::NetworkError(e))?;
+                .map_err(XboxError::NetworkError)?;
 
             let status = response.status();
             let response_text = response.text().await.map_err(|e| {
@@ -1339,14 +1327,11 @@ impl XHomeClient {
                 {
                     // Parse the inner JSON
                     if let Ok(inner_json) = serde_json::from_str::<serde_json::Value>(exchange_str)
-                    {
-                        if let Some(sdp) = inner_json.get("sdp").and_then(|v| v.as_str()) {
-                            if sdp.trim().starts_with("v=") {
+                        && let Some(sdp) = inner_json.get("sdp").and_then(|v| v.as_str())
+                            && sdp.trim().starts_with("v=") {
                                 info!("Got SDP answer from exchangeResponse ({} bytes)", sdp.len());
                                 return Ok(sdp.to_string());
                             }
-                        }
-                    }
                     // Maybe exchangeResponse is raw SDP
                     if exchange_str.trim().starts_with("v=") {
                         return Ok(exchange_str.to_string());
@@ -1355,12 +1340,11 @@ impl XHomeClient {
 
                 // Try direct keys
                 for key in &["sdp", "answer", "exchangeSdp"] {
-                    if let Some(sdp) = json_value.get(*key).and_then(|v| v.as_str()) {
-                        if sdp.trim().starts_with("v=") {
+                    if let Some(sdp) = json_value.get(*key).and_then(|v| v.as_str())
+                        && sdp.trim().starts_with("v=") {
                             info!("Got SDP answer from poll ({} bytes)", sdp.len());
                             return Ok(sdp.to_string());
                         }
-                    }
                 }
             }
 
@@ -1403,7 +1387,7 @@ impl XHomeClient {
             .header("x-gssv-client", "XboxComBrowser")
             .send()
             .await
-            .map_err(|e| XboxError::NetworkError(e))?;
+            .map_err(XboxError::NetworkError)?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();

@@ -42,6 +42,8 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       # cargo embeds ui/dist via generate_context!() at compile time, so the
       # frontend must be built before `cargo test` or the macro can't find it.
@@ -51,5 +53,7 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm run build
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
       - name: cargo test
         run: cargo test
