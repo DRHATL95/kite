@@ -509,6 +509,8 @@ export class ConnectionManager implements ConnectionBackend {
         // another user / session ended). Do NOT reconnect (that's the brief-blip
         // path, driven by iceFailed/controlChannelClosed). Tear down and return to
         // the console list with a notice via the existing failed → ConsoleList path.
+        // Only skip if already terminal — connecting/reconnecting still route to
+        // failed (the console is deliberately ending the session).
         if (this._state === "idle" || this._state === "failed") return;
         this._lastTriggerReason = serverDisconnectReason(reason);
         this._cleanupConnection();

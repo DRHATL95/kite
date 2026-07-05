@@ -40,6 +40,7 @@ import {
 import { settings } from "./settings.svelte.js";
 import { paramsForQuality } from "../connection/streamQuality.js";
 import { mapFailureReason } from "../connection/failureReason.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Store class — reactive fields via $state runes
 // ─────────────────────────────────────────────────────────────────────────────
