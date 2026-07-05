@@ -12,11 +12,11 @@ export interface SettingsCategory {
 
 /** Sidebar categories in display order. */
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
+  { id: "general", label: "General" },
   { id: "stream", label: "Stream" },
   { id: "controller", label: "Controller" },
-  { id: "general", label: "General" },
-  { id: "diagnostics", label: "Diagnostics" },
   { id: "about", label: "About" },
+  { id: "diagnostics", label: "Diagnostics" },
 ];
 
 /** Category shown when the view first opens. */

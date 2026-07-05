@@ -112,7 +112,7 @@
   }
   .remap-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
     gap: var(--space-2) var(--space-4);
     margin-top: var(--space-2);
   }
@@ -164,8 +164,4 @@
   }
   .remap-detect { width: auto; padding: 0 var(--space-2); }
   .remap-detect--active { border-color: var(--accent, var(--text)); color: var(--text); }
-
-  @media (max-width: 560px) {
-    .remap-grid { grid-template-columns: 1fr; }
-  }
 </style>

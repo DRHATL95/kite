@@ -49,7 +49,7 @@
         {/each}
       </nav>
 
-      <div class="settings-content">
+      <div class="settings-content" class:settings-content--wide={active === "controller"}>
         {#if active === "stream"}
           <StreamingSettings />
         {:else if active === "controller"}
@@ -154,6 +154,10 @@
     padding: var(--space-5);
     max-width: 640px;
   }
+
+  /* The remapping grid wants the full pane width (many compact cells);
+     other pages keep the comfortable reading width above. */
+  .settings-content--wide { max-width: none; }
 
   /* Shared row/chip styles for the category components (descendant-scoped
      globals so each category component stays style-free and DRY). */
