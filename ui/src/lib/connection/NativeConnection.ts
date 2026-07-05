@@ -44,6 +44,7 @@ import { GamepadPoller } from "./input.js";
 import { KeyboardTracker } from "./keyboardTracker.js";
 import { mapStats, completeSnapshot } from "./nativeStats.js";
 import { RECONNECT_MAX_ATTEMPTS } from "./constants.js";
+import { DEFAULT_MAPPING, type ControllerMapping } from "./controllerMapping.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NativeConnection
@@ -66,6 +67,7 @@ export class NativeConnection implements ConnectionBackend {
   private _poller: GamepadPoller | null = null;
   private _keyboardTracker: KeyboardTracker | null = null;
   private _console: XHomeConsole | null = null;
+  private _controllerMapping: ControllerMapping = DEFAULT_MAPPING;
 
   // ── Synthesised snapshot fields ────────────────────────────────────────────
   /** Fields we synthesise from lifecycle events (no RTCStats in native mode). */
@@ -89,11 +91,12 @@ export class NativeConnection implements ConnectionBackend {
    * Does not throw; failures arrive as a terminal `disconnected` event which
    * transitions state to "failed" and fires `onStateChange("failed")`.
    */
-  async connect(xboxConsole: XHomeConsole, _opts?: { audioOnly?: boolean; quality?: QualityParams }): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams; controllerMapping?: ControllerMapping }): Promise<void> {
     this._console = xboxConsole;
     this._connectStartedAt = Date.now();
     this._synth = {};
     this._currentAttempt = 0;
+    this._controllerMapping = opts?.controllerMapping ?? DEFAULT_MAPPING;
 
     // Bump generation: any in-flight callbacks from a previous session are now stale.
     const myGeneration = ++this._generation;
@@ -122,7 +125,7 @@ export class NativeConnection implements ConnectionBackend {
         });
       }
       // metadata → no-op
-    }, () => keyboard.pressed);
+    }, () => keyboard.pressed, () => this._controllerMapping);
     this._poller.start();
   }
 

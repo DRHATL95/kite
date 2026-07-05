@@ -48,6 +48,7 @@ import type { DataChannelSet } from "./dataChannels.js";
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
 import { videoTransceiverDirection, tracksReadyToStream } from "./audioOnly.js";
 import { KeyboardTracker } from "./keyboardTracker.js";
+import { DEFAULT_MAPPING, type ControllerMapping } from "./controllerMapping.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -184,6 +185,7 @@ export class ConnectionManager implements ConnectionBackend {
   /** Active session's audio-only mode; set in connect(), reused across reconnects. */
   private _audioOnly = false;
   private _quality: QualityParams = QUALITY_PRESETS.auto;
+  private _controllerMapping: ControllerMapping = DEFAULT_MAPPING;
   private _keyboardTracker: KeyboardTracker | null = null;
   private _keyframeRequestsSent = 0;
 
@@ -260,7 +262,7 @@ export class ConnectionManager implements ConnectionBackend {
    *
    * app.js:50-69 (connect)
    */
-  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams }): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams; controllerMapping?: ControllerMapping }): Promise<void> {
     // spec §3.7 duplicate-guard — app.js:51-54
     // Use a local snapshot so TypeScript's control-flow narrowing does NOT
     // eliminate "connecting" from this._state's type for the rest of the method.
@@ -287,6 +289,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._consoleType = xboxConsole.consoleType ?? null;
     this._audioOnly = !!opts?.audioOnly;
     this._quality = opts?.quality ?? QUALITY_PRESETS.auto;
+    this._controllerMapping = opts?.controllerMapping ?? DEFAULT_MAPPING;
 
     try {
       await this._createSessionAndStream();
@@ -1053,7 +1056,7 @@ export class ConnectionManager implements ConnectionBackend {
     keyboard.attach();
     this._keyboardTracker = keyboard;
 
-    this._gamepadPoller = new GamepadPoller(onEmit, () => keyboard.pressed);
+    this._gamepadPoller = new GamepadPoller(onEmit, () => keyboard.pressed, () => this._controllerMapping);
     this._gamepadPoller.start();
     this._log("Started gamepad polling (60 Hz) + keyboard input");
   }

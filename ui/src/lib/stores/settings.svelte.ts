@@ -10,6 +10,10 @@ import {
   type ClipSettings,
 } from "../settings/clipSettings.js";
 import { isQualityPreset, type QualityPreset } from "../connection/streamQuality.js";
+import {
+  loadMapping, saveMapping, OUTPUTS_BY_ID, sourcesEqual,
+  type ControllerMapping, type Source,
+} from "../connection/controllerMapping.js";
 import { persisted } from "../persist/store.js";
 
 export type UpdateChannel = "stable" | "nightly";
@@ -109,6 +113,9 @@ class SettingsStore {
   /** Show the diagnostics HUD (default on for nightly, off for stable), persisted. */
   showDiagnosticsHud: boolean = $state(readShowDiagnosticsHud());
 
+  /** Controller remap (sparse overrides). Snapshotted at connect; applies next connect. */
+  controllerMapping: ControllerMapping = $state(loadMapping(persisted));
+
   /** Switch channel and persist it. */
   setChannel(c: UpdateChannel): void {
     this.updateChannel = c;
@@ -173,6 +180,30 @@ class SettingsStore {
   setClip(patch: Partial<ClipSettings>): void {
     this.clip = { ...this.clip, ...patch };
     saveClipSettings(persisted, this.clip);
+  }
+
+  /** Bind an output to a source (or delete it if it equals the default). */
+  setControllerBinding(outputId: string, src: Source): void {
+    const def = OUTPUTS_BY_ID[outputId]?.defaultSource;
+    const next = { ...this.controllerMapping };
+    if (def && sourcesEqual(src, def)) delete next[outputId];
+    else next[outputId] = src;
+    this.controllerMapping = next;
+    saveMapping(persisted, next);
+  }
+
+  /** Reset a single output to its default. */
+  resetControllerBinding(outputId: string): void {
+    const next = { ...this.controllerMapping };
+    delete next[outputId];
+    this.controllerMapping = next;
+    saveMapping(persisted, next);
+  }
+
+  /** Reset the whole mapping to default. */
+  resetControllerMapping(): void {
+    this.controllerMapping = {};
+    saveMapping(persisted, {});
   }
 }
 

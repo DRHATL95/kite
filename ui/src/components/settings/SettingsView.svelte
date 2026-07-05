@@ -6,6 +6,7 @@
    */
   import { SETTINGS_CATEGORIES, DEFAULT_CATEGORY } from "$lib/settings/settingsNav.js";
   import StreamingSettings from "./StreamingSettings.svelte";
+  import ControllerSettings from "./ControllerSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
   import UpdatesSettings from "./UpdatesSettings.svelte";
   import AdvancedSettings from "./AdvancedSettings.svelte";
@@ -53,6 +54,8 @@
       <div class="settings-content">
         {#if active === "streaming"}
           <StreamingSettings />
+        {:else if active === "controller"}
+          <ControllerSettings />
         {:else if active === "general"}
           <GeneralSettings />
         {:else if active === "updates"}

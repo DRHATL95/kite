@@ -41,6 +41,7 @@ import {
   GAMEPAD_POLL_MS,
   IDLE_FRAME_EVERY,
 } from "./constants.js";
+import { applyRemap, DEFAULT_MAPPING, type ControllerMapping } from "./controllerMapping.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -367,6 +368,7 @@ export function mapKeyboardToGamepad(keysPressed: Set<string>): GamepadState {
 export class GamepadPoller {
   private readonly emit: (intent: InputEmit) => void;
   private readonly getKeyboardState: (() => Set<string>) | null;
+  private readonly getMapping: () => ControllerMapping;
 
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private idleCounter = 0;
@@ -377,13 +379,18 @@ export class GamepadPoller {
    * @param getKeyboardState  Optional callback returning the set of currently
    *                          held keyboard codes (for keyboard-to-gamepad
    *                          mapping).  Pass null to disable keyboard input.
+   * @param getMapping        Optional callback returning the current controller
+   *                          remap. Defaults to DEFAULT_MAPPING (identity
+   *                          no-op) so existing callers are unaffected.
    */
   constructor(
     emit: (intent: InputEmit) => void,
     getKeyboardState: (() => Set<string>) | null = null,
+    getMapping: () => ControllerMapping = () => DEFAULT_MAPPING,
   ) {
     this.emit = emit;
     this.getKeyboardState = getKeyboardState;
+    this.getMapping = getMapping;
   }
 
   /** Start polling. No-op if already running. */
@@ -428,7 +435,7 @@ export class GamepadPoller {
 
     if (physicalGamepad) {
       // Convert Gamepad API object to our internal type
-      gamepadState = {
+      const rawPhysical: GamepadState = {
         buttons: Array.from(physicalGamepad.buttons).map((b) => ({
           pressed: b.pressed,
           value: b.value,
@@ -440,6 +447,7 @@ export class GamepadPoller {
           physicalGamepad.axes[3] ?? 0,
         ],
       };
+      gamepadState = applyRemap(rawPhysical, this.getMapping());
     } else if (this.getKeyboardState) {
       const keys = this.getKeyboardState();
       if (keys.size > 0) {

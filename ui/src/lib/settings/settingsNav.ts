@@ -13,6 +13,7 @@ export interface SettingsCategory {
 /** Sidebar categories in display order. */
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   { id: "streaming", label: "Streaming" },
+  { id: "controller", label: "Controller" },
   { id: "general", label: "General" },
   { id: "updates", label: "Updates" },
   { id: "advanced", label: "Advanced" },
