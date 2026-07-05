@@ -38,6 +38,7 @@ import {
 } from "./constants.js";
 
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
+import { serverDisconnectReason } from "./failureReason.js";
 import { applyVideoBitrateCap } from "./sdpBitrate.js";
 import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
 
@@ -503,8 +504,15 @@ export class ConnectionManager implements ConnectionBackend {
       },
       onServerDisconnect: (reason: string) => {
         this._log(`Server disconnect: ${reason}`);
-        // spec §3.9 — serverInitiatedDisconnect with reason ≠ WarningForBeingIdle
-        this._triggerReconnect("serverInitiatedDisconnect: " + reason);
+        // A serverInitiatedDisconnect is an ACTIVE control-channel message — the
+        // console is up and deliberately ending the session (power-off / standby /
+        // another user / session ended). Do NOT reconnect (that's the brief-blip
+        // path, driven by iceFailed/controlChannelClosed). Tear down and return to
+        // the console list with a notice via the existing failed → ConsoleList path.
+        if (this._state === "idle" || this._state === "failed") return;
+        this._lastTriggerReason = serverDisconnectReason(reason);
+        this._cleanupConnection();
+        this._setState("failed");
       },
       onControlChannelClosed: () => {
         // spec §3.9 — control channel closed while streaming
