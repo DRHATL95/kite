@@ -2,14 +2,12 @@ import { describe, it, expect } from "vitest";
 import { SETTINGS_CATEGORIES, DEFAULT_CATEGORY, isValidCategory } from "./settingsNav.js";
 
 describe("settingsNav", () => {
-  it("lists the seven categories in display order", () => {
+  it("lists the five categories in display order", () => {
     expect(SETTINGS_CATEGORIES.map((c) => c.id)).toEqual([
-      "streaming",
+      "stream",
       "controller",
       "general",
-      "updates",
-      "advanced",
-      "account",
+      "diagnostics",
       "about",
     ]);
   });
