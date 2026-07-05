@@ -8,9 +8,7 @@
   import StreamingSettings from "./StreamingSettings.svelte";
   import ControllerSettings from "./ControllerSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
-  import UpdatesSettings from "./UpdatesSettings.svelte";
-  import AdvancedSettings from "./AdvancedSettings.svelte";
-  import AccountSettings from "./AccountSettings.svelte";
+  import DiagnosticsSettings from "./DiagnosticsSettings.svelte";
   import AboutSettings from "./AboutSettings.svelte";
 
   interface Props {
@@ -52,20 +50,16 @@
       </nav>
 
       <div class="settings-content">
-        {#if active === "streaming"}
+        {#if active === "stream"}
           <StreamingSettings />
         {:else if active === "controller"}
           <ControllerSettings />
         {:else if active === "general"}
           <GeneralSettings />
-        {:else if active === "updates"}
-          <UpdatesSettings />
-        {:else if active === "advanced"}
-          <AdvancedSettings />
-        {:else if active === "account"}
-          <AccountSettings {onClose} />
+        {:else if active === "diagnostics"}
+          <DiagnosticsSettings />
         {:else if active === "about"}
-          <AboutSettings />
+          <AboutSettings {onClose} />
         {/if}
       </div>
     </div>
