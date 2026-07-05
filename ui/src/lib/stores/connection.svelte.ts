@@ -39,17 +39,7 @@ import {
 } from "../connection/connectTimeout.js";
 import { settings } from "./settings.svelte.js";
 import { paramsForQuality } from "../connection/streamQuality.js";
-
-/**
- * Map an internal reconnect/trigger reason to a user-facing failure message.
- * Media reasons point the user at the real-world fix (restart the console).
- */
-function mapFailureReason(reason: string | null): string {
-  if (reason === "mediaNeverStarted" || reason === "mediaStalled") {
-    return "Couldn't get video from the console. It may be unresponsive — try restarting the console.";
-  }
-  return "The connection failed. Please try again.";
-}
+import { mapFailureReason } from "../connection/failureReason.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Store class — reactive fields via $state runes
