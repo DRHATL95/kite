@@ -14,6 +14,7 @@
   import { onMount } from "svelte";
   import { authStore } from "$lib/stores/auth.svelte.js";
   import Button from "$lib/design/Button.svelte";
+  import LogoMark from "$lib/design/LogoMark.svelte";
   import ThemeSwitcher from "../components/ThemeSwitcher.svelte";
 
   let loading = $state(false);
@@ -38,6 +39,9 @@
       <span class="kicker-dot" aria-hidden="true"></span>
       <span>CLOUD REMOTE PLAY</span>
     </div>
+
+    <!-- Brand mark -->
+    <LogoMark size={56} />
 
     <!-- Wordmark -->
     <h1 class="brand" style="--i: 1;" aria-label="Kite">
