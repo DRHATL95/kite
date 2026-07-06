@@ -48,13 +48,15 @@ cpal = { version = "0.15", optional = true }
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.3"
+# Decodes the embedded tray-icon PNGs (src/tray.rs); also used by the Phase-0
+# rtc_spike example (error context + PNG encode) via anyhow below.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 tempfile = "3"
 insta = { version = "1", features = ["json"] }
-# Phase-0 spike only (examples/rtc_spike.rs): error context + PNG encode.
+# Phase-0 spike only (examples/rtc_spike.rs): error context.
 anyhow = "1"
-image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Native Linux render stack (Phase 4/6). Optional + feature-gated so the default

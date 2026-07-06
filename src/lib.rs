@@ -170,6 +170,7 @@ pub fn run() {
             logging::set_log_verbosity,
             logging::open_log_dir,
             logging::export_logs,
+            tray::set_tray_theme,
             tauri_commands::rtc_native_available,
             tauri_commands::rtc_connect,
             tauri_commands::rtc_disconnect,
