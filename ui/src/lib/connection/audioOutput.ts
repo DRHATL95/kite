@@ -4,13 +4,19 @@
  *
  * Routing itself lives on streamAudio (AudioContext.setSinkId). This module is
  * only the *selection*: feature-detection, persistence, and presenting a picker.
- * Prefers navigator.mediaDevices.selectAudioOutput() (native picker, real
- * names, no permission prompt); falls back to enumerateDevices() (with a
- * one-time getUserMedia grant to unlock labels) for runtimes without it.
+ *
+ * Selection uses ONLY navigator.mediaDevices.selectAudioOutput() — the native
+ * picker, which returns the chosen device (id + real name) with NO permission
+ * prompt. We deliberately do NOT fall back to enumerateDevices(): that path
+ * needs a getUserMedia() microphone grant to reveal output-device names/ids (a
+ * Chromium privacy gate), and a mic prompt to choose speakers is unacceptable
+ * for an app that never records. Where selectAudioOutput() is unavailable the
+ * picker is simply hidden (see hasNativeOutputPicker) and boost still works.
  */
 import { persisted } from "$lib/persist/store.js";
 
 const OUTPUT_KEY = "kite-audio-output-device";
+const LABEL_KEY = "kite-audio-output-label";
 
 type MediaDevicesWithPicker = MediaDevices & {
   selectAudioOutput?: () => Promise<MediaDeviceInfo>;
@@ -21,7 +27,7 @@ export function isOutputSelectionSupported(): boolean {
   return typeof AudioContext !== "undefined" && "setSinkId" in AudioContext.prototype;
 }
 
-/** True if the browser offers a native output-device picker (no mic prompt). */
+/** True if the browser offers the native, no-prompt output-device picker. */
 export function hasNativeOutputPicker(): boolean {
   return (
     typeof navigator !== "undefined" &&
@@ -35,11 +41,21 @@ export function savedOutputDeviceId(): string {
   return persisted.getItem(OUTPUT_KEY) ?? "";
 }
 
+/** Persisted chosen device label, for display ("" = none saved). */
+export function savedOutputLabel(): string {
+  return persisted.getItem(LABEL_KEY) ?? "";
+}
+
 export function saveOutputDeviceId(deviceId: string): void {
   persisted.setItem(OUTPUT_KEY, deviceId);
 }
 
-/** Native picker path: resolve to the chosen device, or null if cancelled. */
+export function saveOutputLabel(label: string): void {
+  persisted.setItem(LABEL_KEY, label);
+}
+
+/** Present the native output picker; resolve to the chosen device, or null if
+ *  it's unavailable or the user cancelled. Never prompts for a media grant. */
 export async function pickOutputDevice(): Promise<{ deviceId: string; label: string } | null> {
   const md = navigator.mediaDevices as MediaDevicesWithPicker;
   if (typeof md.selectAudioOutput !== "function") return null;
@@ -49,19 +65,4 @@ export async function pickOutputDevice(): Promise<{ deviceId: string; label: str
   } catch {
     return null; // user cancelled
   }
-}
-
-/** Fallback path: list audio outputs for a <select>. Requests a one-time media
- *  grant so labels are populated (Chromium hides them without one). */
-export async function listOutputDevices(): Promise<{ deviceId: string; label: string }[]> {
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-    s.getTracks().forEach((t) => t.stop());
-  } catch {
-    // denied — ids still returned, labels may be blank
-  }
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices
-    .filter((d) => d.kind === "audiooutput")
-    .map((d) => ({ deviceId: d.deviceId, label: d.label || "Audio output" }));
 }

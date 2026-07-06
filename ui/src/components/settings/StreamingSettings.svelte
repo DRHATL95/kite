@@ -1,14 +1,13 @@
 <script lang="ts">
   import Toggle from "$lib/design/Toggle.svelte";
   import { settings } from "$lib/stores/settings.svelte.js";
-  import { onMount } from "svelte";
   import {
     isOutputSelectionSupported,
     hasNativeOutputPicker,
-    savedOutputDeviceId,
     saveOutputDeviceId,
+    savedOutputLabel,
+    saveOutputLabel,
     pickOutputDevice,
-    listOutputDevices,
   } from "$lib/connection/audioOutput.js";
   import { streamAudio } from "$lib/connection/streamAudio.js";
 
@@ -21,32 +20,20 @@
     { id: "low", label: "Low" },
   ] as const;
 
-  const outputSupported = isOutputSelectionSupported();
-  const nativePicker = hasNativeOutputPicker();
-  let outputDeviceId = $state(savedOutputDeviceId());
-  let outputLabel = $state("");
-  let devices = $state<{ deviceId: string; label: string }[]>([]);
-
-  onMount(async () => {
-    if (!outputSupported || nativePicker) return;
-    devices = await listOutputDevices();
-    outputLabel = devices.find((d) => d.deviceId === outputDeviceId)?.label ?? "";
-  });
+  // The output-device picker only appears where the browser offers the native,
+  // no-prompt selectAudioOutput() picker (and setSinkId can route). Elsewhere the
+  // row is hidden — we never fall back to a getUserMedia mic prompt to list
+  // devices (asking for a microphone to choose speakers is unacceptable).
+  const showOutputPicker = isOutputSelectionSupported() && hasNativeOutputPicker();
+  let outputLabel = $state(savedOutputLabel());
 
   async function chooseDevice() {
     const picked = await pickOutputDevice();
     if (!picked) return;
-    outputDeviceId = picked.deviceId;
     outputLabel = picked.label;
     saveOutputDeviceId(picked.deviceId);
+    saveOutputLabel(picked.label);
     void streamAudio.setSinkId(picked.deviceId);
-  }
-
-  function selectDevice(id: string) {
-    outputDeviceId = id;
-    outputLabel = devices.find((d) => d.deviceId === id)?.label ?? "";
-    saveOutputDeviceId(id);
-    void streamAudio.setSinkId(id);
   }
 </script>
 
@@ -85,7 +72,7 @@
   <Toggle checked={settings.audioOnly} label="" onchange={(on) => settings.setAudioOnly(on)} />
 </div>
 
-{#if outputSupported}
+{#if showOutputPicker}
   <div class="settings-row">
     <div class="settings-row__text">
       <span class="settings-row__title">Audio output</span>
@@ -94,23 +81,9 @@
         your system default. Applies immediately while streaming.
       </span>
     </div>
-    {#if nativePicker}
-      <button type="button" class="clip-chip" onclick={chooseDevice}>
-        {outputLabel || "System default"} · Change
-      </button>
-    {:else}
-      <select
-        class="audio-output-select"
-        aria-label="Audio output device"
-        value={outputDeviceId}
-        onchange={(e) => selectDevice((e.currentTarget as HTMLSelectElement).value)}
-      >
-        <option value="">System default</option>
-        {#each devices as d (d.deviceId)}
-          <option value={d.deviceId}>{d.label}</option>
-        {/each}
-      </select>
-    {/if}
+    <button type="button" class="clip-chip" onclick={chooseDevice}>
+      {outputLabel || "System default"} · Change
+    </button>
   </div>
 {/if}
 
@@ -166,19 +139,3 @@
     </div>
   </div>
 {/if}
-
-<style>
-  /* The enumerate-fallback output <select> (native-picker runtimes render the
-     .clip-chip button above and never hit this). Mirrors ControllerSettings'
-     .remap-select so it matches the rest of Settings. */
-  .audio-output-select {
-    padding: var(--space-1) var(--space-2);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-  }
-  .audio-output-select:focus-visible { box-shadow: var(--focus-ring); }
-</style>
