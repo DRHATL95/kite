@@ -42,6 +42,7 @@
   import { rtcSetVolume } from "$lib/ipc/commands.js";
   import { audioViewActive } from "$lib/connection/audioOnly.js";
   import { streamAudio } from "$lib/connection/streamAudio.js";
+  import { savedOutputDeviceId } from "$lib/connection/audioOutput.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@
     // Route this element's audio through the Web Audio graph (boost + output
     // routing). Idempotent per element; re-runs (and re-taps) on a focus swap.
     streamAudio.attach(videoEl);
+    void streamAudio.setSinkId(savedOutputDeviceId());
 
     // ── 250ms-delayed play + Unmute fallback (ported from app.js lines 634–662) ──
 
