@@ -129,6 +129,11 @@
     // Route this element's audio through the Web Audio graph (boost + output
     // routing). Idempotent per element; re-runs (and re-taps) on a focus swap.
     streamAudio.attach(videoEl);
+    // A focus-mode <video> swap re-taps a fresh element mid-session; explicitly
+    // resume the (shared, already-running) context so audio never waits on
+    // autoplay luck. The swap runs inside the Immersive click's task, so
+    // resume() is honored.
+    streamAudio.resume();
     void streamAudio.setSinkId(savedOutputDeviceId());
 
     // ── 250ms-delayed play + Unmute fallback (ported from app.js lines 634–662) ──
