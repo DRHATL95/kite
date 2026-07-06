@@ -29,6 +29,7 @@
   import { persisted } from "$lib/persist/store.js";
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
   import { videoControlsActive } from "$lib/connection/audioOnly.js";
+  import { pctToGain, VOLUME_MAX_PCT } from "$lib/connection/streamVolume.js";
 
   const showClip = $derived(
     settings.clip.enabled &&
@@ -61,10 +62,9 @@
      */
     hideVolume?: boolean;
     /**
-     * Native mode: there is no DOM <video> to set `.volume` on (audio plays via
-     * Rust/cpal), so the slider routes its gain (0–1) here instead. Called on the
-     * initial saved level, slider input, and mute toggle. Omitted on the browser
-     * path (where `video.volume` is used directly).
+     * Receives the linear playback gain (0–1.5) on every volume change. The
+     * browser path wires this to the Web Audio GainNode (streamAudio.setGain);
+     * the native path wires it to rtc_set_volume. Range exceeds 1.0 for boost.
      */
     onVolumeChange?: (gain: number) => void;
     onDisconnect: () => void;
@@ -103,14 +103,11 @@
    */
   let lastNonZeroVolume = $state<number>(readSavedVolumePct() || 80);
 
-  /** Apply the current volumePct to the video element and persist. */
+  /** Persist the current volumePct; gain is pushed reactively (see $effect). */
   function applyVolume(pct: number) {
     volumePct = pct;
     if (pct > 0) lastNonZeroVolume = pct;
-    if (video) {
-      video.volume = pct / 100;
-      video.muted = pct === 0;
-    }
+    if (video) video.muted = pct === 0;
     persisted.setItem(VOLUME_KEY, String(pct / 100));
   }
 
@@ -127,14 +124,13 @@
     }
   }
 
-  /** Sync video element when it becomes available (also called from Stream.svelte after mount). */
+  /** Seed volumePct from the persisted value once the video is available. */
   $effect(() => {
     if (video && !video.muted) {
       const saved = persisted.getItem(VOLUME_KEY);
       if (saved !== null) {
         const v = parseFloat(saved);
         if (!Number.isNaN(v)) {
-          video.volume = v;
           video.muted = v === 0;
           volumePct = Math.round(v * 100);
         }
@@ -147,11 +143,12 @@
     applyVolume(parseInt(target.value, 10));
   }
 
-  // Native mode: push the gain to the Rust audio sink (no DOM <video> to set).
-  // Runs on the initial saved level and every volumePct change (slider / mute);
-  // a no-op on the browser path where onVolumeChange is undefined.
+  // Push the linear gain to the active audio path on every volume change.
+  // Browser: Stream.svelte wires onVolumeChange → streamAudio.setGain (Web Audio
+  // GainNode). Native: onVolumeChange → rtc_set_volume. Runs on the initial
+  // saved level and every slider / mute change.
   $effect(() => {
-    onVolumeChange?.(volumePct / 100);
+    onVolumeChange?.(pctToGain(volumePct));
   });
 
   // ── Fullscreen ────────────────────────────────────────────────────────────────
@@ -264,7 +261,7 @@
         type="range"
         class="ctrl-volume__slider"
         min="0"
-        max="100"
+        max={VOLUME_MAX_PCT}
         value={volumePct}
         style="--fill: {volumePct}%;"
         oninput={handleVolumeInput}
