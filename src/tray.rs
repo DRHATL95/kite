@@ -84,7 +84,8 @@ fn show_main(app: &tauri::AppHandle) {
     }
 }
 
-/// Build the always-on tray icon: reuse the bundled window icon, tooltip "Kite",
+/// Build the always-on tray icon: start with the midnight themed tray icon
+/// (the frontend corrects it to the persisted theme on init), tooltip "Kite",
 /// a Show/Quit menu, and left-click-to-restore. Never fatal — callers log and
 /// continue so a tray failure only means "close quits" (as if the feature were off).
 pub fn build_tray(app: &tauri::App) -> tauri::Result<()> {

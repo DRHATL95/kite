@@ -39,4 +39,4 @@ nul
 /docs/
 
 # Not a pnpm workspace — pnpm 10/11 can auto-create this on ignored-builds; never commit it
-pnpm-workspace.yaml
+/pnpm-workspace.yaml
