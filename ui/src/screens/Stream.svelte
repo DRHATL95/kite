@@ -41,6 +41,7 @@
   import { connectingSteps, shouldShowSplash } from "$lib/console/connectingSplash.js";
   import { rtcSetVolume } from "$lib/ipc/commands.js";
   import { audioViewActive } from "$lib/connection/audioOnly.js";
+  import { streamAudio } from "$lib/connection/streamAudio.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -62,13 +63,15 @@
   const audioOnly = $derived(connectionStore.audioOnly);
   const audioView = $derived(audioViewActive(connectionStore.audioOnly, connectionStore.videoHidden));
 
-  // Native mode has no DOM <video>; route the volume slider's gain (0–1) to the
-  // Rust audio sink. No-ops until the engine is connected (the command buffers).
+  // Route the volume slider's linear gain (0–1.5) to the active audio sink:
+  // native → Rust/cpal via rtc_set_volume; browser → the Web Audio GainNode.
   const onVolumeChange = nativeMode
     ? (gain: number) => {
         void rtcSetVolume(gain);
       }
-    : undefined;
+    : (gain: number) => {
+        streamAudio.setGain(gain);
+      };
 
   // ── Element refs ──────────────────────────────────────────────────────────────
 
@@ -118,8 +121,13 @@
     if (!stream) {
       needsUnmute = false;
       if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+      streamAudio.dispose();
       return;
     }
+
+    // Route this element's audio through the Web Audio graph (boost + output
+    // routing). Idempotent per element; re-runs (and re-taps) on a focus swap.
+    streamAudio.attach(videoEl);
 
     // ── 250ms-delayed play + Unmute fallback (ported from app.js lines 634–662) ──
 
@@ -132,13 +140,17 @@
 
       ensurePlay
         .then(() => {
+          // A running Web Audio context is required for audio to flow through
+          // the graph; resume it here (autoplay policy permitting).
+          streamAudio.resume();
           // Attempt to unmute — browser may refuse if no user gesture occurred
           videoEl!.muted = false;
-          if (!videoEl!.muted) {
-            // Fully unmuted — no affordance needed
+          if (!videoEl!.muted && !streamAudio.isSuspended()) {
+            // Fully unmuted and the graph is running — no affordance needed
             needsUnmute = false;
           } else {
-            // Autoplay policy kept it muted — show Unmute button
+            // Autoplay policy kept it muted, or the graph needs a gesture to
+            // resume — show the Unmute button (its click resumes the context).
             needsUnmute = true;
           }
         })
@@ -156,6 +168,8 @@
   function handleUnmute() {
     if (!videoEl) return;
     videoEl.muted = false;
+    streamAudio.attach(videoEl); // idempotent; retries the tap if it hadn't run
+    streamAudio.resume();
     if (videoEl.paused) {
       videoEl.play().catch(() => {});
     }
@@ -222,6 +236,7 @@
 
   onDestroy(() => {
     if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+    streamAudio.dispose();
   });
 </script>
 
