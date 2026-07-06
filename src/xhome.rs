@@ -332,53 +332,6 @@ impl XHomeClient {
         Ok(console_response.results)
     }
 
-    /// Wake up a console before streaming
-    pub async fn wake_console(&self, server_id: &str) -> Result<()> {
-        info!("Sending wake command to console: {}", server_id);
-
-        let gs_token = self
-            .gs_token
-            .as_ref()
-            .ok_or_else(|| XboxError::AuthError("Not logged in to xHome".to_string()))?;
-        let api_base = self
-            .api_base
-            .as_ref()
-            .ok_or_else(|| XboxError::AuthError("No API base URL".to_string()))?;
-
-        // Try the wake endpoint
-        let url = format!("{}/v6/servers/home/{}/wake", api_base, server_id);
-        debug!("Wake URL: {}", url);
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", gs_token))
-            .header("x-gssv-client", "XboxComBrowser")
-            .header("Content-Type", "application/json")
-            .body("{}")
-            .send()
-            .await
-            .map_err(XboxError::NetworkError)?;
-
-        let status = response.status();
-        let response_text = response.text().await.unwrap_or_default();
-
-        if status.is_success() {
-            info!("Wake command sent successfully");
-        } else {
-            // Wake might fail but we should still try to connect
-            warn!(
-                "Wake command returned {}: {} - will still try to connect",
-                status, response_text
-            );
-        }
-
-        // Give the console a moment to wake up
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-        Ok(())
-    }
-
     /// Create a streaming session with a console
     /// play_path should come from the XHomeConsole's play_path field
     pub async fn create_session(
@@ -392,11 +345,6 @@ impl XHomeClient {
         }
 
         info!("Creating streaming session for console: {}", server_id);
-
-        // Try to wake the console first
-        if let Err(e) = self.wake_console(server_id).await {
-            warn!("Wake command failed (non-fatal): {}", e);
-        }
 
         let gs_token = self
             .gs_token
