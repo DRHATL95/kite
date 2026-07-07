@@ -41,6 +41,7 @@ import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
 import { serverDisconnectReason } from "./failureReason.js";
 import { applyVideoBitrateCap } from "./sdpBitrate.js";
 import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
+import { buildManagerStats, type ManagerStatsInputs } from "./managerStats.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
@@ -57,7 +58,7 @@ import { logger } from "$lib/log/logger.js";
 
 import { StatsSampler } from "./stats.js";
 
-import type { DiagnosticsSnapshot, ManagerStats, SessionState, ChannelStats } from "./types.js";
+import type { DiagnosticsSnapshot, SessionState } from "./types.js";
 import type { XHomeConsole, IceServer, StreamConfig } from "../ipc/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1128,78 +1129,40 @@ export class ConnectionManager implements ConnectionBackend {
   /**
    * Build the current ManagerStats and push them into the StatsSampler so the
    * next snapshot emitted to the HUD contains up-to-date manager-owned fields.
+   *
+   * The assembly logic itself lives in the pure, standalone buildManagerStats()
+   * (managerStats.ts) — this method's job is only to gather the ~18 inputs
+   * from `this.*` fields and funnel the result into the sampler.
    */
   private _pushManagerStats(): void {
     if (!this._sampler) return;
 
-    const videoAt = this._videoArrivedAt;
-    const audioAt = this._audioArrivedAt;
-    const skewMs =
-      videoAt !== null && audioAt !== null
-        ? Math.abs(videoAt - audioAt)
-        : null;
-
-    // Per-channel diagnostics
-    const channels: ChannelStats[] = [
-      "chat",
-      "control",
-      "message",
-      "input",
-    ].map((label) => {
-      const ch = this._channels?.[label as keyof DataChannelSet];
-      return {
-        label,
-        state: (ch?.readyState ?? "closed") as RTCDataChannelState,
-        openedAt: this._channelOpenedAt[label] ?? null,
-      };
-    });
-
-    const handshakeMs =
-      this._firstChannelOpenAt !== null && this._handshakeAckAt !== null
-        ? this._handshakeAckAt - this._firstChannelOpenAt
-        : null;
-
-    const msSinceLastKeepalive =
-      this._lastKeepaliveAt !== null
-        ? Date.now() - this._lastKeepaliveAt
-        : null;
-
-    // Active keepalive mode
-    let activeKeepalive: "api" | "idle" | "none" = "none";
-    if (this._apiKeepAliveInterval !== null) {
-      activeKeepalive = "api";
-    } else if (this._idleKeepaliveInterval !== null) {
-      activeKeepalive = "idle";
-    }
-
-    const stats: ManagerStats = {
+    const inputs: ManagerStatsInputs = {
       state: this._state,
       keyframeRequestsSent: this._keyframeRequestsSent,
       remoteCandidatesAdded: this._remoteCandidatesAdded,
       icePollAttemptsUsed: this._icePollAttemptsUsed,
-      source: this._iceSource,
+      iceSource: this._iceSource,
       stunCount: this._stunCount,
       turnCount: this._turnCount,
-      activeKeepalive,
-      msSinceLastKeepalive,
+      apiKeepAliveActive: this._apiKeepAliveInterval !== null,
+      idleKeepaliveActive: this._idleKeepaliveInterval !== null,
+      lastKeepaliveAt: this._lastKeepaliveAt,
       lastIdleWarningSecondsUntilKick: this._lastIdleWarningSecondsUntilKick,
-      channels,
-      handshakeMs,
+      channels: this._channels,
+      channelOpenedAt: this._channelOpenedAt,
+      firstChannelOpenAt: this._firstChannelOpenAt,
+      handshakeAckAt: this._handshakeAckAt,
       currentAttempt: this._reconnectAttempts,
-      maxAttempts: RECONNECT_MAX_ATTEMPTS,
       lastTriggerReason: this._lastTriggerReason,
       backoffMs: this._lastBackoffMs,
-      videoArrivedAt: videoAt,
-      audioArrivedAt: audioAt,
-      skewMs,
-      // GamepadPoller exposes no public seq/Hz — provide null for now
-      outboundPacketHz: null,
-      lastSequence: null,
+      videoArrivedAt: this._videoArrivedAt,
+      audioArrivedAt: this._audioArrivedAt,
       consoleName: this._consoleName,
       consoleType: this._consoleType,
     };
 
-    this._sampler.setManagerStats(stats);
+    this._sampler.setManagerStats(buildManagerStats(inputs, Date.now()));
   }
 
   // ─────────────────────────────────────────────────────────────────────────
