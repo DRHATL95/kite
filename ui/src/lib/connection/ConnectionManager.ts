@@ -13,10 +13,6 @@
 
 import {
   createXhomeSession,
-  getIceServers,
-  exchangeSdp,
-  sendIceCandidate,
-  pollIceCandidates,
   setStreamStatus,
 } from "../ipc/commands.js";
 
@@ -24,19 +20,21 @@ import {
   RECONNECT_MAX_ATTEMPTS,
   RECONNECT_BASE_DELAY_MS,
   WAIT_FOR_DATA_CHANNELS_MS,
-  ICE_POLL_MAX_ATTEMPTS,
-  ICE_POLL_INTERVAL_MS,
   DISCONNECT_GRACE_MS,
-  ICE_GATHER_WAIT_MS,
   MEDIA_MONITOR_TICK_MS,
 } from "./constants.js";
 
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
 import { serverDisconnectReason } from "./failureReason.js";
-import { applyVideoBitrateCap } from "./sdpBitrate.js";
 import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
 import { buildManagerStats, type ManagerStatsInputs } from "./managerStats.js";
 import { KeepaliveController } from "./keepalive.js";
+import {
+  resolveIceServers,
+  wireLocalIceForwarding,
+  runSdpExchange,
+  pollRemoteIceCandidates,
+} from "./signaling.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
@@ -54,7 +52,7 @@ import { logger } from "$lib/log/logger.js";
 import { StatsSampler } from "./stats.js";
 
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
-import type { XHomeConsole, IceServer, StreamConfig } from "../ipc/types.js";
+import type { XHomeConsole, StreamConfig } from "../ipc/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public interface
@@ -412,43 +410,10 @@ export class ConnectionManager implements ConnectionBackend {
     this._log("Setting up WebRTC...");
 
     // ── ICE servers — app.js:212-232 ────────────────────────────────────────
-    // Fallback STUN list matches app.js:213-217
-    let iceServers: RTCIceServer[] = [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun.services.mozilla.com" },
-    ];
-    let iceSource: "xbox-provided" | "fallback-only" = "fallback-only";
-    let stunCount = 3;
-    let turnCount = 0;
-
-    try {
-      const serverIceConfig: IceServer[] = await getIceServers(
-        this._sessionPath!,
-      );
-      if (serverIceConfig && serverIceConfig.length > 0) {
-        iceServers = serverIceConfig.map((s) => ({
-          urls: s.urls,
-          username: s.username,
-          credential: s.credential,
-        }));
-        iceSource = "xbox-provided";
-
-        // Count STUN vs TURN for diagnostics (spec §5 ICE server provenance)
-        stunCount = 0;
-        turnCount = 0;
-        for (const s of serverIceConfig) {
-          const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
-          for (const u of urls) {
-            if (u.startsWith("turn:") || u.startsWith("turns:")) turnCount++;
-            else stunCount++;
-          }
-        }
-        this._log("ICE servers: " + JSON.stringify(iceServers));
-      }
-    } catch (e) {
-      this._log("Failed to get ICE servers: " + String(e));
-    }
+    // Resolution (fallback STUN list + xbox-provided override + stun/turn
+    // counting) now lives in signaling.ts — see resolveIceServers().
+    const { iceServers, stunCount, turnCount, source: iceSource } =
+      await resolveIceServers(this._sessionPath!, (m) => this._log(m));
 
     this._stunCount = stunCount;
     this._turnCount = turnCount;
@@ -555,34 +520,35 @@ export class ConnectionManager implements ConnectionBackend {
     this._hasStartedPlaying = false;
     this._setupTrackHandler();
     this._setupConnectionStateHandler();
-    this._setupIceHandling();
+    // Local-candidate forwarding — formerly _setupIceHandling(); now the
+    // stateless wireLocalIceForwarding() in signaling.ts.
+    wireLocalIceForwarding(this._pc, this._sessionPath!, (m) => this._log(m));
 
-    // ── Create offer — app.js:269-274 ───────────────────────────────────────
-    const offer = await this._pc.createOffer();
-    if (offer.sdp) {
-      // In audio-only mode the video transceiver direction is "inactive"
-      // (see videoTransceiverDirection), so this cap lands on an inactive
-      // m-line and is inert — a harmless no-op, no guard needed here.
-      offer.sdp = applyVideoBitrateCap(offer.sdp, this._quality.maxBitrateKbps);
-    }
-    this._log(`Created SDP offer (${offer.sdp?.length ?? 0} bytes)`);
-    await this._pc.setLocalDescription(offer);
-
-    // Fixed ICE gather wait — spec §3.3, app.js:274 (ICE_GATHER_WAIT_MS = 1000)
-    await new Promise<void>((r) => setTimeout(r, ICE_GATHER_WAIT_MS));
-
-    // ── SDP exchange — app.js:277-287 ───────────────────────────────────────
-    const sdpAnswer: string = await exchangeSdp(
+    // ── Offer/answer SDP exchange — app.js:269-287 ──────────────────────────
+    // createOffer → applyVideoBitrateCap → setLocalDescription →
+    // ICE_GATHER_WAIT_MS wait → exchangeSdp → setRemoteDescription, in that
+    // EXACT order — now the stateless runSdpExchange() in signaling.ts.
+    await runSdpExchange(
+      this._pc,
       this._sessionPath!,
-      this._pc.localDescription!.sdp,
+      this._quality.maxBitrateKbps,
+      (m) => this._log(m),
     );
-    this._log(`Got SDP answer (${sdpAnswer.length} bytes)`);
-
-    await this._pc.setRemoteDescription({ type: "answer", sdp: sdpAnswer });
-    this._log("Set remote description OK");
 
     // ── ICE candidate polling — app.js:290 ──────────────────────────────────
-    await this._pollForIceCandidates();
+    // Formerly _pollForIceCandidates(); now the stateless
+    // pollRemoteIceCandidates() in signaling.ts. Takes a getPc() THUNK (not a
+    // captured pc) so the loop's liveness check still reads the manager's
+    // CURRENT _pc field — preserves the exact late-binding behaviour if
+    // cleanup nulls it mid-poll.
+    const icePoll = await pollRemoteIceCandidates(
+      () => this._pc,
+      this._sessionPath!,
+      (m) => this._log(m),
+    );
+    this._remoteCandidatesAdded = icePoll.added;
+    this._icePollAttemptsUsed = icePoll.attemptsUsed;
+    this._pushManagerStats();
 
     // ── Stats sampler — app.js:293 ──────────────────────────────────────────
     this._startStatsSampler();
@@ -803,106 +769,6 @@ export class ConnectionManager implements ConnectionBackend {
         this._triggerReconnect("iceFailed");
       }
     };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Internal: ICE handling (local candidates)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Wire onicecandidate to forward local candidates to xHome API.
-   *
-   * app.js:740-760 (_setupIceHandling)
-   */
-  private _setupIceHandling(): void {
-    const pc = this._pc!;
-
-    pc.onicecandidate = async (event: RTCPeerConnectionIceEvent) => {
-      if (event.candidate) {
-        this._log(
-          `Local ICE: ${event.candidate.candidate.substring(0, 50)}...`,
-        );
-        try {
-          await sendIceCandidate(
-            this._sessionPath!,
-            JSON.stringify(event.candidate),
-          );
-        } catch (error) {
-          this._log("Failed to send ICE: " + String(error));
-        }
-      } else {
-        this._log("ICE gathering complete");
-      }
-    };
-
-    pc.onicegatheringstatechange = () => {
-      this._log(`ICE gathering state: ${pc.iceGatheringState}`);
-    };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Internal: ICE candidate polling (remote candidates)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Poll xHome for server ICE candidates and add them to the peer connection.
-   *
-   * app.js:763-813 (_pollForIceCandidates)
-   * spec §3.11: up to ICE_POLL_MAX_ATTEMPTS × ICE_POLL_INTERVAL_MS
-   */
-  private async _pollForIceCandidates(): Promise<void> {
-    let attempts = 0;
-    let totalCandidates = 0;
-
-    this._log("Starting ICE candidate polling...");
-
-    while (attempts < ICE_POLL_MAX_ATTEMPTS && this._pc) {
-      try {
-        const candidates = await pollIceCandidates(this._sessionPath!);
-
-        if (candidates && candidates.length > 0) {
-          this._log(`Got ${candidates.length} remote ICE candidates`);
-          for (const candidateObj of candidates) {
-            const candidateStr = candidateObj.candidate.trim();
-            try {
-              await this._pc.addIceCandidate(
-                new RTCIceCandidate({
-                  candidate: candidateStr,
-                  sdpMid: candidateObj.sdpMid,
-                  sdpMLineIndex: candidateObj.sdpMLineIndex,
-                }),
-              );
-              totalCandidates++;
-            } catch (e) {
-              this._log(
-                "Failed to add ICE: " +
-                  (e instanceof Error ? e.message : String(e)),
-              );
-            }
-          }
-        }
-
-        const iceState = this._pc.iceConnectionState;
-        if (iceState === "connected" || iceState === "completed") {
-          this._log("*** ICE CONNECTED ***");
-          break;
-        }
-        if (iceState === "failed") {
-          this._log("*** ICE FAILED ***");
-          break;
-        }
-      } catch (error) {
-        this._log("Error polling ICE: " + String(error));
-      }
-
-      attempts++;
-      await new Promise<void>((r) => setTimeout(r, ICE_POLL_INTERVAL_MS));
-    }
-
-    this._remoteCandidatesAdded = totalCandidates;
-    this._icePollAttemptsUsed = attempts;
-    this._log(`ICE polling done. Added ${totalCandidates} candidates`);
-    this._pushManagerStats();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
