@@ -17,10 +17,6 @@ import {
 } from "../ipc/commands.js";
 
 import {
-  RECONNECT_MAX_ATTEMPTS,
-  RECONNECT_BASE_DELAY_MS,
-  WAIT_FOR_DATA_CHANNELS_MS,
-  DISCONNECT_GRACE_MS,
   MEDIA_MONITOR_TICK_MS,
 } from "./constants.js";
 
@@ -35,6 +31,7 @@ import {
   runSdpExchange,
   pollRemoteIceCandidates,
 } from "./signaling.js";
+import { ReconnectController } from "./reconnect.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
@@ -127,14 +124,10 @@ export class ConnectionManager implements ConnectionBackend {
   private _sessionId: string | null = null;
 
   // ── Reconnect ──────────────────────────────────────────────────────────────
-  /** app.js:14 */
-  private _reconnectAttempts = 0;
-  /** app.js:16 */
-  private _disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Owns the trigger guards, backoff ladder, and disconnect-grace timer; see reconnect.ts. */
+  private readonly _reconnect: ReconnectController;
   /** Reason for the last reconnect trigger — reported to diagnostics. */
   private _lastTriggerReason: string | null = null;
-  /** Backoff used in the last reconnect (ms). */
-  private _lastBackoffMs: number | null = null;
 
   // ── ICE stats ──────────────────────────────────────────────────────────────
   /** ICE server provenance from getIceServers response. */
@@ -191,6 +184,20 @@ export class ConnectionManager implements ConnectionBackend {
       isStreaming: () => this._state === "streaming",
       log: (m) => this._log(m),
       onStatsChanged: () => this._pushManagerStats(),
+    });
+    this._reconnect = new ReconnectController({
+      runAttempt: () => this._createSessionAndStream(),
+      cleanup: () => this._cleanupConnection(),
+      getState: () => this._state,
+      setState: (s) => this._setState(s),
+      hasIdentity: () => this._serverId !== null,
+      getPc: () => this._pc,
+      getChannels: () => this._channels,
+      onAttempt: (c, m) => this._cb.onReconnectAttempt?.(c, m),
+      onTriggerAccepted: (reason) => {
+        this._lastTriggerReason = reason;
+      },
+      log: (m) => this._log(m),
     });
     this._mediaMonitor = new MediaMonitor({
       onMediaStart: () => {
@@ -261,7 +268,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._cleanupConnection();
 
     this._setState("connecting");
-    this._reconnectAttempts = 0;
+    this._reconnect.resetAttempts();
 
     // Store for reconnect; app.js:58-60
     this._serverId = xboxConsole.serverId;
@@ -737,10 +744,7 @@ export class ConnectionManager implements ConnectionBackend {
       setStreamStatus(connState).catch(() => {});
 
       // Clear any pending disconnect grace timer — app.js:698-700
-      if (this._disconnectGraceTimer !== null) {
-        clearTimeout(this._disconnectGraceTimer);
-        this._disconnectGraceTimer = null;
-      }
+      this._reconnect.clearDisconnectGrace();
 
       if (connState === "failed") {
         // spec §3.9 — immediate reconnect on 'failed'
@@ -750,13 +754,12 @@ export class ConnectionManager implements ConnectionBackend {
       } else if (connState === "disconnected") {
         // spec §3.9 — 10 s grace before reconnect
         this._log("WebRTC disconnected — 10s grace before reconnect");
-        this._disconnectGraceTimer = setTimeout(() => {
-          this._disconnectGraceTimer = null;
-          if (pc.connectionState === "disconnected") {
-            this._log("Still disconnected after grace period — reconnecting");
-            this._triggerReconnect("connectionStateDisconnected");
-          }
-        }, DISCONNECT_GRACE_MS);
+        // Grace-timer precision (design spec risk #1): the predicate MUST
+        // re-check THIS handler-closure's captured `pc`
+        // (pc.connectionState === "disconnected"), not a live getPc() thunk —
+        // preserved by capturing the same `pc` local here, exactly as the
+        // original inline setTimeout callback did.
+        this._reconnect.armDisconnectGrace(() => pc.connectionState === "disconnected");
       }
     };
 
@@ -876,9 +879,9 @@ export class ConnectionManager implements ConnectionBackend {
       channelOpenedAt: this._channelOpenedAt,
       firstChannelOpenAt: this._firstChannelOpenAt,
       handshakeAckAt: this._handshakeAckAt,
-      currentAttempt: this._reconnectAttempts,
+      currentAttempt: this._reconnect.attempts,
       lastTriggerReason: this._lastTriggerReason,
-      backoffMs: this._lastBackoffMs,
+      backoffMs: this._reconnect.lastBackoffMs,
       videoArrivedAt: this._videoArrivedAt,
       audioArrivedAt: this._audioArrivedAt,
       consoleName: this._consoleName,
@@ -893,146 +896,20 @@ export class ConnectionManager implements ConnectionBackend {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Entry point for auto-reconnect.  Idempotent guards match app.js:731-736
-   * (onConnectionLost).
+   * Entry point for auto-reconnect.  Thin wrapper over ReconnectController —
+   * the entry guard, backoff ladder, and data-channel wait now all live in
+   * reconnect.ts (ReconnectController.trigger()). `_lastTriggerReason` — a
+   * manager-owned diagnostics field, set only when a trigger is actually
+   * honoured, exactly like the monolith — is recorded via the
+   * `onTriggerAccepted` callback wired in the constructor, which
+   * ReconnectController.trigger() calls from its SINGLE internal call site
+   * (after the guard passes) regardless of whether the caller was this
+   * method or the controller's own armDisconnectGrace() expiry.
    *
    * spec §3.9; app.js:731-737 (onConnectionLost)
    */
   private _triggerReconnect(reason: string): void {
-    // Already reconnecting, cleanly idle, or permanently failed — don't stack
-    if (
-      this._state === "reconnecting" ||
-      this._state === "idle" ||
-      this._state === "failed"
-    ) return;
-
-    this._log(`Connection lost (${reason}) — initiating auto-reconnect`);
-    this._lastTriggerReason = reason;
-    void this._reconnect();
-  }
-
-  /**
-   * Silent reconnect loop: up to RECONNECT_MAX_ATTEMPTS attempts with
-   * increasing backoff.  Uses a while-loop rather than recursion so that the
-   * "already reconnecting" guard at the top does not silently swallow retries.
-   *
-   * spec §3.8; app.js:72-122 (reconnect)
-   */
-  private async _reconnect(): Promise<void> {
-    // Prevent a second concurrent cycle (e.g. if _triggerReconnect fires twice
-    // in quick succession before the guard in _triggerReconnect kicks in).
-    // IMPORTANT: compare via a local snapshot so TypeScript's control-flow
-    // analysis does NOT narrow `this._state` for the rest of this async method —
-    // _setState() can change the property during any `await` below.
-    const stateNow = this._state;
-    if (stateNow === "reconnecting") {
-      this._log("Already reconnecting, skipping");
-      return;
-    }
-    if (!this._serverId) {
-      this._log("No serverId stored, cannot reconnect");
-      this._setState("failed");
-      return;
-    }
-
-    this._setState("reconnecting");
-
-    while (this._reconnectAttempts < RECONNECT_MAX_ATTEMPTS) {
-      this._reconnectAttempts++;
-      this._log(
-        `Reconnect attempt ${this._reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS}`,
-      );
-      this._cb.onReconnectAttempt?.(this._reconnectAttempts, RECONNECT_MAX_ATTEMPTS);
-
-      // Clean up the previous (failed) connection before starting a new one.
-      this._cleanupConnection();
-
-      // Increasing backoff: 3 s, 6 s, 9 s — gives Xbox time to expire the old session.
-      // spec §3.8: RECONNECT_BASE_DELAY_MS × attemptNumber; app.js:98-100
-      const delay = RECONNECT_BASE_DELAY_MS * this._reconnectAttempts;
-      this._lastBackoffMs = delay;
-      this._log(`Waiting ${delay / 1000}s before reconnect...`);
-      await new Promise<void>((r) => setTimeout(r, delay));
-
-      // Bail out if the user disconnected during the backoff wait.
-      if (this._state !== "reconnecting") {
-        this._log("Reconnect aborted — state changed to " + this._state);
-        return;
-      }
-
-      try {
-        await this._createSessionAndStream();
-
-        // Bail if disconnect was called while _createSessionAndStream was awaiting.
-        if (this._state !== "reconnecting") {
-          this._cleanupConnection();
-          this._log("Reconnect aborted — state changed to " + this._state);
-          return;
-        }
-
-        // Wait for at least one data channel to open — app.js:106-110
-        const channelReady = await this._waitForDataChannels(
-          WAIT_FOR_DATA_CHANNELS_MS,
-        );
-        if (channelReady) {
-          this._log("Reconnect successful!");
-          this._reconnectAttempts = 0; // Reset counter on success — app.js:109
-          return;
-        }
-        this._log(
-          `Data channels did not open within ${WAIT_FOR_DATA_CHANNELS_MS / 1000}s`,
-        );
-      } catch (error) {
-        this._log(
-          `Reconnect attempt ${this._reconnectAttempts} failed: ` + String(error),
-        );
-      }
-    }
-
-    this._log("Max reconnect attempts reached — giving up");
-    this._setState("failed");
-  }
-
-  /**
-   * Wait for the message channel to reach 'open' state (proves SCTP works).
-   *
-   * app.js:125-150 (_waitForDataChannels)
-   */
-  private _waitForDataChannels(timeoutMs: number): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      // Already open?
-      if (
-        this._channels?.message &&
-        this._channels.message.readyState === "open"
-      ) {
-        resolve(true);
-        return;
-      }
-
-      const timeout = setTimeout(() => resolve(false), timeoutMs);
-
-      // Poll every 250 ms — app.js:136
-      const poll = setInterval(() => {
-        if (
-          this._channels?.message &&
-          this._channels.message.readyState === "open"
-        ) {
-          clearInterval(poll);
-          clearTimeout(timeout);
-          resolve(true);
-          return;
-        }
-        // Bail if connection already died — app.js:142-147
-        if (
-          !this._pc ||
-          this._pc.connectionState === "failed"
-        ) {
-          clearInterval(poll);
-          clearTimeout(timeout);
-          resolve(false);
-        }
-      }, 250);
-    });
+    this._reconnect.trigger(reason);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1057,10 +934,7 @@ export class ConnectionManager implements ConnectionBackend {
     }
     this._mediaMonitor?.reset();
 
-    if (this._disconnectGraceTimer !== null) {
-      clearTimeout(this._disconnectGraceTimer);
-      this._disconnectGraceTimer = null;
-    }
+    this._reconnect.clearDisconnectGrace();
 
     if (this._pc) {
       // Remove handlers to avoid triggering reconnect during cleanup — app.js:831-836
