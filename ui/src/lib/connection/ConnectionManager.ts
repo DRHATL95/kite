@@ -17,15 +17,10 @@ import {
   exchangeSdp,
   sendIceCandidate,
   pollIceCandidates,
-  sendSessionKeepalive,
   setStreamStatus,
 } from "../ipc/commands.js";
 
 import {
-  API_KEEPALIVE_MS,
-  IDLE_KEEPALIVE_INTERVAL_MS,
-  IDLE_PULSE_LEFT_THUMB_X,
-  IDLE_PULSE_RECENTER_MS,
   RECONNECT_MAX_ATTEMPTS,
   RECONNECT_BASE_DELAY_MS,
   WAIT_FOR_DATA_CHANNELS_MS,
@@ -33,7 +28,6 @@ import {
   ICE_POLL_INTERVAL_MS,
   DISCONNECT_GRACE_MS,
   ICE_GATHER_WAIT_MS,
-  REPORT_TYPE_GAMEPAD,
   MEDIA_MONITOR_TICK_MS,
 } from "./constants.js";
 
@@ -42,6 +36,7 @@ import { serverDisconnectReason } from "./failureReason.js";
 import { applyVideoBitrateCap } from "./sdpBitrate.js";
 import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
 import { buildManagerStats, type ManagerStatsInputs } from "./managerStats.js";
+import { KeepaliveController } from "./keepalive.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
@@ -98,12 +93,8 @@ export class ConnectionManager implements ConnectionBackend {
   private _channels: DataChannelSet | null = null;
 
   // ── Keepalives ─────────────────────────────────────────────────────────────
-  /** API keepalive timer; app.js:12 */
-  private _apiKeepAliveInterval: ReturnType<typeof setInterval> | null = null;
-  /** Periodic idle keepalive interval (after idle warning); app.js:424-428 */
-  private _idleKeepaliveInterval: ReturnType<typeof setInterval> | null = null;
-  /** Tracks when the last keepalive was sent (ms since epoch), for diagnostics. */
-  private _lastKeepaliveAt: number | null = null;
+  /** Owns the API + idle keepalive timers/state; see keepalive.ts. */
+  private readonly _keepalive: KeepaliveController;
 
   // ── Media ──────────────────────────────────────────────────────────────────
   /** app.js:13 */
@@ -183,9 +174,6 @@ export class ConnectionManager implements ConnectionBackend {
   private _keyboardTracker: KeyboardTracker | null = null;
   private _keyframeRequestsSent = 0;
 
-  // ── Idle warning ───────────────────────────────────────────────────────────
-  private _lastIdleWarningSecondsUntilKick: number | null = null;
-
   // ── Stats sampler ──────────────────────────────────────────────────────────
   private _sampler: StatsSampler | null = null;
 
@@ -196,13 +184,16 @@ export class ConnectionManager implements ConnectionBackend {
   // ── Callbacks ──────────────────────────────────────────────────────────────
   private readonly _cb: ConnectionManagerCallbacks;
 
-  // ── Input sequence (for idle keepalive; mirrors app.js inputSequenceNum) ───
-  /** Shared with the idle keepalive encoder; app.js:1544 */
-  private _inputSeq = 0;
-
   // ──────────────────────────────────────────────────────────────────────────
   constructor(callbacks: ConnectionManagerCallbacks) {
     this._cb = callbacks;
+    this._keepalive = new KeepaliveController({
+      getSessionPath: () => this._sessionPath,
+      getInputChannel: () => this._channels?.input ?? null,
+      isStreaming: () => this._state === "streaming",
+      log: (m) => this._log(m),
+      onStatsChanged: () => this._pushManagerStats(),
+    });
     this._mediaMonitor = new MediaMonitor({
       onMediaStart: () => {
         if (this._state === "connecting" || this._state === "reconnecting") {
@@ -406,7 +397,7 @@ export class ConnectionManager implements ConnectionBackend {
     //
     // app.js:192-198 (comment + _startApiKeepalive() call)
     // spec §3.1
-    this._startApiKeepalive();
+    this._keepalive.startApi();
 
     // Step 2: WebRTC — app.js:201
     await this._setupWebRTC();
@@ -496,18 +487,9 @@ export class ConnectionManager implements ConnectionBackend {
         this._pushManagerStats();
       },
       onIdleWarning: (secondsUntilKick: number) => {
-        this._lastIdleWarningSecondsUntilKick = secondsUntilKick;
-        this._log(
-          `Idle warning: ${secondsUntilKick}s until kick — sending keepalive`,
-        );
-        this._sendIdleKeepalive();
-        // Schedule periodic idle keepalives every 30 s to prevent repeated
-        // warnings — app.js:425-429
-        if (!this._idleKeepaliveInterval) {
-          this._idleKeepaliveInterval = setInterval(() => {
-            this._sendIdleKeepalive();
-          }, IDLE_KEEPALIVE_INTERVAL_MS);
-        }
+        // Record + immediate micro-pulse + arm the periodic 30s interval
+        // (once) — all owned by KeepaliveController now; see keepalive.ts.
+        this._keepalive.onIdleWarning(secondsUntilKick);
         this._pushManagerStats();
       },
       onServerDisconnect: (reason: string) => {
@@ -924,131 +906,6 @@ export class ConnectionManager implements ConnectionBackend {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Internal: keepalives
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Start the API keepalive interval (must be called BEFORE SDP exchange).
-   *
-   * CRITICAL: session is in "Provisioned" state immediately after creation.
-   * Start the interval here; the first tick fires after API_KEEPALIVE_MS (30 s)
-   * so we don't send a keepalive before SDP is even exchanged — exactly matching
-   * app.js:556-586 (_startApiKeepalive) where the interval is set without an
-   * immediate first call.
-   *
-   * app.js:556-586 (_startApiKeepalive); spec §3.2
-   */
-  private _startApiKeepalive(): void {
-    // Idempotent — app.js:557
-    if (this._apiKeepAliveInterval !== null || !this._sessionPath) return;
-
-    this._log(
-      `Starting API keepalive every ${API_KEEPALIVE_MS / 1000}s for: ${this._sessionPath}`,
-    );
-
-    const sendApiKeepalive = (): void => {
-      if (!this._sessionPath) {
-        this._stopApiKeepalive();
-        return;
-      }
-      sendSessionKeepalive(this._sessionPath)
-        .then((status: string) => {
-          this._lastKeepaliveAt = Date.now();
-          this._log("API keepalive OK: " + status);
-          this._pushManagerStats();
-        })
-        .catch((e: unknown) => {
-          const errStr = String(e);
-          // Xbox rejects API keepalives once streaming starts (state machine
-          // moves past "Provisioned").  Stop silently — app.js:573-579.
-          if (
-            errStr.includes("SessionInUnexpectedState") ||
-            errStr.includes("400") ||
-            this._state === "streaming"
-          ) {
-            this._log("API keepalive stopped (data channel is keepalive)");
-            this._stopApiKeepalive();
-          } else {
-            this._log("API keepalive FAILED: " + errStr);
-          }
-        });
-    };
-
-    // Don't send immediately — start interval at 30 s — app.js:585
-    this._apiKeepAliveInterval = setInterval(sendApiKeepalive, API_KEEPALIVE_MS);
-  }
-
-  private _stopApiKeepalive(): void {
-    if (this._apiKeepAliveInterval !== null) {
-      clearInterval(this._apiKeepAliveInterval);
-      this._apiKeepAliveInterval = null;
-    }
-  }
-
-  private _stopAllKeepalives(): void {
-    this._stopApiKeepalive();
-    if (this._idleKeepaliveInterval !== null) {
-      clearInterval(this._idleKeepaliveInterval);
-      this._idleKeepaliveInterval = null;
-    }
-  }
-
-  /**
-   * Send a micro-pulse idle keepalive on the input channel.
-   *
-   * Sends a 38-byte gamepad packet with LeftThumbX = 4096 (~12.5% deflection,
-   * inside most game deadzones) to reset the Xbox idle timer, then recenters
-   * after IDLE_PULSE_RECENTER_MS.
-   *
-   * app.js:891-923 (sendIdleKeepalive); spec §3.2
-   */
-  private _sendIdleKeepalive(): void {
-    const inputCh = this._channels?.input;
-    if (!inputCh || inputCh.readyState !== "open") return;
-
-    try {
-      // Build micro-pulse packet — app.js:895-911 (setInt16(18, 4096, true))
-      const buf = new ArrayBuffer(38);
-      const v = new DataView(buf);
-      v.setUint16(0, REPORT_TYPE_GAMEPAD, true);     // reportType
-      v.setUint32(2, this._inputSeq++ >>> 0, true);  // sequence
-      v.setFloat64(6, performance.now(), true);       // timestamp
-      v.setUint8(14, 1);                             // frameCount
-      v.setUint8(15, 0);                             // gamepadIndex
-      v.setUint16(16, 0, true);                      // buttons (none)
-      v.setInt16(18, IDLE_PULSE_LEFT_THUMB_X, true); // LeftThumbX tiny pulse
-      v.setInt16(20, 0, true);                       // LeftThumbY
-      v.setInt16(22, 0, true);                       // RightThumbX
-      v.setInt16(24, 0, true);                       // RightThumbY
-      v.setUint16(26, 0, true);                      // LeftTrigger
-      v.setUint16(28, 0, true);                      // RightTrigger
-      v.setUint32(30, 1, true);                      // PhysicalPhysicality LE
-      v.setUint32(34, 1, false);                     // VirtualPhysicality BE
-      inputCh.send(buf);
-
-      // Immediately recenter so games don't see movement — app.js:914-919
-      setTimeout(() => {
-        const ch = this._channels?.input;
-        if (!ch || ch.readyState !== "open") return;
-        // Neutral frame: all zeros after header
-        const idle = new ArrayBuffer(38);
-        const iv = new DataView(idle);
-        iv.setUint16(0, REPORT_TYPE_GAMEPAD, true);
-        iv.setUint32(2, this._inputSeq++ >>> 0, true);
-        iv.setFloat64(6, performance.now(), true);
-        iv.setUint8(14, 1);
-        // remaining bytes zero → neutral gamepad state
-        iv.setUint32(30, 1, true);   // PhysicalPhysicality LE
-        iv.setUint32(34, 1, false);  // VirtualPhysicality BE
-        ch.send(idle);
-        this._log("Sent idle keepalive (stick micro-pulse + recenter)");
-      }, IDLE_PULSE_RECENTER_MS);
-    } catch (e) {
-      this._log("Idle keepalive failed: " + String(e));
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Internal: input polling
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1145,10 +1002,10 @@ export class ConnectionManager implements ConnectionBackend {
       iceSource: this._iceSource,
       stunCount: this._stunCount,
       turnCount: this._turnCount,
-      apiKeepAliveActive: this._apiKeepAliveInterval !== null,
-      idleKeepaliveActive: this._idleKeepaliveInterval !== null,
-      lastKeepaliveAt: this._lastKeepaliveAt,
-      lastIdleWarningSecondsUntilKick: this._lastIdleWarningSecondsUntilKick,
+      apiKeepAliveActive: this._keepalive.mode === "api",
+      idleKeepaliveActive: this._keepalive.mode === "idle",
+      lastKeepaliveAt: this._keepalive.lastKeepaliveAt,
+      lastIdleWarningSecondsUntilKick: this._keepalive.lastIdleWarningSecondsUntilKick,
       channels: this._channels,
       channelOpenedAt: this._channelOpenedAt,
       firstChannelOpenAt: this._firstChannelOpenAt,
@@ -1324,7 +1181,7 @@ export class ConnectionManager implements ConnectionBackend {
    * app.js:816-862 (_cleanupConnection)
    */
   private _cleanupConnection(): void {
-    this._stopAllKeepalives();
+    this._keepalive.stopAll();
     this._stopGamepadPoller();
     this._stopStatsSampler();
 
@@ -1362,7 +1219,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._lastSnapshot = null;
 
     // Reset input sequence so reconnect re-initialises — app.js:846-848
-    this._inputSeq = 0;
+    this._keepalive.resetInputSeq();
     this._remoteCandidatesAdded = 0;
     this._icePollAttemptsUsed = 0;
 
