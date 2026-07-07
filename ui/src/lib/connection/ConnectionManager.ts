@@ -43,7 +43,7 @@ import { applyVideoBitrateCap } from "./sdpBitrate.js";
 import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
-import type { ConnectionBackend } from "./backend.js";
+import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
@@ -64,26 +64,16 @@ import type { XHomeConsole, IceServer, StreamConfig } from "../ipc/types.js";
 // Public interface
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Callbacks the ConnectionManager fires on state changes and data events. */
-export interface ConnectionManagerCallbacks {
-  /** Called on every SessionState transition. */
-  onStateChange: (state: SessionState) => void;
-  /** Called on each DiagnosticsSnapshot emitted by the StatsSampler. */
-  onDiagnostics: (snapshot: DiagnosticsSnapshot) => void;
-  /** Human-readable log messages. */
-  onLog: (msg: string) => void;
-  /**
-   * Called when a MediaStream is ready (first track received).
-   * The stream may not yet have both tracks — the 'streaming' state
-   * transition is gated on BOTH tracks (spec §3.10).
-   */
-  onMediaStream: (stream: MediaStream) => void;
-  /**
-   * Called at the start of each reconnect attempt so the UI can show
-   * a live count without depending on the (stopped) StatsSampler snapshot.
-   */
-  onReconnectAttempt?: (current: number, max: number) => void;
-}
+/**
+ * Callbacks the ConnectionManager fires on state changes and data events.
+ *
+ * Moved to `backend.ts` (type-only; zero runtime change) so both backends
+ * (`ConnectionManager` and `NativeConnection`) can depend on it without
+ * either importing the other. Re-exported here for back-compat with existing
+ * `import type { ConnectionManagerCallbacks } from "./ConnectionManager.js"`
+ * call sites.
+ */
+export type { ConnectionManagerCallbacks } from "./backend.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ConnectionManager

@@ -35,8 +35,7 @@ import {
 
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
-import type { ConnectionBackend } from "./backend.js";
-import type { ConnectionManagerCallbacks } from "./ConnectionManager.js";
+import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
 import type { QualityParams } from "./streamQuality.js";
 

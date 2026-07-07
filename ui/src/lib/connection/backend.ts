@@ -8,8 +8,9 @@
  * `rtcNativeAvailable()` without the rest of the UI caring which path is active.
  *
  * Both backends take a `ConnectionManagerCallbacks` in their constructor;
- * interfaces can't constrain constructors, so the callbacks contract lives in
- * ConnectionManager.ts and both classes accept it directly.
+ * interfaces can't constrain constructors, so the callbacks contract lives
+ * here too (moved from ConnectionManager.ts — type-only, re-exported from
+ * there for back-compat) and both classes accept it directly.
  */
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
@@ -39,4 +40,25 @@ export interface ConnectionBackend {
   readonly lastTriggerReason: string | null;
   /** Current session lifecycle state. */
   readonly state: SessionState;
+}
+
+/** Callbacks the ConnectionManager fires on state changes and data events. */
+export interface ConnectionManagerCallbacks {
+  /** Called on every SessionState transition. */
+  onStateChange: (state: SessionState) => void;
+  /** Called on each DiagnosticsSnapshot emitted by the StatsSampler. */
+  onDiagnostics: (snapshot: DiagnosticsSnapshot) => void;
+  /** Human-readable log messages. */
+  onLog: (msg: string) => void;
+  /**
+   * Called when a MediaStream is ready (first track received).
+   * The stream may not yet have both tracks — the 'streaming' state
+   * transition is gated on BOTH tracks (spec §3.10).
+   */
+  onMediaStream: (stream: MediaStream) => void;
+  /**
+   * Called at the start of each reconnect attempt so the UI can show
+   * a live count without depending on the (stopped) StatsSampler snapshot.
+   */
+  onReconnectAttempt?: (current: number, max: number) => void;
 }
