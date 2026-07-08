@@ -26,8 +26,7 @@
 
 import { ConnectionManager } from "../connection/ConnectionManager.js";
 import { NativeConnection } from "../connection/NativeConnection.js";
-import type { ConnectionBackend } from "../connection/backend.js";
-import type { ConnectionManagerCallbacks } from "../connection/ConnectionManager.js";
+import type { ConnectionBackend, ConnectionManagerCallbacks } from "../connection/backend.js";
 import type { SessionState, DiagnosticsSnapshot } from "../connection/types.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
