@@ -11,7 +11,8 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:tray-icons": "tsx scripts/gen-tray-icons.ts"
   },
   "dependencies": {
     "@fontsource-variable/hanken-grotesk": "^5.2.8",
@@ -23,10 +24,12 @@
     "svelte": "^5.56.4"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@sveltejs/vite-plugin-svelte": "7.1.2",
     "@tsconfig/svelte": "5.0.8",
     "jsdom": "^29.1.1",
     "svelte-check": "4.7.1",
+    "tsx": "4.19.2",
     "typescript": "6.0.3",
     "vite": "8.1.2",
     "vitest": "4.1.9"

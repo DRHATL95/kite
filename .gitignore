@@ -37,3 +37,6 @@ nul
 # Dev-workflow artifacts (specs/plans) — kept local, never committed to the
 # public repo. Removed the tracked docs/ tree when the repo went public.
 /docs/
+
+# Not a pnpm workspace — pnpm 10/11 can auto-create this on ignored-builds; never commit it
+/pnpm-workspace.yaml
