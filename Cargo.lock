@@ -2804,7 +2804,7 @@ dependencies = [
  "image",
  "insta",
  "keyring",
- "libloading 0.7.4",
+ "libloading 0.8.9",
  "muxide",
  "opus",
  "regex",
