@@ -10,6 +10,16 @@ updates:
       interval: weekly
     target-branch: dev
     open-pull-requests-limit: 5
+    ignore:
+      # glib RUSTSEC-2024-0429 (VariantStrIter unsoundness) needs glib >= 0.20,
+      # which is UNREACHABLE here: glib arrives via gtk 0.18 -> and `gtk` 0.18.2
+      # is the last release of that crate (unmaintained, "use gtk4 instead").
+      # tauri's own Linux backend (wry/tao) pulls the same gtk3 stack, so this
+      # cannot be fixed by changing anything in this repo — it needs Tauri to
+      # move to GTK4. Without this ignore, the security-update job fails on
+      # every default-branch push with `security_update_not_possible`.
+      # Re-check when Tauri ships a GTK4 backend, then delete this entry.
+      - dependency-name: "glib"
 
   # Frontend deps (pnpm — package.json / pnpm-lock.yaml under ui/)
   - package-ecosystem: npm
