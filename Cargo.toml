@@ -63,7 +63,7 @@ anyhow = "1"
 # Win/macOS build stays lean and `cargo test` doesn't pull gtk on Windows.
 gtk = { version = "0.18", optional = true }
 glow = { version = "0.13", optional = true }
-libloading = { version = "0.7", optional = true }
+libloading = { version = "0.8", optional = true }
 tao = { version = "0.35", optional = true }
 wry = { version = "0.55", optional = true }
 
