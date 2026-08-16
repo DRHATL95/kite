@@ -12,8 +12,8 @@ importers:
         specifier: ^5.2.8
         version: 5.2.8
       '@fontsource/chakra-petch':
-        specifier: ^5.2.7
-        version: 5.2.7
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/ibm-plex-mono':
         specifier: ^5.2.7
         version: 5.2.7
@@ -292,8 +292,8 @@ packages:
   '@fontsource-variable/hanken-grotesk@5.2.8':
     resolution: {integrity: sha512-K7hu09ZKReBc7EifRLeM4K94NZBrxFEg0nGcISmVwlFQOJo4EmYkLXTWEwr5JcNW4z2hr5zy8vLS2sxC8JDmrQ==}
 
-  '@fontsource/chakra-petch@5.2.7':
-    resolution: {integrity: sha512-GLbun5WZJNAEc8FtWxwcgo+4Kurqdwejvf671l+YfIjyQgPvTjyxXYP7Ffg2HAY89NGnp3oOvKQjRzfm/fBECw==}
+  '@fontsource/chakra-petch@5.3.0':
+    resolution: {integrity: sha512-QZvbM/q2R6n1pg2x+TJPftZmBNS+ADU37L4Z4L/6UJIz+JZ/SRaEf8usPFRiP7Ht28sIideMu/Bm1SnGlSrwNw==}
 
   '@fontsource/ibm-plex-mono@5.2.7':
     resolution: {integrity: sha512-MKAb8qV+CaiMQn2B0dIi1OV3565NYzp3WN5b4oT6LTkk+F0jR6j0ZN+5BKJiIhffDC3rtBULsYZE65+0018z9w==}
@@ -1184,7 +1184,7 @@ snapshots:
 
   '@fontsource-variable/hanken-grotesk@5.2.8': {}
 
-  '@fontsource/chakra-petch@5.2.7': {}
+  '@fontsource/chakra-petch@5.3.0': {}
 
   '@fontsource/ibm-plex-mono@5.2.7': {}
 
