@@ -37,7 +37,7 @@ jobs:
       # is removed; the build/stage/manifest/upload logic all remain.
       BUILD_LINUX: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history + tags so the changelog step can diff against the
           # previous commit/tag. The default shallow clone (depth 1) would make
