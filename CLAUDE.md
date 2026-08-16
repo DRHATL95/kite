@@ -66,10 +66,27 @@ ffmpeg/str0m toolchain. It gates ten crates: `str0m`, `opus`, `ffmpeg-the-third`
 cargo build --features native-webrtc
 ```
 
-> **CI does not compile it.** `.github/workflows/ci.yml` runs `cargo clippy --all-targets`
-> and `cargo test` with default features only, so none of those ten crates are ever built
-> on CI. **A green CI run says nothing about a dependency bump to any of them** — verify
-> those locally with `cargo check --features native-webrtc` before merging.
+Five of those ten (`gtk`, `glow`, `libloading`, `tao`, `wry`) sit under
+`[target.'cfg(target_os = "linux")'.dependencies]`, so **Linux is the only platform where
+the whole set builds**. On Windows/macOS the feature pulls just `str0m`, `opus`,
+`ffmpeg-the-third`, `bytes`, `cpal`.
+
+**CI coverage.** `.github/workflows/ci.yml` has two Rust jobs, and the split matters:
+
+| Job | Runner | Features | Covers |
+|---|---|---|---|
+| `rust` | windows-latest | default | everything except the ten crates above |
+| `rust-native-webrtc` | ubuntu-latest | `native-webrtc` | all ten, plus the three gated examples |
+
+The Linux job installs the FFmpeg/GTK/ALSA/Opus dev packages it needs, then runs
+`cargo clippy --all-targets --features native-webrtc -- -D warnings` and
+`cargo test --features native-webrtc`. `--all-targets` is load-bearing: the
+`rtc_spike` / `render_spike` / `render_live` examples are `required-features` gated and
+would otherwise never compile. `tests/rtc_e2e.rs` self-skips without `XBOX_E2E=1`.
+
+> Before `rust-native-webrtc` existed, a dependency bump to any of those ten crates got
+> **zero** automated verification and CI still went green — the trap that motivated the
+> job. If you ever narrow or drop it, restore that warning here.
 
 ### Windows Installer
 
