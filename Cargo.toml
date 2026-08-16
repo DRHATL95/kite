@@ -40,7 +40,7 @@ regex = "1"
 # pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 muxide = "0.2.5"
-str0m = { version = "0.20", optional = true }
+str0m = { version = "0.22", optional = true }
 opus = { version = "0.3", optional = true }
 ffmpeg-the-third = { version = "5", optional = true }
 bytes = { version = "1", optional = true }
