@@ -27,7 +27,7 @@
     "@resvg/resvg-js": "2.6.2",
     "@sveltejs/vite-plugin-svelte": "7.3.0",
     "@tsconfig/svelte": "5.0.8",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "svelte-check": "4.7.2",
     "tsx": "4.23.12",
     "typescript": "6.0.3",

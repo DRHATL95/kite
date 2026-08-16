@@ -47,7 +47,7 @@ bytes = { version = "1", optional = true }
 cpal = { version = "0.18", optional = true }
 sha2 = "0.10"
 base64 = "0.22"
-getrandom = "0.3"
+getrandom = "0.4"
 # Decodes the embedded tray-icon PNGs (src/tray.rs); also used by the Phase-0
 # rtc_spike example (error context + PNG encode) via anyhow below.
 image = { version = "0.25", default-features = false, features = ["png"] }
