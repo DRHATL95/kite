@@ -30,11 +30,16 @@ jobs:
       XWIN_ACCEPT_LICENSE: "1"
       APPIMAGE_EXTRACT_AND_RUN: "1"
       RELEASES_REPO: ${{ github.repository }}
-      # Linux (AppImage) builds are DISABLED for the 1.0 Windows-first phase:
-      # WebKitGTK renders WebRTC video black, so the AppImage isn't shippable yet
-      # (the native Linux engine is the 1.1 headline). This gates every Linux step
-      # below — flip to 'true' to re-enable Linux nightly + stable builds. Nothing
-      # is removed; the build/stage/manifest/upload logic all remain.
+      # Linux (AppImage) builds are DISABLED: WebKitGTK renders WebRTC video
+      # black, so the AppImage isn't shippable. The fix is the native-webrtc
+      # engine, which is still an opt-in cargo feature CI never compiles — so
+      # it did NOT land for 1.1 (this comment used to call it "the 1.1
+      # headline"; v1.1.0 shipped Windows-only on 2026-08-16). Re-target: 1.2.
+      # Gating that on real verification, not a version number — the AppImage
+      # has to actually render video before this flips.
+      # This gates every Linux step below — flip to 'true' to re-enable Linux
+      # nightly + stable builds. Nothing is removed; the build/stage/manifest/
+      # upload logic all remain.
       BUILD_LINUX: 'false'
     steps:
       - uses: actions/checkout@v7

@@ -1,6 +1,6 @@
 [package]
 name = "kite"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 
 [dependencies]
@@ -40,11 +40,11 @@ regex = "1"
 # pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 muxide = "0.2.5"
-str0m = { version = "0.20", optional = true }
+str0m = { version = "0.22", optional = true }
 opus = { version = "0.3", optional = true }
 ffmpeg-the-third = { version = "5", optional = true }
 bytes = { version = "1", optional = true }
-cpal = { version = "0.15", optional = true }
+cpal = { version = "0.18", optional = true }
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.3"
@@ -63,7 +63,7 @@ anyhow = "1"
 # Win/macOS build stays lean and `cargo test` doesn't pull gtk on Windows.
 gtk = { version = "0.18", optional = true }
 glow = { version = "0.13", optional = true }
-libloading = { version = "0.7", optional = true }
+libloading = { version = "0.8", optional = true }
 tao = { version = "0.35", optional = true }
 wry = { version = "0.55", optional = true }
 

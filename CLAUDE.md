@@ -53,7 +53,40 @@ pnpm --dir ui run check
 pnpm --dir ui run test
 ```
 
-There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
+`cargo run` builds the full Tauri app with **default features**. Edition 2024 requires Rust 1.85+.
+
+### Cargo Features
+
+There is one optional feature, `native-webrtc` — the native Rust WebRTC media stack
+(Linux-first). It is **opt-in** so the default build stays lean and doesn't need an
+ffmpeg/str0m toolchain. It gates ten crates: `str0m`, `opus`, `ffmpeg-the-third`,
+`bytes`, `cpal`, `gtk`, `glow`, `libloading`, `tao`, `wry`.
+
+```powershell
+cargo build --features native-webrtc
+```
+
+Five of those ten (`gtk`, `glow`, `libloading`, `tao`, `wry`) sit under
+`[target.'cfg(target_os = "linux")'.dependencies]`, so **Linux is the only platform where
+the whole set builds**. On Windows/macOS the feature pulls just `str0m`, `opus`,
+`ffmpeg-the-third`, `bytes`, `cpal`.
+
+**CI coverage.** `.github/workflows/ci.yml` has two Rust jobs, and the split matters:
+
+| Job | Runner | Features | Covers |
+|---|---|---|---|
+| `rust` | windows-latest | default | everything except the ten crates above |
+| `rust-native-webrtc` | ubuntu-latest | `native-webrtc` | all ten, plus the three gated examples |
+
+The Linux job installs the FFmpeg/GTK/ALSA/Opus dev packages it needs, then runs
+`cargo clippy --all-targets --features native-webrtc -- -D warnings` and
+`cargo test --features native-webrtc`. `--all-targets` is load-bearing: the
+`rtc_spike` / `render_spike` / `render_live` examples are `required-features` gated and
+would otherwise never compile. `tests/rtc_e2e.rs` self-skips without `XBOX_E2E=1`.
+
+> Before `rust-native-webrtc` existed, a dependency bump to any of those ten crates got
+> **zero** automated verification and CI still went green — the trap that motivated the
+> job. If you ever narrow or drop it, restore that warning here.
 
 ### Windows Installer
 

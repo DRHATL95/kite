@@ -57,3 +57,55 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: cargo test
         run: cargo test
+
+  # The `native-webrtc` feature is opt-in, so the `rust` job above (default
+  # features) never compiles str0m, opus, ffmpeg-the-third, bytes, cpal, gtk,
+  # glow, libloading, tao or wry. Without this job a dependency bump to any of
+  # them gets zero verification and CI still goes green. Linux-only on purpose:
+  # gtk/glow/libloading/tao/wry sit under [target.'cfg(target_os = "linux")']
+  # in Cargo.toml, so this is the only platform where all ten actually build.
+  rust-native-webrtc:
+    name: rust (native-webrtc, linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # ffmpeg-sys-the-third links the system FFmpeg (bindgen -> libclang) and
+      # supports FFmpeg 5.1-9.0, so the distro package is fine on both 24.04
+      # (6.1) and 26.04 (8.0). opus -> audiopus_sys and cpal -> alsa-sys resolve
+      # via pkg-config; gtk/tao/wry need the same GTK/WebKit set as the AppImage
+      # build (ayatana appindicator, not the legacy one); openssl-sys needs
+      # libssl-dev.
+      - name: Install native media + GTK build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libclang-dev libssl-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
+            libavdevice-dev libswscale-dev libswresample-dev \
+            libopus-dev libasound2-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      # Same generate_context!() constraint as the rust job: ui/dist must exist
+      # before cargo touches the crate.
+      - name: Build frontend (embedded by Tauri)
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+      # --all-targets so the three native-webrtc examples (rtc_spike,
+      # render_spike, render_live) compile too -- they are the only consumers of
+      # parts of the native stack.
+      - name: clippy (native-webrtc)
+        run: cargo clippy --all-targets --features native-webrtc -- -D warnings
+      # rtc_e2e self-skips without XBOX_E2E=1 (it needs a live console), so this
+      # runs the unit tests only.
+      - name: cargo test (native-webrtc)
+        run: cargo test --features native-webrtc
