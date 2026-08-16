@@ -2799,7 +2799,7 @@ dependencies = [
  "cpal",
  "dirs",
  "ffmpeg-the-third",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "glow",
  "gtk",
  "image",
