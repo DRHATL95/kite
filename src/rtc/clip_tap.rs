@@ -923,8 +923,8 @@ mod tests {
         );
         // The prepended bytes should include SPS (0x67) and PPS (0x68)
         let has_sps = clip.video[0].bytes.windows(4).any(|w| w == [0, 0, 0, 1])
-            && clip.video[0].bytes.iter().any(|&b| b == 0x67);
-        let has_pps = clip.video[0].bytes.iter().any(|&b| b == 0x68);
+            && clip.video[0].bytes.contains(&0x67);
+        let has_pps = clip.video[0].bytes.contains(&0x68);
         assert!(has_sps, "SPS should be prepended to first AU");
         assert!(has_pps, "PPS should be prepended to first AU");
     }

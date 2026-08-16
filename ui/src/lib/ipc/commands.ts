@@ -399,3 +399,15 @@ export async function subscribeRtcEvents(
   const { listen } = await import("@tauri-apps/api/event");
   return listen<RtcEvent>("rtc_event", (e) => cb(e.payload));
 }
+
+// ---------------------------------------------------------------------------
+// Tray
+// ---------------------------------------------------------------------------
+
+/**
+ * Update the system-tray icon to match the active theme.
+ * Rust: set_tray_theme(app, theme) -> ()  (non-fatal; no-ops without a tray)
+ */
+export async function setTrayTheme(theme: string): Promise<void> {
+  await invoke("set_tray_theme", { theme });
+}

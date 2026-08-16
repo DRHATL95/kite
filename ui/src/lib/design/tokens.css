@@ -173,6 +173,23 @@ body.native-render::after {
 
 ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 
+/* ── Scrollbars — themed to match the surface (WebView2 is Chromium) ────── */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* ── Atmosphere — fixed signal-grid + accent glow, behind the SPA ─────── */
 body::before {
   content: "";

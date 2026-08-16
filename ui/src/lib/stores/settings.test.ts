@@ -126,3 +126,77 @@ describe("settings store — showDiagnosticsHud", () => {
     expect(persist.persisted.getItem(SHOW_HUD_KEY)).toBe("true");
   });
 });
+
+const STREAM_QUALITY_KEY = "kite:stream-quality";
+
+describe("settings store — streamQuality", () => {
+  it("defaults to auto when nothing persisted", async () => {
+    await seed();
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.streamQuality).toBe("auto");
+  });
+
+  it("persists and reflects a quality change", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setStreamQuality("medium");
+    expect(settings.streamQuality).toBe("medium");
+    expect(persist.persisted.getItem(STREAM_QUALITY_KEY)).toBe("medium");
+  });
+
+  it("restores a persisted quality on load", async () => {
+    await seed([[STREAM_QUALITY_KEY, "low"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.streamQuality).toBe("low");
+  });
+
+  it("normalises an unknown persisted value to auto", async () => {
+    await seed([[STREAM_QUALITY_KEY, "ultra"]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.streamQuality).toBe("auto");
+  });
+});
+
+const REMAP_KEY = "kite:controller-mapping";
+
+describe("settings store — controllerMapping", () => {
+  it("defaults to empty when nothing persisted", async () => {
+    await seed();
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.controllerMapping).toEqual({});
+  });
+
+  it("setControllerBinding persists an override and stays reactive", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setControllerBinding("a", { kind: "button", index: 1 });
+    expect(settings.controllerMapping.a).toEqual({ kind: "button", index: 1 });
+    expect(JSON.parse(persist.persisted.getItem(REMAP_KEY)!)).toEqual({ a: { kind: "button", index: 1 } });
+  });
+
+  it("setControllerBinding to the DEFAULT source deletes the key (stays sparse)", async () => {
+    const persist = await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setControllerBinding("a", { kind: "button", index: 1 });
+    settings.setControllerBinding("a", { kind: "button", index: 0 }); // a's default
+    expect(settings.controllerMapping).toEqual({});
+    expect(JSON.parse(persist.persisted.getItem(REMAP_KEY)!)).toEqual({});
+  });
+
+  it("resetControllerBinding removes one key; resetControllerMapping clears all", async () => {
+    await seed();
+    const { settings } = await import("./settings.svelte.js");
+    settings.setControllerBinding("a", { kind: "button", index: 1 });
+    settings.setControllerBinding("b", { kind: "button", index: 0 });
+    settings.resetControllerBinding("a");
+    expect(settings.controllerMapping).toEqual({ b: { kind: "button", index: 0 } });
+    settings.resetControllerMapping();
+    expect(settings.controllerMapping).toEqual({});
+  });
+
+  it("restores a persisted mapping on load", async () => {
+    await seed([[REMAP_KEY, JSON.stringify({ y: { kind: "axis", axis: 1, sign: -1 } })]]);
+    const { settings } = await import("./settings.svelte.js");
+    expect(settings.controllerMapping).toEqual({ y: { kind: "axis", axis: 1, sign: -1 } });
+  });
+});

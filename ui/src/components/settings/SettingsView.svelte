@@ -6,10 +6,9 @@
    */
   import { SETTINGS_CATEGORIES, DEFAULT_CATEGORY } from "$lib/settings/settingsNav.js";
   import StreamingSettings from "./StreamingSettings.svelte";
+  import ControllerSettings from "./ControllerSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
-  import UpdatesSettings from "./UpdatesSettings.svelte";
-  import AdvancedSettings from "./AdvancedSettings.svelte";
-  import AccountSettings from "./AccountSettings.svelte";
+  import DiagnosticsSettings from "./DiagnosticsSettings.svelte";
   import AboutSettings from "./AboutSettings.svelte";
 
   interface Props {
@@ -50,19 +49,17 @@
         {/each}
       </nav>
 
-      <div class="settings-content">
-        {#if active === "streaming"}
+      <div class="settings-content" class:settings-content--wide={active === "controller"}>
+        {#if active === "stream"}
           <StreamingSettings />
+        {:else if active === "controller"}
+          <ControllerSettings />
         {:else if active === "general"}
           <GeneralSettings />
-        {:else if active === "updates"}
-          <UpdatesSettings />
-        {:else if active === "advanced"}
-          <AdvancedSettings />
-        {:else if active === "account"}
-          <AccountSettings {onClose} />
+        {:else if active === "diagnostics"}
+          <DiagnosticsSettings />
         {:else if active === "about"}
-          <AboutSettings />
+          <AboutSettings {onClose} />
         {/if}
       </div>
     </div>
@@ -158,6 +155,10 @@
     max-width: 640px;
   }
 
+  /* The remapping grid wants the full pane width (many compact cells);
+     other pages keep the comfortable reading width above. */
+  .settings-content--wide { max-width: none; }
+
   /* Shared row/chip styles for the category components (descendant-scoped
      globals so each category component stays style-free and DRY). */
   .settings-content :global(.settings-row) {
@@ -205,10 +206,14 @@
     cursor: pointer;
     transition: background 120ms ease, border-color 120ms ease;
   }
-  .settings-content :global(.clip-chip:hover) { background: var(--surface-2); }
+  .settings-content :global(.clip-chip:hover:not(:disabled)) { background: var(--surface-2); }
   .settings-content :global(.clip-chip--on) {
     background: color-mix(in srgb, var(--accent, var(--text)) 16%, transparent);
     border-color: var(--accent, var(--text));
   }
   .settings-content :global(.clip-chip:focus-visible) { box-shadow: var(--focus-ring); }
+  .settings-content :global(.clip-chip:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 </style>

@@ -28,16 +28,27 @@
   import { settings } from "$lib/stores/settings.svelte.js";
   import { persisted } from "$lib/persist/store.js";
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
+  import { videoControlsActive } from "$lib/connection/audioOnly.js";
+  import { pctToGain, VOLUME_MAX_PCT } from "$lib/connection/streamVolume.js";
 
   const showClip = $derived(
     settings.clip.enabled &&
       connectionStore.state === "streaming" &&
-      !connectionStore.audioOnly,
+      videoControlsActive(connectionStore.audioOnly, connectionStore.videoHidden),
   );
 
   // Video-oriented controls (Fix Video / Immersive / Clip) are meaningless in
-  // audio-only mode, where no video track is streamed — hide them.
-  const showVideoControls = $derived(!connectionStore.audioOnly);
+  // audio-only mode (no video track streamed) or while the user has hidden
+  // video in-session — hide them in both cases.
+  const showVideoControls = $derived(
+    videoControlsActive(connectionStore.audioOnly, connectionStore.videoHidden),
+  );
+
+  // The Hide/Show toggle itself stays visible whenever a real video track could
+  // exist — i.e. NOT audio-only mode and NOT native mode (native has no DOM
+  // video track to disable; audio-only never negotiated one) — so the user can
+  // always un-hide, independent of showVideoControls.
+  const showHideVideoToggle = $derived(!connectionStore.audioOnly && !connectionStore.nativeMode);
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -51,10 +62,9 @@
      */
     hideVolume?: boolean;
     /**
-     * Native mode: there is no DOM <video> to set `.volume` on (audio plays via
-     * Rust/cpal), so the slider routes its gain (0–1) here instead. Called on the
-     * initial saved level, slider input, and mute toggle. Omitted on the browser
-     * path (where `video.volume` is used directly).
+     * Receives the linear playback gain (0–1.5) on every volume change. The
+     * browser path wires this to the Web Audio GainNode (streamAudio.setGain);
+     * the native path wires it to rtc_set_volume. Range exceeds 1.0 for boost.
      */
     onVolumeChange?: (gain: number) => void;
     onDisconnect: () => void;
@@ -93,14 +103,11 @@
    */
   let lastNonZeroVolume = $state<number>(readSavedVolumePct() || 80);
 
-  /** Apply the current volumePct to the video element and persist. */
+  /** Persist the current volumePct; gain is pushed reactively (see $effect). */
   function applyVolume(pct: number) {
     volumePct = pct;
     if (pct > 0) lastNonZeroVolume = pct;
-    if (video) {
-      video.volume = pct / 100;
-      video.muted = pct === 0;
-    }
+    if (video) video.muted = pct === 0;
     persisted.setItem(VOLUME_KEY, String(pct / 100));
   }
 
@@ -117,14 +124,13 @@
     }
   }
 
-  /** Sync video element when it becomes available (also called from Stream.svelte after mount). */
+  /** Seed volumePct from the persisted value once the video is available. */
   $effect(() => {
     if (video && !video.muted) {
       const saved = persisted.getItem(VOLUME_KEY);
       if (saved !== null) {
         const v = parseFloat(saved);
         if (!Number.isNaN(v)) {
-          video.volume = v;
           video.muted = v === 0;
           volumePct = Math.round(v * 100);
         }
@@ -137,11 +143,12 @@
     applyVolume(parseInt(target.value, 10));
   }
 
-  // Native mode: push the gain to the Rust audio sink (no DOM <video> to set).
-  // Runs on the initial saved level and every volumePct change (slider / mute);
-  // a no-op on the browser path where onVolumeChange is undefined.
+  // Push the linear gain to the active audio path on every volume change.
+  // Browser: Stream.svelte wires onVolumeChange → streamAudio.setGain (Web Audio
+  // GainNode). Native: onVolumeChange → rtc_set_volume. Runs on the initial
+  // saved level and every slider / mute change.
   $effect(() => {
-    onVolumeChange?.(volumePct / 100);
+    onVolumeChange?.(pctToGain(volumePct));
   });
 
   // ── Fullscreen ────────────────────────────────────────────────────────────────
@@ -254,7 +261,7 @@
         type="range"
         class="ctrl-volume__slider"
         min="0"
-        max="100"
+        max={VOLUME_MAX_PCT}
         value={volumePct}
         style="--fill: {volumePct}%;"
         oninput={handleVolumeInput}
@@ -266,6 +273,20 @@
 
     <!-- Separator -->
     <span class="ctrl-sep" aria-hidden="true"></span>
+  {/if}
+
+  <!-- Hide/Show video (in-session audio-only) — visible whenever a video track could exist (browser, non-audio-only) -->
+  {#if showHideVideoToggle}
+    <button
+      class="ctrl-btn"
+      onclick={() => connectionStore.toggleVideoHidden()}
+      aria-pressed={connectionStore.videoHidden}
+      title={connectionStore.videoHidden
+        ? "Show video"
+        : "Hide video — drop to the audio-only view (saves CPU/GPU); audio keeps playing"}
+    >
+      {connectionStore.videoHidden ? "Show Video" : "Hide Video"}
+    </button>
   {/if}
 
   <!-- Immersive (focus) mode toggle (ghost button) — video only -->

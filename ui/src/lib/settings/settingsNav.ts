@@ -12,12 +12,11 @@ export interface SettingsCategory {
 
 /** Sidebar categories in display order. */
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
-  { id: "streaming", label: "Streaming" },
   { id: "general", label: "General" },
-  { id: "updates", label: "Updates" },
-  { id: "advanced", label: "Advanced" },
-  { id: "account", label: "Account" },
+  { id: "stream", label: "Stream" },
+  { id: "controller", label: "Controller" },
   { id: "about", label: "About" },
+  { id: "diagnostics", label: "Diagnostics" },
 ];
 
 /** Category shown when the view first opens. */

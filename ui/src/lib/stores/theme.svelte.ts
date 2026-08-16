@@ -13,6 +13,7 @@
 
 import { THEME_IDS, DEFAULT_THEME } from "$lib/design/themes.js";
 import { persisted } from "../persist/store.js";
+import { setTrayTheme } from "../ipc/commands.js";
 
 const STORAGE_KEY = "kite-theme";
 
@@ -41,6 +42,7 @@ class ThemeStore {
   /** Apply the persisted/initial theme to the DOM. Call once at startup. */
   init(): void {
     applyToDom(this.current);
+    void setTrayTheme(this.current);
   }
 
   /** Switch theme, persist it, and reflect it onto the DOM. */
@@ -51,6 +53,7 @@ class ThemeStore {
     }
     this.current = id;
     applyToDom(id);
+    void setTrayTheme(id);
     try {
       persisted.setItem(STORAGE_KEY, id);
     } catch {

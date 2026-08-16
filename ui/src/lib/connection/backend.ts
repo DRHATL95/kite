@@ -8,22 +8,28 @@
  * `rtcNativeAvailable()` without the rest of the UI caring which path is active.
  *
  * Both backends take a `ConnectionManagerCallbacks` in their constructor;
- * interfaces can't constrain constructors, so the callbacks contract lives in
- * ConnectionManager.ts and both classes accept it directly.
+ * interfaces can't constrain constructors, so the callbacks contract lives
+ * here too (moved from ConnectionManager.ts — type-only, re-exported from
+ * there for back-compat) and both classes accept it directly.
  */
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
 import type { XHomeConsole } from "../ipc/types.js";
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
+import type { QualityParams } from "./streamQuality.js";
+import type { ControllerMapping } from "./controllerMapping.js";
 
 export interface ConnectionBackend {
   /** Begin connecting to the given console. Does not throw; failures surface via
    * the `onStateChange("failed")` callback. */
-  connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean }): Promise<void>;
+  connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams; controllerMapping?: ControllerMapping }): Promise<void>;
   /** Tear down the session and return to idle. */
   disconnect(): Promise<void>;
   /** Request a keyframe (IDR) from the console ("Fix Video"). */
   requestKeyframe(): void;
+  /** Hide/show video locally by disabling the video receive track (decode off).
+   *  Browser only; a no-op natively. */
+  setVideoHidden(hidden: boolean): void;
   /** Attach/detach the encoded-frame clip tap (browser only; a no-op natively). */
   setEncodedTap(tap: EncodedTap | null): void;
   /** Whether Insertable Streams clip tapping is available (false natively). */
@@ -34,4 +40,25 @@ export interface ConnectionBackend {
   readonly lastTriggerReason: string | null;
   /** Current session lifecycle state. */
   readonly state: SessionState;
+}
+
+/** Callbacks the ConnectionManager fires on state changes and data events. */
+export interface ConnectionManagerCallbacks {
+  /** Called on every SessionState transition. */
+  onStateChange: (state: SessionState) => void;
+  /** Called on each DiagnosticsSnapshot emitted by the StatsSampler. */
+  onDiagnostics: (snapshot: DiagnosticsSnapshot) => void;
+  /** Human-readable log messages. */
+  onLog: (msg: string) => void;
+  /**
+   * Called when a MediaStream is ready (first track received).
+   * The stream may not yet have both tracks — the 'streaming' state
+   * transition is gated on BOTH tracks (spec §3.10).
+   */
+  onMediaStream: (stream: MediaStream) => void;
+  /**
+   * Called at the start of each reconnect attempt so the UI can show
+   * a live count without depending on the (stopped) StatsSampler snapshot.
+   */
+  onReconnectAttempt?: (current: number, max: number) => void;
 }
