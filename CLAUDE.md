@@ -289,6 +289,8 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 4. **Token expiry** — XSTS tokens expire in ~1 hour; call `check_auth_status()` before API calls and prompt re-auth if expired.
 5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `pnpm --dir ui run build` (regenerates `ui/dist`), then `cargo clean -p kite && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
 6. **Edition 2024** — requires Rust 1.85+. Run `rustup update stable` if the build fails with edition errors.
+7. **`glib` RUSTSEC-2024-0429 can't be fixed here** — the advisory wants `glib >= 0.20`, but `glib` comes in via `gtk` 0.18, and **`gtk` 0.18.2 is the final release of that crate** (unmaintained; upstream says "use gtk4 instead"). Tauri's own Linux backend (`wry`/`tao`) pulls the same GTK3 stack, so removing our optional `gtk` dep changes nothing. It needs Tauri to move to GTK4. `glib` is therefore in `.github/dependabot.yml`'s cargo `ignore` list — delete that entry once a GTK4 backend exists. Impact is limited: it's a crash-class unsoundness, the GTK deps are `cfg(target_os = "linux")` so the shipped Windows binary never compiles `glib`, and Linux is gated off (`BUILD_LINUX: 'false'`).
+8. **Dependabot *security* updates ignore `target-branch`** — `.github/dependabot.yml` pins `target-branch: dev`, but that governs scheduled **version** updates only. Security updates always open against the **default branch (`main`)**. A Dependabot PR based on `main` is expected behavior, not a misconfigured target.
 
 ## Error Handling
 
