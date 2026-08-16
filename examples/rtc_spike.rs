@@ -220,10 +220,11 @@ fn discover_local_ip() -> Result<IpAddr> {
 fn extract_candidates(sdp: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for line in sdp.lines() {
-        if let Some(cand) = line.strip_prefix("a=") {
-            if cand.starts_with("candidate:") && !out.iter().any(|c| c == cand) {
-                out.push(cand.to_string());
-            }
+        if let Some(cand) = line.strip_prefix("a=")
+            && cand.starts_with("candidate:")
+            && !out.iter().any(|c| c == cand)
+        {
+            out.push(cand.to_string());
         }
     }
     out
@@ -506,8 +507,10 @@ impl H264ToPng {
         let packet = ffmpeg::codec::packet::Packet::copy(annexb);
         let _ = self.decoder.send_packet(&packet); // EAGAIN before first keyframe is normal
 
+        // One frame is all this spike wants — it writes a single PNG and stops.
+        // This was a `while` that unconditionally returned on its first pass.
         let mut frame = ffmpeg::frame::Video::empty();
-        while self.decoder.receive_frame(&mut frame).is_ok() {
+        if self.decoder.receive_frame(&mut frame).is_ok() {
             save_frame_png(&frame, FRAME_PNG_PATH)?;
             self.done = true;
             return Ok(true);
