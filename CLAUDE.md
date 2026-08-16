@@ -53,7 +53,23 @@ pnpm --dir ui run check
 pnpm --dir ui run test
 ```
 
-There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
+`cargo run` builds the full Tauri app with **default features**. Edition 2024 requires Rust 1.85+.
+
+### Cargo Features
+
+There is one optional feature, `native-webrtc` — the native Rust WebRTC media stack
+(Linux-first). It is **opt-in** so the default build stays lean and doesn't need an
+ffmpeg/str0m toolchain. It gates ten crates: `str0m`, `opus`, `ffmpeg-the-third`,
+`bytes`, `cpal`, `gtk`, `glow`, `libloading`, `tao`, `wry`.
+
+```powershell
+cargo build --features native-webrtc
+```
+
+> **CI does not compile it.** `.github/workflows/ci.yml` runs `cargo clippy --all-targets`
+> and `cargo test` with default features only, so none of those ten crates are ever built
+> on CI. **A green CI run says nothing about a dependency bump to any of them** — verify
+> those locally with `cargo check --features native-webrtc` before merging.
 
 ### Windows Installer
 
