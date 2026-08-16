@@ -32,11 +32,14 @@ jobs:
       RELEASES_REPO: ${{ github.repository }}
       # Linux (AppImage) builds are DISABLED: WebKitGTK renders WebRTC video
       # black, so the AppImage isn't shippable. The fix is the native-webrtc
-      # engine, which is still an opt-in cargo feature CI never compiles — so
-      # it did NOT land for 1.1 (this comment used to call it "the 1.1
-      # headline"; v1.1.0 shipped Windows-only on 2026-08-16). Re-target: 1.2.
-      # Gating that on real verification, not a version number — the AppImage
-      # has to actually render video before this flips.
+      # engine. CI now DOES compile that feature (the `rust-native-webrtc` job,
+      # added 2026-08-16), so it is no longer unverified code — but compiling is
+      # not rendering: nothing drives a live console in CI, so a green job says
+      # nothing about whether the stream actually paints. v1.1.0 and v1.2.0 both
+      # shipped Windows-only.
+      # Deliberately NOT re-targeted at a version number — earlier comments here
+      # promised 1.1 and then 1.2 and both slipped. The AppImage has to actually
+      # render video before this flips; that is the only gate.
       # This gates every Linux step below — flip to 'true' to re-enable Linux
       # nightly + stable builds. Nothing is removed; the build/stage/manifest/
       # upload logic all remain.
