@@ -89,10 +89,24 @@ jobs:
       # via pkg-config; gtk/tao/wry need the same GTK/WebKit set as the AppImage
       # build (ayatana appindicator, not the legacy one); openssl-sys needs
       # libssl-dev.
+      # apt on the Azure runners resolves mirrors through /etc/apt/apt-mirrors.txt,
+      # and azure.archive.ubuntu.com has been dead since at least 2026-08-19: every
+      # request Ign:s, apt falls back to archive.ubuntu.com, fetches InRelease, then
+      # stalls mid-index emitting nothing. Acquire::*::Timeout does not fire on a
+      # connection that trickles rather than drops, so the step hangs until the job
+      # timeout kills it -- four PRs burned 24 runner-hours this way and tripped the
+      # account spending limit. Drop the dead mirror, bound each attempt, and retry.
+      # Revert the sed once the Azure mirror is healthy again; it is the faster one.
       - name: Install native media + GTK build deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+          for attempt in 1 2 3; do
+            sudo timeout 240 apt-get $APT_OPTS update && break
+            echo "::warning::apt-get update stalled or failed (attempt $attempt of 3), retrying"
+            sudo rm -rf /var/lib/apt/lists/*
+          done
+          sudo apt-get $APT_OPTS install -y --no-install-recommends \
             pkg-config libclang-dev libssl-dev \
             libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
             libavdevice-dev libswscale-dev libswresample-dev \
