@@ -28,6 +28,15 @@ updates:
       interval: weekly
     target-branch: dev
     open-pull-requests-limit: 5
+    ignore:
+      # `pnpm run check` is svelte-check, and its NEWEST release (4.7.6) declares
+      # `typescript: ^5.0.0 || ^6.0.0` — no released svelte-check supports
+      # TypeScript 7. On 7.0.2 it dies at startup in ConfigLoader with
+      # `Cannot read properties of undefined (reading 'useCaseSensitiveFileNames')`,
+      # so the bump can never go green (PR #110, closed). 6 is the ceiling until
+      # svelte-check widens its peer range; delete this entry when it does.
+      - dependency-name: "typescript"
+        versions: [">=7"]
 
   # GitHub Actions used in .github/workflows/
   - package-ecosystem: github-actions
