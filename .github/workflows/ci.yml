@@ -1,5 +1,9 @@
 name: ci
 
+# Every job caps its own runtime: without timeout-minutes a hung step runs to the
+# 6-hour GitHub default. On 2026-08-19 four dependabot PRs all stalled in apt-get
+# and burned 24 runner-hours between them, which tripped the account spending limit
+# and blocked CI across every repo. Normal times are <1min / 7-9min / 8-19min.
 # Vet every pull request into dev or main before merge (frontend type-check +
 # unit tests, and cargo test). Runs on pull_request only — fork PRs get NO
 # secrets, and the release workflow stays push/tag-triggered, so signing keys
@@ -16,6 +20,7 @@ jobs:
   frontend:
     name: frontend (check + vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -36,6 +41,7 @@ jobs:
   rust:
     name: rust (cargo test)
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -67,6 +73,7 @@ jobs:
   rust-native-webrtc:
     name: rust (native-webrtc, linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
