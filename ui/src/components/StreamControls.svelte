@@ -8,12 +8,12 @@
    *   - Focus mode toggle: hides chrome and uses floating controls.
    *   - Fullscreen toggle: requestFullscreen on the stream container element.
    *   - Keyframe button: connectionStore.requestKeyframe().
-   *   - Volume slider (0–100): persisted to the durable settings store under
-   *     'kite-volume'.  Applied to the video element directly.
+   *   - Volume slider (0–150): persisted to the durable settings store under
+   *     'kite-volume'.  Pushed out as a linear gain via onVolumeChange; the
+   *     element's own audio state is owned by streamAudio, not by this file.
    *   - Disconnect button: calls onDisconnect prop.
    *
    * Props:
-   *   video          — the HTMLVideoElement to control volume / mute on.
    *   fullscreenEl   — element to call requestFullscreen() on (usually the
    *                    stream container div).
    *   focusMode      — bindable boolean; parent reads it to apply focus-mode class.
@@ -53,7 +53,6 @@
   // ── Props ─────────────────────────────────────────────────────────────────────
 
   interface Props {
-    video: HTMLVideoElement | null;
     fullscreenEl?: HTMLElement | null;
     focusMode?: boolean;
     floating?: boolean;
@@ -71,7 +70,6 @@
   }
 
   let {
-    video = null,
     fullscreenEl = null,
     focusMode = $bindable(false),
     floating = false,
@@ -103,11 +101,12 @@
    */
   let lastNonZeroVolume = $state<number>(readSavedVolumePct() || 80);
 
-  /** Persist the current volumePct; gain is pushed reactively (see $effect). */
+  /** Persist the current volumePct; gain is pushed reactively (see $effect).
+   *  Mute is simply gain 0 — the <video> element's muted/volume state belongs to
+   *  streamAudio (browser) or the Rust sink (native), never to this component. */
   function applyVolume(pct: number) {
     volumePct = pct;
     if (pct > 0) lastNonZeroVolume = pct;
-    if (video) video.muted = pct === 0;
     persisted.setItem(VOLUME_KEY, String(pct / 100));
   }
 
@@ -123,20 +122,6 @@
       applyVolume(lastNonZeroVolume > 0 ? lastNonZeroVolume : 80);
     }
   }
-
-  /** Seed volumePct from the persisted value once the video is available. */
-  $effect(() => {
-    if (video && !video.muted) {
-      const saved = persisted.getItem(VOLUME_KEY);
-      if (saved !== null) {
-        const v = parseFloat(saved);
-        if (!Number.isNaN(v)) {
-          video.muted = v === 0;
-          volumePct = Math.round(v * 100);
-        }
-      }
-    }
-  });
 
   function handleVolumeInput(e: Event) {
     const target = e.target as HTMLInputElement;
