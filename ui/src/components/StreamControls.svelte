@@ -8,8 +8,8 @@
    *   - Focus mode toggle: hides chrome and uses floating controls.
    *   - Fullscreen toggle: requestFullscreen on the stream container element.
    *   - Keyframe button: connectionStore.requestKeyframe().
-   *   - Volume slider (0–150): persisted to the durable settings store under
-   *     'kite-volume'.  Pushed out as a linear gain via onVolumeChange; the
+   *   - Volume slider (0–VOLUME_MAX_PCT): persisted to the durable settings store
+   *     under 'kite-volume'.  Pushed out as a linear gain via onVolumeChange; the
    *     element's own audio state is owned by streamAudio, not by this file.
    *   - Disconnect button: calls onDisconnect prop.
    *
@@ -61,9 +61,9 @@
      */
     hideVolume?: boolean;
     /**
-     * Receives the linear playback gain (0–1.5) on every volume change. The
-     * browser path wires this to the Web Audio GainNode (streamAudio.setGain);
-     * the native path wires it to rtc_set_volume. Range exceeds 1.0 for boost.
+     * Receives the linear playback gain (0–1, where 1 is unity) on every volume
+     * change. The browser path wires this to the Web Audio GainNode
+     * (streamAudio.setGain); the native path wires it to rtc_set_volume.
      */
     onVolumeChange?: (gain: number) => void;
     onDisconnect: () => void;
@@ -248,7 +248,7 @@
         min="0"
         max={VOLUME_MAX_PCT}
         value={volumePct}
-        style="--fill: {volumePct}%;"
+        style="--fill-ratio: {volumePct / VOLUME_MAX_PCT};"
         oninput={handleVolumeInput}
         aria-label="Volume"
       />
@@ -473,20 +473,29 @@
     box-shadow: var(--focus-ring);
   }
 
-  /* Volume slider — custom accent fill via CSS gradient trick */
+  /* Volume slider — custom accent fill via CSS gradient trick.
+   *
+   * The fill stop must land on the THUMB'S CENTRE, which is not the same as
+   * "--fill-ratio of the track": the thumb centre only travels (width - --thumb),
+   * because the thumb cannot overhang either end. A plain percentage stop is
+   * therefore off by up to half a thumb at the extremes. calc() below tracks it
+   * exactly, and --thumb is the single source for both the stop and the thumb
+   * rules so the two can never drift apart. */
   .ctrl-volume__slider {
+    --thumb: 12px;
+    --fill-stop: calc(var(--fill-ratio, 0.8) * (100% - var(--thumb)) + var(--thumb) / 2);
     width: 88px;
     height: 4px;
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
     border-radius: 2px;
-    /* fill up to --fill, then dim for the rest */
+    /* accent up to the thumb centre, then dim for the rest */
     background: linear-gradient(
       to right,
       var(--accent) 0%,
-      var(--accent) var(--fill, 80%),
-      var(--surface-2) var(--fill, 80%),
+      var(--accent) var(--fill-stop),
+      var(--surface-2) var(--fill-stop),
       var(--surface-2) 100%
     );
     outline: none;
@@ -496,8 +505,8 @@
   .ctrl-volume__slider::-webkit-slider-thumb {
     appearance: none;
     -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
+    width: var(--thumb);
+    height: var(--thumb);
     border-radius: 50%;
     background: var(--accent);
     cursor: pointer;
@@ -506,8 +515,8 @@
   }
 
   .ctrl-volume__slider::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
+    width: var(--thumb);
+    height: var(--thumb);
     border-radius: 50%;
     background: var(--accent);
     cursor: pointer;
