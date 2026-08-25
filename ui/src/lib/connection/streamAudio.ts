@@ -1,8 +1,9 @@
 // ui/src/lib/connection/streamAudio.ts
 /**
  * streamAudio — module singleton that routes the WebRTC audio track through a
- * Web Audio graph so volume can exceed 100% (GainNode) and be directed to a
- * chosen output device (AudioContext.setSinkId).
+ * Web Audio graph so playback level (GainNode) and output device
+ * (AudioContext.setSinkId) are both controllable. The graph is required for the
+ * device picker, so it stays even though the level never exceeds unity.
  *
  * A singleton, not a Svelte prop, because two components coordinate around it:
  * Stream.svelte owns the <video> element + MediaStream; StreamControls owns the
@@ -57,7 +58,7 @@ function ensureContext(): SinkableAudioContext | null {
 
 /**
  * Apply the remembered gain to whichever authority is live. When the graph is
- * connected the GainNode is the sole authority (0–1.5) and the element is muted
+ * connected the GainNode is the sole authority (0–1) and the element is muted
  * so its untouched output can't double the audio. When the graph is NOT live
  * (AudioContext or createMediaStreamSource failed), the element's own .volume is
  * the authority for the 0–100% region — so the slider is never inert. Muting in
@@ -111,8 +112,9 @@ export const streamAudio = {
     applyLevel();
   },
 
-  /** Set the linear gain (0–1.5). Remembered even before attach. Routed to the
-   *  live authority (GainNode, or the element's .volume fallback) by applyLevel. */
+  /** Set the linear gain (0–1, unity at 1). Remembered even before attach. Routed
+   *  to the live authority (GainNode, or the element's .volume fallback) by
+   *  applyLevel. */
   setGain(gain: number): void {
     lastGain = gain;
     applyLevel();

@@ -64,7 +64,7 @@
   const audioOnly = $derived(connectionStore.audioOnly);
   const audioView = $derived(audioViewActive(connectionStore.audioOnly, connectionStore.videoHidden));
 
-  // Route the volume slider's linear gain (0–1.5) to the active audio sink:
+  // Route the volume slider's linear gain (0–1, unity at 1) to the active sink:
   // native → Rust/cpal via rtc_set_volume; browser → the Web Audio GainNode.
   const onVolumeChange = nativeMode
     ? (gain: number) => {

@@ -60,8 +60,8 @@ describe("streamAudio — WebRTC audio tap", () => {
 
   it("routes the slider gain to the GainNode while the graph is live", () => {
     streamAudio.attach(fakeVideo(), fakeStream());
-    streamAudio.setGain(1.5);
-    expect(gain.gain.value).toBe(1.5);
+    streamAudio.setGain(0.75);
+    expect(gain.gain.value).toBe(0.75);
   });
 
   it("mutes the element while the graph is live so audio is not doubled", () => {
