@@ -4,7 +4,7 @@
    Theme-independent tokens (type, spacing, radii, motion) live in :root.
    Each colour theme is a `:root[data-theme="x"]` block — specificity (0,2,0)
    beats bare :root (0,1,0), so a theme's colours always win. The default
-   (no/`carbon` data-theme) uses the :root colour values directly.
+   (no/`midnight` data-theme) uses the :root colour values directly.
 
    Fonts are bundled via @fontsource and imported in main.ts (offline-safe).
    No raw hex should appear outside this file.
@@ -34,26 +34,26 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --theme-fade: background-color 450ms ease, color 450ms ease, border-color 450ms ease;
 
-  /* ── Colour — default theme: CARBON ─────────────────────────────────── */
-  --bg: #0c0e0c;
-  --bg-2: #11150f;
-  --surface: #161916;
-  --surface-2: #1d211d;
-  --border: #262b26;
-  --text-dim: #8a918a;
-  --text: #e9ede9;
-  --accent: #46cf68;          /* good / active / healthy */
-  --accent-2: #46cf68;        /* secondary accent (duotone themes differ) */
-  --on-accent: #06120a;       /* text on accent fill */
-  --accent-press: #2f8f47;
-  --warn: #e0b341;
-  --bad: #d4685f;
+  /* ── Colour — default theme: MIDNIGHT (deep blue-black + electric cyan) ── */
+  --bg: #080b12;
+  --bg-2: #0a1019;
+  --surface: #10151f;
+  --surface-2: #161e2b;
+  --border: #243044;
+  --text-dim: #808da3;
+  --text: #e7edf6;
+  --accent: #36cfe8;          /* good / active / healthy */
+  --accent-2: #5b8cff;        /* secondary accent (duotone) */
+  --on-accent: #04121a;       /* text on accent fill */
+  --accent-press: #2398ad;
+  --warn: #e7b84d;
+  --bad: #f0726a;
 
   --video-bg: #000;           /* pure black behind video — never themed */
 
   /* atmosphere */
-  --glow: rgba(70, 207, 104, 0.10);
-  --grid-line: rgba(130, 150, 130, 0.045);
+  --glow: rgba(54, 207, 232, 0.13);
+  --grid-line: rgba(91, 140, 255, 0.06);
   --grain-opacity: 0.035;
 
   /* derived */
@@ -62,23 +62,23 @@
   --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-/* ── MIDNIGHT — deep blue-black + electric cyan ───────────────────────── */
-:root[data-theme="midnight"] {
-  --bg: #080b12;
-  --bg-2: #0a1019;
-  --surface: #10151f;
-  --surface-2: #161e2b;
-  --border: #243044;
-  --text-dim: #808da3;
-  --text: #e7edf6;
-  --accent: #36cfe8;
-  --accent-2: #5b8cff;
-  --on-accent: #04121a;
-  --accent-press: #2398ad;
-  --warn: #e7b84d;
-  --bad: #f0726a;
-  --glow: rgba(54, 207, 232, 0.13);
-  --grid-line: rgba(91, 140, 255, 0.06);
+/* ── CARBON — near-black + healthy green (was the default) ─────────────── */
+:root[data-theme="carbon"] {
+  --bg: #0c0e0c;
+  --bg-2: #11150f;
+  --surface: #161916;
+  --surface-2: #1d211d;
+  --border: #262b26;
+  --text-dim: #8a918a;
+  --text: #e9ede9;
+  --accent: #46cf68;
+  --accent-2: #46cf68;
+  --on-accent: #06120a;
+  --accent-press: #2f8f47;
+  --warn: #e0b341;
+  --bad: #d4685f;
+  --glow: rgba(70, 207, 104, 0.10);
+  --grid-line: rgba(130, 150, 130, 0.045);
 }
 
 /* ── SYNTHWAVE — violet-black, magenta + cyan duotone ─────────────────── */
@@ -172,6 +172,23 @@ body.native-render::after {
 :focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* ── Scrollbars — themed to match the surface (WebView2 is Chromium) ────── */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Atmosphere — fixed signal-grid + accent glow, behind the SPA ─────── */
 body::before {

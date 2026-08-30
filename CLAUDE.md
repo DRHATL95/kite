@@ -4,35 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Xbox Remote is a desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. It implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and browser-side WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
-
-> ### 🚧 In progress: Native Rust WebRTC (Linux-first) — merged to `master`
->
-> Linux's WebKitGTK ships **without** WebRTC, so the browser `<video>` path can't
-> stream on Linux. The WebRTC media client now lives in a **native Rust engine**
-> (str0m) behind the **`native-webrtc`** Cargo feature, Linux-first. **The browser
-> path remains the default on all platforms and is unaffected** (the feature is off
-> by default). **Status: Phases 0–6 MERGED to `master`** (PR #15 = Phases 0–5; PR
-> #19 = Phase 6 = native engine rendered into the real Tauri window; PR #20 = a
-> `glViewport`-per-render fix). **⛔ KNOWN BLOCKER (PAUSED): native video is
-> BLACK-UNTIL-RESIZE** — a Linux/XWayland GTK "airspace"/native-window compositing
-> gap (the `GLArea` draws every frame but isn't composited to the window until a
-> manual resize; decode is fine). Three further fixes were tried + ruled out +
-> reverted. **This gap is Linux-only and `native-webrtc` does NOT build on Windows,
-> so it cannot be reproduced/fixed on Windows.** Full diagnosis + ruled-out fixes +
-> the recommended empirical next step are the **source of truth in the CURRENT
-> STATUS block at the top of**
-> `docs/superpowers/plans/2026-06-19-native-rust-webrtc.md` (also
-> `…-phase{2,3}.md` + `specs/2026-06-19-native-webrtc-sdp-findings.md`). Source:
-> `src/rtc/`; render mount in `src/lib.rs`.
->
-> **OS note for a fresh instance:** `cargo test` (no features) runs the **106
-> codec-free unit tests on any OS**. `cargo build --features native-webrtc` needs
-> str0m + ffmpeg-the-third + cpal + opus and is **Linux-first** — `ffmpeg-the-third`
-> typically won't build on stock Windows, and the live `XBOX_E2E` test needs the
-> Linux box + a console. Don't expect the native feature build or live tests to work
-> on Windows; the Windows-side work is Phase 7 (unify) + planning. See the plan's
-> HANDOFF section.
+Kite is a desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. It implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and browser-side WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
 
 ## Build & Run
 
@@ -81,7 +53,40 @@ pnpm --dir ui run check
 pnpm --dir ui run test
 ```
 
-There are no feature flags. `cargo run` always builds the full Tauri app. Edition 2024 requires Rust 1.85+.
+`cargo run` builds the full Tauri app with **default features**. Edition 2024 requires Rust 1.85+.
+
+### Cargo Features
+
+There is one optional feature, `native-webrtc` — the native Rust WebRTC media stack
+(Linux-first). It is **opt-in** so the default build stays lean and doesn't need an
+ffmpeg/str0m toolchain. It gates ten crates: `str0m`, `opus`, `ffmpeg-the-third`,
+`bytes`, `cpal`, `gtk`, `glow`, `libloading`, `tao`, `wry`.
+
+```powershell
+cargo build --features native-webrtc
+```
+
+Five of those ten (`gtk`, `glow`, `libloading`, `tao`, `wry`) sit under
+`[target.'cfg(target_os = "linux")'.dependencies]`, so **Linux is the only platform where
+the whole set builds**. On Windows/macOS the feature pulls just `str0m`, `opus`,
+`ffmpeg-the-third`, `bytes`, `cpal`.
+
+**CI coverage.** `.github/workflows/ci.yml` has two Rust jobs, and the split matters:
+
+| Job | Runner | Features | Covers |
+|---|---|---|---|
+| `rust` | windows-latest | default | everything except the ten crates above |
+| `rust-native-webrtc` | ubuntu-latest | `native-webrtc` | all ten, plus the three gated examples |
+
+The Linux job installs the FFmpeg/GTK/ALSA/Opus dev packages it needs, then runs
+`cargo clippy --all-targets --features native-webrtc -- -D warnings` and
+`cargo test --features native-webrtc`. `--all-targets` is load-bearing: the
+`rtc_spike` / `render_spike` / `render_live` examples are `required-features` gated and
+would otherwise never compile. `tests/rtc_e2e.rs` self-skips without `XBOX_E2E=1`.
+
+> Before `rust-native-webrtc` existed, a dependency bump to any of those ten crates got
+> **zero** automated verification and CI still went green — the trap that motivated the
+> job. If you ever narrow or drop it, restore that warning here.
 
 ### Windows Installer
 
@@ -96,7 +101,7 @@ cargo tauri build
 The installer output is under (default host target):
 
 ```text
-target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
+target\release\bundle\nsis\Kite_<version>_x64-setup.exe
 ```
 
 Do not skip the frontend build; the installer embeds the current `ui/dist` output just like `cargo run` and `cargo build`.
@@ -104,37 +109,40 @@ Do not skip the frontend build; the installer embeds the current `ui/dist` outpu
 ### Releases & Auto-Update (CI/CD)
 
 Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
-**self-hosted** Linux runner (Proxmox LXC CT 106). The project uses **two repos**:
+**self-hosted** Linux runner (Proxmox LXC CT 106).
 
-- **Code (private)**: `DRHATL95/xbox-remote` — source + the CI workflow.
-- **Releases (public)**: `DRHATL95/xbox-remote-releases` — only binaries + `.sig`
-  + per-channel `latest.json`. It is public so the Tauri updater can fetch
-  `latest.json` and installers anonymously while the code stays private.
+- **Single public repo**: `DRHATL95/kite` — source + CI + the release binaries.
+  Public so the Tauri updater can fetch `latest.json` + installers anonymously
+  (private-repo release assets aren't anonymously downloadable, which is why the
+  old two-repo split existed; consolidated to one public repo 2026-06-30).
 
 - **Branch model**: `dev` (nightly source) → `staging` (soak/integration, no
-  build) → `master` (release; tag `vX.Y.Z` on `master` to cut stable). Only `dev`
-  pushes and `v*` tags trigger CI — pushing `master`/`staging` builds nothing.
+  build) → `main` (release, the **default branch**; tag `vX.Y.Z` on `main` to cut
+  stable). Only `dev` pushes and `v*` tags trigger CI — pushing `main`/`staging`
+  builds nothing. PRs target `dev`; promote `dev`→`main` via PR (main is
+  branch-protected: require-PR + enforce-admins, no direct/force pushes) then tag.
 - **Nightly**: every push to `dev` builds **both** platforms in one job and
-  force-updates the rolling `nightly` release in the releases repo. Windows NSIS
+  force-updates the rolling `nightly` release on this repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
   x86_64-pc-windows-msvc --bundles nsis`); the Linux AppImage is built natively
   on the same runner. Both updater artifacts are signed. Nightly version =
   `<target>-nightly.<run_number>` (committed `Cargo.toml` version = next
   unreleased `X.Y.Z`), injected via `--config` so the tree stays clean.
-- **Stable**: pushing a `vX.Y.Z` tag (on `master`) cuts a permanent `vX.Y.Z`
+- **Stable**: pushing a `vX.Y.Z` tag (on `main`) cuts a permanent `vX.Y.Z`
   archive release **and** force-updates the rolling `stable` pointer. After cutting
   a stable, bump the committed target.
-- **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes **cross-repo**
-  to the releases repo via the `RELEASES_TOKEN` PAT — ensure rolling release →
-  upload binaries (`--clobber`) → swap `latest.json` last → prune stale assets.
+- **Publishing**: `scripts/ci/github-release.sh` (gh CLI) publishes to this repo's
+  own Releases via the built-in `GITHUB_TOKEN` (`permissions: contents: write`;
+  `RELEASES_REPO=${{ github.repository }}`) — ensure rolling release → upload
+  binaries (`--clobber`) → swap `latest.json` last → prune stale assets.
 - **In-app updates**: the app checks the active channel's `latest.json` on launch
   (`tauri-plugin-updater`; UI in `ui/src/lib/update/` + `UpdateBanner.svelte`).
-  Two channels: `…/releases/download/{nightly,stable}/latest.json` on the public
-  releases repo. On Linux the updater only updates **AppImage** installs.
-- **Secrets** (on the private repo): `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`)
-  for signing — public key embedded in `tauri.conf.json`; and `RELEASES_TOKEN`, a
-  PAT with `contents:write` on the releases repo for cross-repo publishing. The
-  signing private key lives at `~/.tauri/xbox-remote-updater.key` — keep a backup;
+  Two channels: `github.com/DRHATL95/kite/releases/download/{nightly,stable}/latest.json`.
+  On Linux the updater only updates **AppImage** installs.
+- **Secrets**: `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) for signing — public
+  key embedded in `tauri.conf.json`. (The old cross-repo `RELEASES_TOKEN` PAT is
+  no longer used — publishing is same-repo via `GITHUB_TOKEN`.) The signing
+  private key lives at `~/.tauri/kite-updater.key` — keep a backup;
   **never commit it**.
 - **Runner**: a self-hosted GitHub Actions runner on CT 106 (label set
   `[self-hosted, Linux, X64]`). Build deps baked in: clang/lld/llvm, nsis, rust
@@ -149,14 +157,15 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   and runs as the unprivileged user **`ghrunner`** (not root) with a per-user
   rust toolchain in `/home/ghrunner/.cargo`.
 - **Gotchas**: every `dev` push — even docs-only — produces a new nightly and an
-  update prompt; `master`/`staging` pushes build nothing (stable is tag-cut on
-  `master`). macOS is still build-from-source. Dependabot security updates target
-  the repo's **default branch** — set the GitHub default branch to `dev` if you
-  want them (and new PRs) to land on `dev` rather than `master`.
+  update prompt; `main`/`staging` pushes build nothing (stable is tag-cut on
+  `main`). macOS is still build-from-source. The GitHub **default branch is
+  `main`**; `.github/dependabot.yml` pins `target-branch: dev` for all three
+  ecosystems (cargo, npm, github-actions) so dependency-update PRs land on `dev`
+  (not the default) and flow through the normal release path.
 
 > **Important — the frontend does NOT auto-rebuild.** There is no Tauri CLI / dev server
 > here, and `tauri.conf.json` has no `devUrl`. After changing anything under `ui/src/`, run
-> `pnpm --dir ui run build`, then `cargo clean -p xbox-remote && cargo run` so the new
+> `pnpm --dir ui run build`, then `cargo clean -p kite && cargo run` so the new
 > assets are re-embedded. Skipping the rebuild ships stale UI; skipping `cargo clean -p`
 > can serve a cached copy. (A previous misconfiguration set `devUrl` without installing the
 > Tauri CLI, which made `cargo run` show "localhost refused to connect" — removed.)
@@ -185,7 +194,8 @@ sudo apt-get install -y \
 **Linux/Wayland.** WebKitGTK on native Wayland renders WebRTC video black and can
 abort with "Gdk-Message: Error 71". The app therefore defaults to XWayland —
 `src/main.rs` sets `GDK_BACKEND=x11` + `WEBKIT_DISABLE_COMPOSITING_MODE=1` on Linux
-(each only if unset). Opt out with `XBOX_REMOTE_NATIVE_WAYLAND=1`, or override either
+(each only if unset). Opt out with `KITE_NATIVE_WAYLAND=1` (legacy alias
+`XBOX_REMOTE_NATIVE_WAYLAND=1`), or override either
 variable directly. (NVIDIA users who want to keep native Wayland can instead try
 `__NV_DISABLE_EXPLICIT_SYNC=1`.)
 
@@ -251,7 +261,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 - `send_ice_candidate(session_path, candidate)` — forwards ICE candidate to xHome
 - `send_sdp_answer(session_path, sdp)` — forwards SDP answer to xHome
 - `send_keepalive(session_path)` — sends API-side keepalive
-- `save_clip(payload)` — remuxes an encoded-frame clip payload into an MP4 under `<Videos>/Xbox Remote Clips/` (or writes a fallback blob as-is); returns the saved path
+- `save_clip(payload)` — remuxes an encoded-frame clip payload into an MP4 under `<Videos>/Kite Clips/` (or writes a fallback blob as-is); returns the saved path
 
 ### xHome API Endpoints
 
@@ -277,8 +287,11 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 2. **XSTS audience** — must use `gssv` audience (`https://gssv.xboxlive.com/`) for the streaming XSTS token; the default Xbox Live audience will be rejected by the xHome API.
 3. **Keepalive drift** — use `keepAlivePulseInSeconds` from the session config response, not a hardcoded interval; Xbox disconnects after ~56 seconds if the interval is wrong.
 4. **Token expiry** — XSTS tokens expire in ~1 hour; call `check_auth_status()` before API calls and prompt re-auth if expired.
-5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `pnpm --dir ui run build` (regenerates `ui/dist`), then `cargo clean -p xbox-remote && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
+5. **Frontend rebuild** — Tauri embeds frontend files at compile time. After changing any file under `ui/src/`, run `pnpm --dir ui run build` (regenerates `ui/dist`), then `cargo clean -p kite && cargo run` so the new assets are re-embedded. Nothing rebuilds the frontend automatically — there is no Tauri CLI / `tauri dev` in this project.
 6. **Edition 2024** — requires Rust 1.85+. Run `rustup update stable` if the build fails with edition errors.
+7. **`glib` RUSTSEC-2024-0429 can't be fixed here** — the advisory wants `glib >= 0.20`, but `glib` comes in via `gtk` 0.18, and **`gtk` 0.18.2 is the final release of that crate** (unmaintained; upstream says "use gtk4 instead"). Tauri's own Linux backend (`wry`/`tao`) pulls the same GTK3 stack, so removing our optional `gtk` dep changes nothing. It needs Tauri to move to GTK4. Impact is limited: it's a crash-class unsoundness, the GTK deps are `cfg(target_os = "linux")` so the shipped Windows binary never compiles `glib`, and Linux is gated off (`BUILD_LINUX: 'false'`). **Dependabot alert #1 is dismissed** (`tolerable_risk`) — re-open it once a GTK4 backend exists. The `ignore` entry in `.github/dependabot.yml` documents the same reasoning and blocks *version* updates, but note it does **not** silence the security job: security updates run with `"ignore-conditions": []` regardless of that file (see pitfall 8), so dismissing the alert is the only thing that stops the recurring `security_update_not_possible` failure.
+8. **Dependabot *security* updates ignore `target-branch`** — `.github/dependabot.yml` pins `target-branch: dev`, but that governs scheduled **version** updates only. Security updates always open against the **default branch (`main`)**. A Dependabot PR based on `main` is expected behavior, not a misconfigured target.
+9. **Never tap WebRTC audio with `createMediaElementSource`** — in Chromium (and therefore WebView2), `AudioContext.createMediaElementSource(video)` yields a node carrying **zero samples** when the element's source is a `MediaStream` (`srcObject`), which is always the case here. It **does not throw**, so any `try`/`catch` fallback around it silently never fires: the graph looks live, the `GainNode` becomes the volume authority, and the slider goes inert (this shipped in v1.1.0–v1.2.0 as "volume slider does nothing"). Tap the stream instead — `createMediaStreamSource(connectionStore.mediaStream)`. Because a stream tap leaves the element's own output intact (an element tap would have re-routed it), the `<video>` must be muted while the graph is live or the audio plays twice, once at a level the slider can't reach. `ui/src/lib/connection/streamAudio.ts` owns that element state; nothing else may write `video.muted` / `video.volume` on the browser path.
 
 ## Error Handling
 

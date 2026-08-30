@@ -39,7 +39,7 @@ describe("clipSettings", () => {
   });
 
   it("returns defaults on corrupt JSON", () => {
-    expect(loadClipSettings(memStorage({ "xbox-remote-clip-settings": "{not json" })))
+    expect(loadClipSettings(memStorage({ "kite-clip-settings": "{not json" })))
       .toEqual(DEFAULT_CLIP_SETTINGS);
   });
 });

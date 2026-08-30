@@ -8,12 +8,12 @@
    *   - Focus mode toggle: hides chrome and uses floating controls.
    *   - Fullscreen toggle: requestFullscreen on the stream container element.
    *   - Keyframe button: connectionStore.requestKeyframe().
-   *   - Volume slider (0–100): persisted to the durable settings store under
-   *     'xbox-remote-volume'.  Applied to the video element directly.
+   *   - Volume slider (0–VOLUME_MAX_PCT): persisted to the durable settings store
+   *     under 'kite-volume'.  Pushed out as a linear gain via onVolumeChange; the
+   *     element's own audio state is owned by streamAudio, not by this file.
    *   - Disconnect button: calls onDisconnect prop.
    *
    * Props:
-   *   video          — the HTMLVideoElement to control volume / mute on.
    *   fullscreenEl   — element to call requestFullscreen() on (usually the
    *                    stream container div).
    *   focusMode      — bindable boolean; parent reads it to apply focus-mode class.
@@ -28,15 +28,31 @@
   import { settings } from "$lib/stores/settings.svelte.js";
   import { persisted } from "$lib/persist/store.js";
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
+  import { videoControlsActive } from "$lib/connection/audioOnly.js";
+  import { pctToGain, VOLUME_MAX_PCT } from "$lib/connection/streamVolume.js";
 
   const showClip = $derived(
-    settings.clip.enabled && connectionStore.state === "streaming",
+    settings.clip.enabled &&
+      connectionStore.state === "streaming" &&
+      videoControlsActive(connectionStore.audioOnly, connectionStore.videoHidden),
   );
+
+  // Video-oriented controls (Fix Video / Immersive / Clip) are meaningless in
+  // audio-only mode (no video track streamed) or while the user has hidden
+  // video in-session — hide them in both cases.
+  const showVideoControls = $derived(
+    videoControlsActive(connectionStore.audioOnly, connectionStore.videoHidden),
+  );
+
+  // The Hide/Show toggle itself stays visible whenever a real video track could
+  // exist — i.e. NOT audio-only mode and NOT native mode (native has no DOM
+  // video track to disable; audio-only never negotiated one) — so the user can
+  // always un-hide, independent of showVideoControls.
+  const showHideVideoToggle = $derived(!connectionStore.audioOnly && !connectionStore.nativeMode);
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
   interface Props {
-    video: HTMLVideoElement | null;
     fullscreenEl?: HTMLElement | null;
     focusMode?: boolean;
     floating?: boolean;
@@ -45,17 +61,15 @@
      */
     hideVolume?: boolean;
     /**
-     * Native mode: there is no DOM <video> to set `.volume` on (audio plays via
-     * Rust/cpal), so the slider routes its gain (0–1) here instead. Called on the
-     * initial saved level, slider input, and mute toggle. Omitted on the browser
-     * path (where `video.volume` is used directly).
+     * Receives the linear playback gain (0–1, where 1 is unity) on every volume
+     * change. The browser path wires this to the Web Audio GainNode
+     * (streamAudio.setGain); the native path wires it to rtc_set_volume.
      */
     onVolumeChange?: (gain: number) => void;
     onDisconnect: () => void;
   }
 
   let {
-    video = null,
     fullscreenEl = null,
     focusMode = $bindable(false),
     floating = false,
@@ -66,7 +80,7 @@
 
   // ── Volume state ──────────────────────────────────────────────────────────────
 
-  const VOLUME_KEY = "xbox-remote-volume";
+  const VOLUME_KEY = "kite-volume";
 
   /** Read the persisted volume as a 0–100 integer, defaulting to 80. */
   function readSavedVolumePct(): number {
@@ -87,14 +101,12 @@
    */
   let lastNonZeroVolume = $state<number>(readSavedVolumePct() || 80);
 
-  /** Apply the current volumePct to the video element and persist. */
+  /** Persist the current volumePct; gain is pushed reactively (see $effect).
+   *  Mute is simply gain 0 — the <video> element's muted/volume state belongs to
+   *  streamAudio (browser) or the Rust sink (native), never to this component. */
   function applyVolume(pct: number) {
     volumePct = pct;
     if (pct > 0) lastNonZeroVolume = pct;
-    if (video) {
-      video.volume = pct / 100;
-      video.muted = pct === 0;
-    }
     persisted.setItem(VOLUME_KEY, String(pct / 100));
   }
 
@@ -111,31 +123,17 @@
     }
   }
 
-  /** Sync video element when it becomes available (also called from Stream.svelte after mount). */
-  $effect(() => {
-    if (video && !video.muted) {
-      const saved = persisted.getItem(VOLUME_KEY);
-      if (saved !== null) {
-        const v = parseFloat(saved);
-        if (!Number.isNaN(v)) {
-          video.volume = v;
-          video.muted = v === 0;
-          volumePct = Math.round(v * 100);
-        }
-      }
-    }
-  });
-
   function handleVolumeInput(e: Event) {
     const target = e.target as HTMLInputElement;
     applyVolume(parseInt(target.value, 10));
   }
 
-  // Native mode: push the gain to the Rust audio sink (no DOM <video> to set).
-  // Runs on the initial saved level and every volumePct change (slider / mute);
-  // a no-op on the browser path where onVolumeChange is undefined.
+  // Push the linear gain to the active audio path on every volume change.
+  // Browser: Stream.svelte wires onVolumeChange → streamAudio.setGain (Web Audio
+  // GainNode). Native: onVolumeChange → rtc_set_volume. Runs on the initial
+  // saved level and every slider / mute change.
   $effect(() => {
-    onVolumeChange?.(volumePct / 100);
+    onVolumeChange?.(pctToGain(volumePct));
   });
 
   // ── Fullscreen ────────────────────────────────────────────────────────────────
@@ -248,9 +246,9 @@
         type="range"
         class="ctrl-volume__slider"
         min="0"
-        max="100"
+        max={VOLUME_MAX_PCT}
         value={volumePct}
-        style="--fill: {volumePct}%;"
+        style="--fill-ratio: {volumePct / VOLUME_MAX_PCT};"
         oninput={handleVolumeInput}
         aria-label="Volume"
       />
@@ -262,17 +260,33 @@
     <span class="ctrl-sep" aria-hidden="true"></span>
   {/if}
 
-  <!-- Immersive (focus) mode toggle (ghost button) -->
-  <button
-    class="ctrl-btn"
-    onclick={toggleFocusMode}
-    aria-pressed={focusMode}
-    title={focusMode
-      ? "Exit immersive mode (Esc) — bring back the app controls"
-      : "Immersive mode — hide the app controls for a distraction-free view (Esc to exit)"}
-  >
-    {focusMode ? "Exit Immersive" : "Immersive"}
-  </button>
+  <!-- Hide/Show video (in-session audio-only) — visible whenever a video track could exist (browser, non-audio-only) -->
+  {#if showHideVideoToggle}
+    <button
+      class="ctrl-btn"
+      onclick={() => connectionStore.toggleVideoHidden()}
+      aria-pressed={connectionStore.videoHidden}
+      title={connectionStore.videoHidden
+        ? "Show video"
+        : "Hide video — drop to the audio-only view (saves CPU/GPU); audio keeps playing"}
+    >
+      {connectionStore.videoHidden ? "Show Video" : "Hide Video"}
+    </button>
+  {/if}
+
+  <!-- Immersive (focus) mode toggle (ghost button) — video only -->
+  {#if showVideoControls}
+    <button
+      class="ctrl-btn"
+      onclick={toggleFocusMode}
+      aria-pressed={focusMode}
+      title={focusMode
+        ? "Exit immersive mode (Esc) — bring back the app controls"
+        : "Immersive mode — hide the app controls for a distraction-free view (Esc to exit)"}
+    >
+      {focusMode ? "Exit Immersive" : "Immersive"}
+    </button>
+  {/if}
 
   <!-- Fullscreen toggle (ghost button) -->
   <button
@@ -286,14 +300,16 @@
     {isFullscreen ? "Exit FS" : "Fullscreen"}
   </button>
 
-  <!-- Fix Video / keyframe request (ghost button) -->
-  <button
-    class="ctrl-btn"
-    onclick={requestKeyframe}
-    title="Fix Video — refresh the picture if it looks blocky, smeared, or frozen"
-  >
-    Fix Video
-  </button>
+  <!-- Fix Video / keyframe request (ghost button) — video only -->
+  {#if showVideoControls}
+    <button
+      class="ctrl-btn"
+      onclick={requestKeyframe}
+      title="Fix Video — refresh the picture if it looks blocky, smeared, or frozen"
+    >
+      Fix Video
+    </button>
+  {/if}
 
   <!-- Clip (only when clipping is enabled + streaming) -->
   {#if showClip}
@@ -457,20 +473,29 @@
     box-shadow: var(--focus-ring);
   }
 
-  /* Volume slider — custom accent fill via CSS gradient trick */
+  /* Volume slider — custom accent fill via CSS gradient trick.
+   *
+   * The fill stop must land on the THUMB'S CENTRE, which is not the same as
+   * "--fill-ratio of the track": the thumb centre only travels (width - --thumb),
+   * because the thumb cannot overhang either end. A plain percentage stop is
+   * therefore off by up to half a thumb at the extremes. calc() below tracks it
+   * exactly, and --thumb is the single source for both the stop and the thumb
+   * rules so the two can never drift apart. */
   .ctrl-volume__slider {
+    --thumb: 12px;
+    --fill-stop: calc(var(--fill-ratio, 0.8) * (100% - var(--thumb)) + var(--thumb) / 2);
     width: 88px;
     height: 4px;
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
     border-radius: 2px;
-    /* fill up to --fill, then dim for the rest */
+    /* accent up to the thumb centre, then dim for the rest */
     background: linear-gradient(
       to right,
       var(--accent) 0%,
-      var(--accent) var(--fill, 80%),
-      var(--surface-2) var(--fill, 80%),
+      var(--accent) var(--fill-stop),
+      var(--surface-2) var(--fill-stop),
       var(--surface-2) 100%
     );
     outline: none;
@@ -480,8 +505,8 @@
   .ctrl-volume__slider::-webkit-slider-thumb {
     appearance: none;
     -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
+    width: var(--thumb);
+    height: var(--thumb);
     border-radius: 50%;
     background: var(--accent);
     cursor: pointer;
@@ -490,8 +515,8 @@
   }
 
   .ctrl-volume__slider::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
+    width: var(--thumb);
+    height: var(--thumb);
     border-radius: 50%;
     background: var(--accent);
     cursor: pointer;

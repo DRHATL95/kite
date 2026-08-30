@@ -102,9 +102,9 @@ impl LogBuffer {
 pub type ReloadHandle = reload::Handle<EnvFilter, Registry>;
 
 /// Default filter: info everywhere, our crate + ui at info.
-const DEFAULT_FILTER: &str = "info,xbox_remote=info,ui=info";
+const DEFAULT_FILTER: &str = "info,kite=info,ui=info";
 /// Verbose ("diagnostic mode") filter.
-const VERBOSE_FILTER: &str = "debug,xbox_remote=trace,ui=trace";
+const VERBOSE_FILTER: &str = "debug,kite=trace,ui=trace";
 const RING_CAPACITY: usize = 2000;
 
 /// Visitor that extracts the `message` field of an event.
@@ -159,7 +159,7 @@ pub fn init_logging(log_dir: &Path) -> (LogState, WorkerGuard) {
     let file_appender = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .max_log_files(5)
-        .filename_prefix("xbox-remote")
+        .filename_prefix("kite")
         .filename_suffix("log")
         .build(log_dir)
         .expect("init rolling log appender");
@@ -206,7 +206,7 @@ fn install_panic_hook(log_dir: std::path::PathBuf) {
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(log_dir.join("xbox-remote-panic.log"))
+            .open(log_dir.join("kite-panic.log"))
         {
             use std::io::Write;
             let _ = f.write_all(line.as_bytes());
@@ -284,7 +284,7 @@ pub fn export_logs(state: State<'_, LogState>) -> Result<String, String> {
             r.ts, r.level, r.target, r.message
         ));
     }
-    let path = state.log_dir.join("xbox-remote-export.txt");
+    let path = state.log_dir.join("kite-export.txt");
     std::fs::write(&path, out).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }

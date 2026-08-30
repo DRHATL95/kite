@@ -1,0 +1,132 @@
+name: ci
+
+# Every job caps its own runtime: without timeout-minutes a hung step runs to the
+# 6-hour GitHub default. On 2026-08-19 four dependabot PRs all stalled in apt-get
+# and burned 24 runner-hours between them, which tripped the account spending limit
+# and blocked CI across every repo. Normal times are <1min / 7-9min / 8-19min.
+# Vet every pull request into dev or main before merge (frontend type-check +
+# unit tests, and cargo test). Runs on pull_request only — fork PRs get NO
+# secrets, and the release workflow stays push/tag-triggered, so signing keys
+# are never exposed to contributor PRs. Wire these as required status checks in
+# the branch-protection rule once they've run once.
+on:
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: frontend (check + vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install deps
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Type-check (svelte-check)
+        working-directory: ui
+        run: pnpm run check
+      - name: Unit tests (vitest)
+        working-directory: ui
+        run: pnpm exec vitest run
+
+  rust:
+    name: rust (cargo test)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # cargo embeds ui/dist via generate_context!() at compile time, so the
+      # frontend must be built before `cargo test` or the macro can't find it.
+      - name: Build frontend (embedded by Tauri)
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test
+
+  # The `native-webrtc` feature is opt-in, so the `rust` job above (default
+  # features) never compiles str0m, opus, ffmpeg-the-third, bytes, cpal, gtk,
+  # glow, libloading, tao or wry. Without this job a dependency bump to any of
+  # them gets zero verification and CI still goes green. Linux-only on purpose:
+  # gtk/glow/libloading/tao/wry sit under [target.'cfg(target_os = "linux")']
+  # in Cargo.toml, so this is the only platform where all ten actually build.
+  rust-native-webrtc:
+    name: rust (native-webrtc, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # ffmpeg-sys-the-third links the system FFmpeg (bindgen -> libclang) and
+      # supports FFmpeg 5.1-9.0, so the distro package is fine on both 24.04
+      # (6.1) and 26.04 (8.0). opus -> audiopus_sys and cpal -> alsa-sys resolve
+      # via pkg-config; gtk/tao/wry need the same GTK/WebKit set as the AppImage
+      # build (ayatana appindicator, not the legacy one); openssl-sys needs
+      # libssl-dev.
+      # apt on the Azure runners resolves mirrors through /etc/apt/apt-mirrors.txt,
+      # and azure.archive.ubuntu.com has been dead since at least 2026-08-19: every
+      # request Ign:s, apt falls back to archive.ubuntu.com, fetches InRelease, then
+      # stalls mid-index emitting nothing. Acquire::*::Timeout does not fire on a
+      # connection that trickles rather than drops, so the step hangs until the job
+      # timeout kills it -- four PRs burned 24 runner-hours this way and tripped the
+      # account spending limit. Drop the dead mirror, bound each attempt, and retry.
+      # Revert the sed once the Azure mirror is healthy again; it is the faster one.
+      - name: Install native media + GTK build deps
+        run: |
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+          for attempt in 1 2 3; do
+            sudo timeout 240 apt-get $APT_OPTS update && break
+            echo "::warning::apt-get update stalled or failed (attempt $attempt of 3), retrying"
+            sudo rm -rf /var/lib/apt/lists/*
+          done
+          sudo apt-get $APT_OPTS install -y --no-install-recommends \
+            pkg-config libclang-dev libssl-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
+            libavdevice-dev libswscale-dev libswresample-dev \
+            libopus-dev libasound2-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      # Same generate_context!() constraint as the rust job: ui/dist must exist
+      # before cargo touches the crate.
+      - name: Build frontend (embedded by Tauri)
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+      # --all-targets so the three native-webrtc examples (rtc_spike,
+      # render_spike, render_live) compile too -- they are the only consumers of
+      # parts of the native stack.
+      - name: clippy (native-webrtc)
+        run: cargo clippy --all-targets --features native-webrtc -- -D warnings
+      # rtc_e2e self-skips without XBOX_E2E=1 (it needs a live console), so this
+      # runs the unit tests only.
+      - name: cargo test (native-webrtc)
+        run: cargo test --features native-webrtc

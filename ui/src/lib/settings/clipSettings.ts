@@ -24,7 +24,7 @@ export const DEFAULT_CLIP_SETTINGS: ClipSettings = {
   audioSource: "xbox",
 };
 
-const STORAGE_KEY = "xbox-remote-clip-settings";
+const STORAGE_KEY = "kite-clip-settings";
 
 /** Minimal subset of the Web Storage API we depend on (for testability). */
 export interface StorageLike {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provision the Xbox Remote CI runner (Proxmox LXC CT 106) from a fresh
+# Provision the Kite CI runner (Proxmox LXC CT 106) from a fresh
 # Ubuntu 22.04 root shell. Idempotent: safe to re-run. Run as root.
 #
 #   ./setup-ct106.sh                            # provision toolchain only
@@ -13,7 +13,7 @@ set -euo pipefail
 NODE_MAJOR=22
 RUNNER_USER=ghrunner
 RUNNER_DIR=/opt/actions-runner
-GH_REPO_URL=https://github.com/DRHATL95/xbox-remote
+GH_REPO_URL=https://github.com/DRHATL95/kite
 RUNNER_TOKEN=""
 
 while [ $# -gt 0 ]; do

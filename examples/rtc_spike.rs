@@ -6,8 +6,8 @@
 //!      handshake (handshake → control-auth → config) that starts the encoder.
 //!   2. The received H.264 access units decode to a real picture of the dashboard.
 //!
-//! Reuses production signaling (`xbox_remote::xhome`), auth (`xbox_remote::auth`)
-//! and the Phase-1 protocol builders (`xbox_remote::rtc::protocol`) verbatim —
+//! Reuses production signaling (`kite::xhome`), auth (`kite::auth`)
+//! and the Phase-1 protocol builders (`kite::rtc::protocol`) verbatim —
 //! the point of the lib+bin split.
 //!
 //! Run (sign in via the app first so tokens are in the OS keychain):
@@ -32,11 +32,11 @@ use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, Input, Output, Rtc};
 use tokio::net::UdpSocket;
 
-use xbox_remote::auth::XboxAuth;
-use xbox_remote::rtc::protocol::{
+use kite::auth::XboxAuth;
+use kite::rtc::protocol::{
     self, InboundMsg, config_messages, control_authorization, gamepad_changed, keyframe_request,
 };
-use xbox_remote::xhome::{XHomeClient, XHomeConsole};
+use kite::xhome::{XHomeClient, XHomeConsole};
 
 const SPIKE_DEADLINE: Duration = Duration::from_secs(30);
 const TARGET_VIDEO_FRAMES: usize = 100;
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,xbox_remote=info".into()),
+                .unwrap_or_else(|_| "info,kite=info".into()),
         )
         .with_target(true)
         .init();
@@ -220,10 +220,11 @@ fn discover_local_ip() -> Result<IpAddr> {
 fn extract_candidates(sdp: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for line in sdp.lines() {
-        if let Some(cand) = line.strip_prefix("a=") {
-            if cand.starts_with("candidate:") && !out.iter().any(|c| c == cand) {
-                out.push(cand.to_string());
-            }
+        if let Some(cand) = line.strip_prefix("a=")
+            && cand.starts_with("candidate:")
+            && !out.iter().any(|c| c == cand)
+        {
+            out.push(cand.to_string());
         }
     }
     out
@@ -506,8 +507,10 @@ impl H264ToPng {
         let packet = ffmpeg::codec::packet::Packet::copy(annexb);
         let _ = self.decoder.send_packet(&packet); // EAGAIN before first keyframe is normal
 
+        // One frame is all this spike wants — it writes a single PNG and stops.
+        // This was a `while` that unconditionally returned on its first pass.
         let mut frame = ffmpeg::frame::Video::empty();
-        while self.decoder.receive_frame(&mut frame).is_ok() {
+        if self.decoder.receive_frame(&mut frame).is_ok() {
             save_frame_png(&frame, FRAME_PNG_PATH)?;
             self.done = true;
             return Ok(true);

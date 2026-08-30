@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -33,9 +32,6 @@ fn resolve_client_id() -> String {
     resolve_client_id_from(std::env::var("XBOX_CLIENT_ID").ok())
 }
 
-/// Token cache filename
-const TOKEN_CACHE_FILE: &str = "xbox_tokens.json";
-
 /// Xbox Live authentication tokens
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct XboxTokens {
@@ -62,6 +58,7 @@ pub struct XboxAuth {
 
 /// Token endpoint response (authorization-code exchange and refresh share it).
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // `error` mirrors the token endpoint's error field; unused but kept for Debug/diagnostics
 struct TokenResponse {
     access_token: Option<String>,
     refresh_token: Option<String>,
@@ -196,6 +193,7 @@ fn parse_redirect_query(request: &str) -> Result<(String, String)> {
 /// Xbox Live authentication response
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[allow(dead_code)] // `display_claims` mirrors the API response; unused but kept for Debug/diagnostics
 struct XboxLiveAuthResponse {
     token: String,
     display_claims: DisplayClaims,
@@ -219,6 +217,13 @@ struct XSTSAuthResponse {
     display_claims: DisplayClaims,
 }
 
+/// True when the XSTS token should be refreshed — it is within 5 minutes of
+/// expiry (or already expired). Pure for testability; used by both
+/// `load_cached_tokens` (startup) and `ensure_valid_tokens` (pre-session).
+fn needs_refresh(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    expires_at <= now + chrono::Duration::minutes(5)
+}
+
 impl XboxAuth {
     pub fn new() -> Self {
         Self {
@@ -228,19 +233,14 @@ impl XboxAuth {
         }
     }
 
-    /// Path to the pre-keychain plaintext token file (used only for one-time migration).
-    fn legacy_cache_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("xbox-remote").join(TOKEN_CACHE_FILE))
-    }
-
     fn token_store() -> Result<TokenStore<KeyringBackend>> {
-        Ok(TokenStore::new(
-            KeyringBackend::new()?,
-            Self::legacy_cache_path(),
-        ))
+        // Tokens are stored only in the OS keychain. (Pre-1.0 builds also
+        // migrated a legacy plaintext token file into the keychain on first
+        // launch; that one-time migration was retired for 1.0.)
+        Ok(TokenStore::new(KeyringBackend::new()?, None))
     }
 
-    /// Load cached tokens from the OS keychain (with one-time migration from legacy file).
+    /// Load cached tokens from the OS keychain.
     pub async fn load_cached_tokens(&self) -> Result<bool> {
         let store = Self::token_store()?;
         let tokens = match store.load()? {
@@ -249,7 +249,7 @@ impl XboxAuth {
         };
 
         // Check if tokens are still valid (with 5 min buffer)
-        if tokens.expires_at > Utc::now() + chrono::Duration::minutes(5) {
+        if !needs_refresh(tokens.expires_at, Utc::now()) {
             info!("Cached tokens are still valid");
             *self.tokens.lock().await = Some(tokens);
             return Ok(true);
@@ -273,6 +273,28 @@ impl XboxAuth {
         }
 
         Ok(false)
+    }
+
+    /// Ensure the in-memory XSTS token is valid for an imminent API call,
+    /// refreshing it via the stored refresh token if it is within the expiry
+    /// buffer. Called before creating an xHome session so a reconnect after ~1h
+    /// doesn't 401 on a stale token. Err means interactive re-auth is required.
+    pub async fn ensure_valid_tokens(&self) -> Result<()> {
+        let (expires_at, refresh_token) = {
+            let guard = self.tokens.lock().await;
+            let t = guard
+                .as_ref()
+                .ok_or_else(|| XboxError::AuthError("Not authenticated".to_string()))?;
+            (t.expires_at, t.refresh_token.clone())
+        };
+        if !needs_refresh(expires_at, Utc::now()) {
+            return Ok(());
+        }
+        let rt = refresh_token.ok_or_else(|| {
+            XboxError::AuthError("Token expired and no refresh token; sign in again".to_string())
+        })?;
+        info!("XSTS token near expiry — refreshing before session creation");
+        self.refresh_tokens(&rt).await
     }
 
     /// Save tokens to the OS keychain.
@@ -447,7 +469,7 @@ impl XboxAuth {
         let (status, message) = match &outcome {
             Ok(()) => (
                 "200 OK",
-                "Signed in to Xbox Remote — you can close this tab.",
+                "Signed in to Kite — you can close this tab.",
             ),
             Err(_) => (
                 "502 Bad Gateway",
@@ -455,7 +477,7 @@ impl XboxAuth {
             ),
         };
         let body = format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Xbox Remote</title></head>\
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kite</title></head>\
              <body style=\"font-family:system-ui,sans-serif;background:#0f1115;color:#e6e6e6;\
              display:flex;min-height:100vh;align-items:center;justify-content:center\">\
              <p style=\"font-size:1.1rem\">{message}</p></body></html>"
@@ -698,6 +720,19 @@ mod tests {
     #[test]
     fn falls_back_to_default_when_absent() {
         assert_eq!(resolve_client_id_from(None), DEFAULT_CLIENT_ID);
+    }
+
+    #[test]
+    fn needs_refresh_true_within_buffer_or_expired() {
+        let now = Utc::now();
+        // already expired → refresh
+        assert!(needs_refresh(now - chrono::Duration::minutes(1), now));
+        // within the 5-minute buffer → refresh
+        assert!(needs_refresh(now + chrono::Duration::minutes(3), now));
+        // exactly at the 5-minute edge → refresh (boundary is inclusive)
+        assert!(needs_refresh(now + chrono::Duration::minutes(5), now));
+        // comfortably valid → no refresh
+        assert!(!needs_refresh(now + chrono::Duration::minutes(30), now));
     }
 
     #[test]

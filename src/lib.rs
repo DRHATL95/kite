@@ -1,4 +1,4 @@
-//! Xbox Remote library crate.
+//! Kite library crate.
 //!
 //! The application logic lives here as a library so that **examples**
 //! (`examples/*.rs`), **integration tests** (`tests/*.rs`), and future binaries
@@ -10,12 +10,14 @@ pub mod auth;
 pub mod clip;
 pub mod error;
 pub mod logging;
+pub mod releases;
 // `rtc` compiles in the default build: its pure protocol modules (input/protocol/
 // clip_tap) and trait seams carry no codec/transport deps and are unit-tested
 // without the feature. Only the str0m/ffmpeg-backed engine + adapters inside it
 // are gated behind `native-webrtc` (see src/rtc/mod.rs).
 pub mod rtc;
 pub mod token_store;
+pub mod tray;
 pub mod updater;
 pub mod xhome;
 
@@ -36,14 +38,17 @@ pub fn run() {
     //
     // Each variable is only set if the user hasn't already set it (so they can
     // override individually), and the entire workaround is skipped when
-    // XBOX_REMOTE_NATIVE_WAYLAND is set — for setups where native Wayland already
-    // works and the user prefers it (e.g. HiDPI/latency reasons).
+    // KITE_NATIVE_WAYLAND is set (legacy alias: XBOX_REMOTE_NATIVE_WAYLAND) — for
+    // setups where native Wayland already works and the user prefers it (e.g.
+    // HiDPI/latency reasons).
     //
     // SAFETY: runs at the very top of run() (the first thing main() calls),
     // before any other thread is spawned, so there is no concurrent access to the
     // environment.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none() {
+    if std::env::var_os("KITE_NATIVE_WAYLAND").is_none()
+        && std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none()
+    {
         if std::env::var_os("GDK_BACKEND").is_none() {
             unsafe { std::env::set_var("GDK_BACKEND", "x11") };
         }
@@ -68,11 +73,11 @@ pub fn run() {
             let log_dir = app
                 .path()
                 .app_log_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("xbox-remote-logs"));
+                .unwrap_or_else(|_| std::env::temp_dir().join("kite-logs"));
             let (log_state, log_guard) = logging::init_logging(&log_dir);
             app.manage(log_state);
             app.manage(log_guard);
-            tracing::info!("xbox-remote starting; logs at {}", log_dir.display());
+            tracing::info!("kite starting; logs at {}", log_dir.display());
 
             // Initialize app state
             let auth = auth::XboxAuth::new();
@@ -95,6 +100,12 @@ pub fn run() {
                 rtc: Mutex::new(None),
             });
             app.manage(updater::PendingUpdate::default());
+
+            // Always-on system tray (Show/Quit + restore-on-click). Non-fatal:
+            // if it fails, the app still runs and close simply quits.
+            if let Err(e) = tray::build_tray(app) {
+                tracing::warn!("tray icon setup failed (continuing without tray): {e}");
+            }
 
             // Mount the native GTK video surface UNDER the transparent web HUD.
             // Linux + native-webrtc only; the browser path (Windows/macOS, or
@@ -153,11 +164,13 @@ pub fn run() {
             tauri_commands::save_clip,
             updater::check_update,
             updater::install_update,
+            releases::get_releases,
             logging::log_event,
             logging::get_recent_logs,
             logging::set_log_verbosity,
             logging::open_log_dir,
             logging::export_logs,
+            tray::set_tray_theme,
             tauri_commands::rtc_native_available,
             tauri_commands::rtc_connect,
             tauri_commands::rtc_disconnect,
@@ -407,10 +420,29 @@ mod tauri_commands {
         play_path: Option<String>,
         state: State<'_, AppState>,
     ) -> Result<String, String> {
+        // Self-heal auth before creating the session. The persistent XHomeClient
+        // mints its gsToken once at login and never refreshes it, and the XSTS
+        // token also expires ~1h — so a reconnect (or a connect from an idle
+        // console list) after expiry would 401 and surface as a generic failure.
+        // Refresh the XSTS if near expiry (auth-before-xhome lock order), then
+        // re-login for a fresh gsToken, then create the session.
+        state
+            .auth
+            .lock()
+            .await
+            .ensure_valid_tokens()
+            .await
+            .map_err(|e| format!("Session auth refresh failed: {}", e))?;
+
         let mut xhome = state.xhome.lock().await;
         let client = xhome
             .as_mut()
             .ok_or_else(|| "Not authenticated. Please login first.".to_string())?;
+
+        client
+            .login()
+            .await
+            .map_err(|e| format!("xHome re-login failed: {}", e))?;
 
         let stream_config = client
             .create_session(&server_id, play_path.as_deref())
@@ -523,7 +555,7 @@ mod tauri_commands {
         }
     }
 
-    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Xbox Remote Clips/.
+    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Kite Clips/.
     /// Bytes arrive as a raw IPC body; the file name is passed via the X-Clip-Name header.
     /// Returns the absolute path of the written file.
     #[tauri::command]
@@ -539,7 +571,7 @@ mod tauri_commands {
 
         let dir = dirs::video_dir()
             .ok_or_else(|| "could not resolve Videos directory".to_string())?
-            .join("Xbox Remote Clips");
+            .join("Kite Clips");
         std::fs::create_dir_all(&dir).map_err(|e| format!("create dir failed: {e}"))?;
 
         let path = clip_file_path(&dir, name)?;
@@ -565,6 +597,7 @@ mod tauri_commands {
 
     /// Minimal gamepad button state mirroring the JS `GamepadButton` interface.
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)] // fields mirror the JS DTO shape for deserialization; not read on the Rust side
     pub struct GamepadButtonDto {
         pub pressed: bool,
         pub value: f64,
@@ -575,6 +608,7 @@ mod tauri_commands {
     /// `buttons`: full Standard Gamepad button array.
     /// `axes`: [leftX, leftY, rightX, rightY] in the range −1..+1.
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)] // fields mirror the JS DTO shape for deserialization; not read on the Rust side
     pub struct GamepadStateDto {
         pub buttons: Vec<GamepadButtonDto>,
         pub axes: [f64; 4],
@@ -729,14 +763,14 @@ mod tauri_commands {
         }
     }
 
-    /// Resolve the clips directory (`<Videos>/Xbox Remote Clips/`), creating it
+    /// Resolve the clips directory (`<Videos>/Kite Clips/`), creating it
     /// if absent. Shared between `save_clip` (browser path) and `rtc_save_clip`
     /// (native path).
     #[cfg(feature = "native-webrtc")]
     fn clips_dir() -> Result<std::path::PathBuf, String> {
         let dir = dirs::video_dir()
             .ok_or_else(|| "could not resolve Videos directory".to_string())?
-            .join("Xbox Remote Clips");
+            .join("Kite Clips");
         std::fs::create_dir_all(&dir).map_err(|e| format!("create clips dir: {e}"))?;
         Ok(dir)
     }

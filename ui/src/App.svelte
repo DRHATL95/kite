@@ -37,7 +37,7 @@
     const stream = connectionStore.mediaStream;
     const streaming = connectionStore.state === "streaming";
     const c = settings.clip;
-    if (c.enabled && streaming && stream) {
+    if (c.enabled && streaming && stream && !connectionStore.audioOnly) {
       clipStore.attach(stream, { lengthSec: c.lengthSec, quality: c.quality });
     } else {
       clipStore.detach();
@@ -57,6 +57,7 @@
   import ConsoleList from "./screens/ConsoleList.svelte";
   import Stream      from "./screens/Stream.svelte";
   import { settings } from "$lib/stores/settings.svelte.js";
+  import { registerCloseToTray } from "$lib/window/closeToTray.js";
   import { clipStore } from "$lib/stores/clip.svelte.js";
   import Toast from "./components/Toast.svelte";
   import { initLogging } from "$lib/log/logger.js";
@@ -95,6 +96,9 @@
     getVersion()
       .then((v) => (appVersion = v))
       .catch(() => {});
+
+    // Hide-to-tray on close when the user has enabled it (no-op otherwise).
+    void registerCloseToTray();
   });
 </script>
 

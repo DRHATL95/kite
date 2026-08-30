@@ -33,12 +33,16 @@
 
   import { onDestroy } from "svelte";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
+  import { settings } from "$lib/stores/settings.svelte.js";
   import StreamControls from "../components/StreamControls.svelte";
   import StreamStatus from "../components/StreamStatus.svelte";
   import DiagnosticsHud from "../components/DiagnosticsHud.svelte";
   import ConnectingSplash from "../components/ConnectingSplash.svelte";
   import { connectingSteps, shouldShowSplash } from "$lib/console/connectingSplash.js";
   import { rtcSetVolume } from "$lib/ipc/commands.js";
+  import { audioViewActive } from "$lib/connection/audioOnly.js";
+  import { streamAudio } from "$lib/connection/streamAudio.js";
+  import { savedOutputDeviceId } from "$lib/connection/audioOutput.js";
 
   // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -53,13 +57,22 @@
 
   const nativeMode = connectionStore.nativeMode;
 
-  // Native mode has no DOM <video>; route the volume slider's gain (0–1) to the
-  // Rust audio sink. No-ops until the engine is connected (the command buffers).
+  // Audio-only (browser path): no video track was negotiated. The <video> element
+  // is still rendered — it's the audio sink and drives the unmute/volume logic —
+  // but a minimal panel overlays its (black) surface, and splash dismissal keys
+  // off store state (like native), since onplaying may not fire for audio-only.
+  const audioOnly = $derived(connectionStore.audioOnly);
+  const audioView = $derived(audioViewActive(connectionStore.audioOnly, connectionStore.videoHidden));
+
+  // Route the volume slider's linear gain (0–1, unity at 1) to the active sink:
+  // native → Rust/cpal via rtc_set_volume; browser → the Web Audio GainNode.
   const onVolumeChange = nativeMode
     ? (gain: number) => {
         void rtcSetVolume(gain);
       }
-    : undefined;
+    : (gain: number) => {
+        streamAudio.setGain(gain);
+      };
 
   // ── Element refs ──────────────────────────────────────────────────────────────
 
@@ -109,8 +122,19 @@
     if (!stream) {
       needsUnmute = false;
       if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+      streamAudio.dispose();
       return;
     }
+
+    // Route this stream's audio through the Web Audio graph (boost + output
+    // routing) and hand element ownership over. Idempotent per stream; a focus
+    // swap re-points the element without rebuilding the graph.
+    streamAudio.attach(videoEl, stream);
+    // A focus-mode <video> swap happens mid-session; explicitly resume the
+    // (shared, already-running) context so audio never waits on autoplay luck.
+    // The swap runs inside the Immersive click's task, so resume() is honored.
+    streamAudio.resume();
+    void streamAudio.setSinkId(savedOutputDeviceId());
 
     // ── 250ms-delayed play + Unmute fallback (ported from app.js lines 634–662) ──
 
@@ -123,15 +147,17 @@
 
       ensurePlay
         .then(() => {
-          // Attempt to unmute — browser may refuse if no user gesture occurred
-          videoEl!.muted = false;
-          if (!videoEl!.muted) {
-            // Fully unmuted — no affordance needed
-            needsUnmute = false;
-          } else {
-            // Autoplay policy kept it muted — show Unmute button
-            needsUnmute = true;
-          }
+          // A running Web Audio context is required for audio to flow through
+          // the graph; resume it here (autoplay policy permitting).
+          streamAudio.resume();
+          // With the graph live the element stays muted on purpose (streamAudio
+          // owns it — the graph is the only output), so the gesture is needed
+          // only when the context is suspended. Without a graph the element is
+          // the sink: try to unmute and see whether the browser allowed it.
+          if (!streamAudio.isGraphLive()) videoEl!.muted = false;
+          needsUnmute = streamAudio.isGraphLive()
+            ? streamAudio.isSuspended()
+            : videoEl!.muted;
         })
         .catch((err: Error) => {
           // Play itself was blocked (very restrictive policy)
@@ -146,7 +172,11 @@
 
   function handleUnmute() {
     if (!videoEl) return;
-    videoEl.muted = false;
+    // Retries the tap if it hadn't run; streamAudio re-mutes the element itself
+    // when the graph is live, and leaves it audible when it isn't.
+    streamAudio.attach(videoEl, connectionStore.mediaStream);
+    if (!streamAudio.isGraphLive()) videoEl.muted = false;
+    streamAudio.resume();
     if (videoEl.paused) {
       videoEl.play().catch(() => {});
     }
@@ -197,7 +227,7 @@
   //   NativeConnection synthesises handshakeMs/videoArrivedAt into the snapshot
   //   (6c.6) so the step indicators (session→handshake→video) still advance.
   const showSplash = $derived(
-    nativeMode
+    nativeMode || audioOnly
       ? (connectionStore.state === "connecting" || connectionStore.state === "reconnecting")
       : shouldShowSplash(connectionStore.state, videoPlaying),
   );
@@ -205,6 +235,7 @@
     connectingSteps({
       handshakeComplete: connectionStore.snapshot?.handshakeMs != null,
       videoArrived: connectionStore.snapshot?.videoArrivedAt != null,
+      audioOnly,
     }),
   );
 
@@ -212,6 +243,7 @@
 
   onDestroy(() => {
     if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+    streamAudio.dispose();
   });
 </script>
 
@@ -245,8 +277,19 @@
         ></video>
       {/if}
 
+      {#if audioView && !showSplash}
+        <div class="audio-only-stage" role="status" aria-label="Audio-only stream">
+          <span class="audio-only-badge">AUDIO ONLY</span>
+          <p class="audio-only-name">{connectionStore.currentConsole?.deviceName ?? "Xbox"}</p>
+          <div class="audio-only-indicator">
+            <span class="audio-only-dot" aria-hidden="true"></span>
+            <span>Connected · audio flowing</span>
+          </div>
+        </div>
+      {/if}
+
       {#if showSplash}
-        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
+        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} onCancel={onDisconnect} />
       {/if}
 
       <!-- ── Unmute affordance (autoplay policy fallback — browser path only) ── -->
@@ -260,12 +303,13 @@
       {/if}
 
       <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────── -->
-      <DiagnosticsHud />
+      {#if settings.showDiagnosticsHud}
+        <DiagnosticsHud />
+      {/if}
     </div>
 
     <!-- ── Controls bar (bottom) ───────────────────────────────────────────── -->
     <StreamControls
-      video={nativeMode ? null : videoEl}
       fullscreenEl={containerEl}
       bind:focusMode
       {onVolumeChange}
@@ -288,8 +332,19 @@
         ></video>
       {/if}
 
+      {#if audioView && !showSplash}
+        <div class="audio-only-stage" role="status" aria-label="Audio-only stream">
+          <span class="audio-only-badge">AUDIO ONLY</span>
+          <p class="audio-only-name">{connectionStore.currentConsole?.deviceName ?? "Xbox"}</p>
+          <div class="audio-only-indicator">
+            <span class="audio-only-dot" aria-hidden="true"></span>
+            <span>Connected · audio flowing</span>
+          </div>
+        </div>
+      {/if}
+
       {#if showSplash}
-        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} />
+        <ConnectingSplash console={connectionStore.currentConsole} steps={splashSteps} onCancel={onDisconnect} />
       {/if}
 
       <!-- ── Unmute affordance (autoplay policy fallback — browser path only) ── -->
@@ -303,7 +358,9 @@
       {/if}
 
       <!-- ── Diagnostics HUD (floats inside the stage) ─────────────────── -->
-      <DiagnosticsHud />
+      {#if settings.showDiagnosticsHud}
+        <DiagnosticsHud />
+      {/if}
 
       <!-- ── Floating status pill — top-left ─────────────────────────────── -->
       <div class="stage-pill" role="status" aria-live="polite" aria-atomic="true">
@@ -315,12 +372,8 @@
         <span class="stage-pill__label">{stateLabel(connectionStore.state)}</span>
       </div>
 
-      <!-- ── HUD hint — top-right ─────────────────────────────────────────── -->
-      <span class="stage-hud-hint" aria-label="Press backtick to toggle diagnostics HUD">` HUD</span>
-
       <!-- ── Floating controls bar — bottom-centre ─────────────────────────── -->
       <StreamControls
-        video={nativeMode ? null : videoEl}
         fullscreenEl={containerEl}
         bind:focusMode
         floating={true}
@@ -425,20 +478,6 @@
     white-space: nowrap;
   }
 
-  /* ── HUD hint — top-right ───────────────────────────────────────────────── */
-
-  .stage-hud-hint {
-    position: absolute;
-    top: var(--space-3);
-    right: var(--space-3);
-    z-index: 20;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: color-mix(in srgb, var(--text-dim) 70%, transparent);
-    white-space: nowrap;
-    user-select: none;
-    pointer-events: none;
-  }
 
   /* ── Unmute overlay (shared between Player and Stage) ───────────────────── */
 
@@ -492,5 +531,57 @@
   .stage-fullbleed.native {
     background: transparent;
     border-color: transparent;
+  }
+
+  /* ── Audio-only panel (overlays the black <video> when no video track) ───── */
+  .audio-only-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 5; /* above the video, below splash / unmute / HUD / pill (z 20) */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    background: var(--video-bg);
+    text-align: center;
+    padding: var(--space-5);
+  }
+
+  .audio-only-badge {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.22em;
+    color: var(--text-dim);
+  }
+
+  .audio-only-name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    color: var(--text);
+  }
+
+  .audio-only-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+  }
+
+  .audio-only-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: audio-only-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes audio-only-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
   }
 </style>

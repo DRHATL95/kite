@@ -50,6 +50,7 @@ import {
   STICK_DEADZONE,
   IDLE_FRAME_EVERY,
 } from "./constants.js";
+import { applyRemap } from "./controllerMapping.js"; // ensure import graph is exercised
 
 // ── Helper: read a u16 LE at offset ──────────────────────────────────────────
 function readU16LE(buf: Uint8Array, offset: number): number {
@@ -560,5 +561,48 @@ describe("GamepadPoller — tagged InputEmit callback", () => {
     const lx = buf[18]! | (buf[19]! << 8);
     const lxSigned = lx >= 0x8000 ? lx - 0x10000 : lx;
     expect(lxSigned).toBe(-32767);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GamepadPoller — controller remap
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GamepadPoller — controller remap", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  function padWithButton0Pressed(): Gamepad {
+    const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0, touched: false }));
+    buttons[0] = { pressed: true, value: 1, touched: true };
+    return { buttons, axes: [0, 0, 0, 0], connected: true, id: "test", index: 0, mapping: "standard", timestamp: 0 } as unknown as Gamepad;
+  }
+
+  it("applies the mapping to physical input (B ← physical A, A ← none)", () => {
+    vi.stubGlobal("navigator", { getGamepads: () => [padWithButton0Pressed(), null, null, null] });
+    const emits: InputEmit[] = [];
+    const mapping = { a: { kind: "none" as const }, b: { kind: "button" as const, index: 0 } };
+    const poller = new GamepadPoller((e) => emits.push(e), null, () => mapping);
+    poller.start();
+    vi.advanceTimersByTime(16); // metadata
+    vi.advanceTimersByTime(16); // gamepad
+    poller.stop();
+    const g = emits.find((e) => e.kind === "gamepad");
+    if (g?.kind !== "gamepad") throw new Error("no gamepad emit");
+    expect(g.state.buttons[0].pressed).toBe(false); // A now unbound
+    expect(g.state.buttons[1].pressed).toBe(true);  // B driven by physical A
+  });
+
+  it("default mapping (2-arg construction) leaves physical input unchanged", () => {
+    vi.stubGlobal("navigator", { getGamepads: () => [padWithButton0Pressed(), null, null, null] });
+    const emits: InputEmit[] = [];
+    const poller = new GamepadPoller((e) => emits.push(e), null); // no getMapping
+    poller.start();
+    vi.advanceTimersByTime(16);
+    vi.advanceTimersByTime(16);
+    poller.stop();
+    const g = emits.find((e) => e.kind === "gamepad");
+    if (g?.kind !== "gamepad") throw new Error("no gamepad emit");
+    expect(g.state.buttons[0].pressed).toBe(true);
   });
 });

@@ -1,25 +1,25 @@
 name: release
 
-# Nightly: every push to dev    -> rolling "nightly" release in the PUBLIC
-#          releases repo (version <target>-nightly.<run_number>).
+# Nightly: every push to dev    -> rolling "nightly" release on THIS repo
+#          (version <target>-nightly.<run_number>).
 # Stable:  pushing a v* tag      -> permanent vX.Y.Z archive + rolling "stable".
 #
 # Branch model: dev (nightly source) -> staging (soak/integration, no build) ->
-#               master (release; tag vX.Y.Z on master to cut stable).
+#               main (release; tag vX.Y.Z on main to cut stable).
 #
 # Single job on the SELF-HOSTED Linux runner producing BOTH platforms:
 #   - Windows installer CROSS-COMPILED via cargo-xwin.
 #   - Linux AppImage built NATIVELY on the same runner.
-# Releases are published CROSS-REPO to DRHATL95/xbox-remote-releases (public) so
-# the in-app updater can read latest.json + binaries anonymously, while this code
-# repo stays private. Cross-repo auth uses the RELEASES_TOKEN PAT.
+# Releases are published to THIS repo's own GitHub Releases (public), so the
+# in-app updater can read latest.json + binaries anonymously. Auth uses the
+# built-in GITHUB_TOKEN (contents: write) — no cross-repo PAT.
 on:
   push:
     branches: [dev]
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release:
@@ -29,9 +29,23 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       XWIN_ACCEPT_LICENSE: "1"
       APPIMAGE_EXTRACT_AND_RUN: "1"
-      RELEASES_REPO: DRHATL95/xbox-remote-releases
+      RELEASES_REPO: ${{ github.repository }}
+      # Linux (AppImage) builds are DISABLED: WebKitGTK renders WebRTC video
+      # black, so the AppImage isn't shippable. The fix is the native-webrtc
+      # engine. CI now DOES compile that feature (the `rust-native-webrtc` job,
+      # added 2026-08-16), so it is no longer unverified code — but compiling is
+      # not rendering: nothing drives a live console in CI, so a green job says
+      # nothing about whether the stream actually paints. v1.1.0 and v1.2.0 both
+      # shipped Windows-only.
+      # Deliberately NOT re-targeted at a version number — earlier comments here
+      # promised 1.1 and then 1.2 and both slipped. The AppImage has to actually
+      # render video before this flips; that is the only gate.
+      # This gates every Linux step below — flip to 'true' to re-enable Linux
+      # nightly + stable builds. Nothing is removed; the build/stage/manifest/
+      # upload logic all remain.
+      BUILD_LINUX: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history + tags so the changelog step can diff against the
           # previous commit/tag. The default shallow clone (depth 1) would make
@@ -77,6 +91,7 @@ jobs:
             --bundles nsis --config ci-version.json
 
       - name: Tauri build (signed AppImage for Linux x64)
+        if: env.BUILD_LINUX == 'true'
         shell: bash
         run: |
           cargo tauri build --bundles appimage --config ci-version.json
@@ -86,25 +101,34 @@ jobs:
         run: |
           v='${{ steps.v.outputs.version }}'
           mkdir -p dist
-          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe"     "dist/xbox-remote_${v}_x64-setup.exe"
-          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Xbox Remote_${v}_x64-setup.exe.sig" "dist/xbox-remote_${v}_x64-setup.exe.sig"
-          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage"     "dist/xbox-remote_${v}_amd64.AppImage"
-          cp "target/release/bundle/appimage/Xbox Remote_${v}_amd64.AppImage.sig" "dist/xbox-remote_${v}_amd64.AppImage.sig"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Kite_${v}_x64-setup.exe"     "dist/kite_${v}_x64-setup.exe"
+          cp "target/x86_64-pc-windows-msvc/release/bundle/nsis/Kite_${v}_x64-setup.exe.sig" "dist/kite_${v}_x64-setup.exe.sig"
+          if [ "${BUILD_LINUX}" = "true" ]; then
+            cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage"     "dist/kite_${v}_amd64.AppImage"
+            cp "target/release/bundle/appimage/Kite_${v}_amd64.AppImage.sig" "dist/kite_${v}_amd64.AppImage.sig"
+          fi
 
       - name: Build latest.json
         shell: bash
         run: |
           VERSION='${{ steps.v.outputs.version }}'
           POINTER='${{ steps.v.outputs.pointer_tag }}'
-          # Asset URLs point at the rolling pointer release in the PUBLIC releases repo.
+          # Asset URLs point at the rolling pointer release on this repo.
           base="https://github.com/${RELEASES_REPO}/releases/download/${POINTER}"
           export VERSION
+          # Linux entry only when enabled; make-latest-json.sh omits it when the
+          # LINUX_* vars are empty, producing a valid Windows-only manifest.
+          LINUX_SIG_FILE=""; LINUX_URL=""
+          if [ "${BUILD_LINUX}" = "true" ]; then
+            LINUX_SIG_FILE="dist/kite_${VERSION}_amd64.AppImage.sig"
+            LINUX_URL="${base}/kite_${VERSION}_amd64.AppImage"
+          fi
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           NOTES='${{ steps.v.outputs.name }}' \
-          WIN_SIG_FILE="dist/xbox-remote_${VERSION}_x64-setup.exe.sig" \
-          WIN_URL="${base}/xbox-remote_${VERSION}_x64-setup.exe" \
-          LINUX_SIG_FILE="dist/xbox-remote_${VERSION}_amd64.AppImage.sig" \
-          LINUX_URL="${base}/xbox-remote_${VERSION}_amd64.AppImage" \
+          WIN_SIG_FILE="dist/kite_${VERSION}_x64-setup.exe.sig" \
+          WIN_URL="${base}/kite_${VERSION}_x64-setup.exe" \
+          LINUX_SIG_FILE="$LINUX_SIG_FILE" \
+          LINUX_URL="$LINUX_URL" \
           bash scripts/ci/make-latest-json.sh > dist/latest.json
           cat dist/latest.json
 
@@ -147,10 +171,10 @@ jobs:
           [ -s dist/notes.md ] || echo "$HEADER" > dist/notes.md
           echo "---- release notes ----"; cat dist/notes.md
 
-      - name: Publish release + assets (cross-repo to the public releases repo)
+      - name: Publish release + assets (to this repo's GitHub Releases)
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION='${{ steps.v.outputs.version }}'
           POINTER='${{ steps.v.outputs.pointer_tag }}'
@@ -160,11 +184,15 @@ jobs:
           source scripts/ci/github-release.sh
 
           assets=(
-            "xbox-remote_${VERSION}_x64-setup.exe"
-            "xbox-remote_${VERSION}_x64-setup.exe.sig"
-            "xbox-remote_${VERSION}_amd64.AppImage"
-            "xbox-remote_${VERSION}_amd64.AppImage.sig"
+            "kite_${VERSION}_x64-setup.exe"
+            "kite_${VERSION}_x64-setup.exe.sig"
           )
+          if [ "${BUILD_LINUX}" = "true" ]; then
+            assets+=(
+              "kite_${VERSION}_amd64.AppImage"
+              "kite_${VERSION}_amd64.AppImage.sig"
+            )
+          fi
 
           # Update the rolling pointer IN PLACE: ensure release -> upload binaries
           # (clobber) -> swap latest.json LAST -> prune stale assets. Never delete

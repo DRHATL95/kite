@@ -3,7 +3,7 @@
    * DiagnosticsHud.svelte — Read-only telemetry overlay.
    *
    * Consumes connectionStore.snapshot (or a `snapshot` prop override for dev/test).
-   * Toggleable via an internal `open` $state and an optional external `visible` prop.
+   * Toggleable via an internal `visible` $state (HUD button or the backtick key).
    *
    * Sub-panels:
    *   VideoPanel   — fps, resolution, frames, freezes, bitrate
@@ -18,7 +18,6 @@
    * Usage:
    *   <DiagnosticsHud />
    *   <DiagnosticsHud snapshot={mockSnapshot} />           <!-- dev override -->
-   *   <DiagnosticsHud bind:visible={hudOpen} />
    */
 
   import { connectionStore } from "$lib/stores/connection.svelte.js";
@@ -39,17 +38,16 @@
      * without a live Xbox session.  When omitted, falls back to connectionStore.snapshot.
      */
     snapshot?: DiagnosticsSnapshot | null;
-    /**
-     * External visibility control.  When provided the parent can show/hide the
-     * HUD.  The internal toggle button also flips this via bind.
-     */
-    visible?: boolean;
   }
 
-  let {
-    snapshot: snapshotProp = undefined,
-    visible = $bindable(false),
-  }: Props = $props();
+  let { snapshot: snapshotProp = undefined }: Props = $props();
+
+  // Open/closed state for the HUD panel. This was previously an unbound
+  // `$bindable` prop — but writing to an unbound bindable does NOT drive Svelte
+  // reactivity, so `{#if visible}` never re-rendered when the button/backtick
+  // toggled it (the panel silently never opened). A component owning its own UI
+  // state with plain `$state` is both correct and reactive.
+  let visible = $state(false);
 
   // ── Active snapshot ──────────────────────────────────────────────────────────
 
@@ -130,7 +128,7 @@
     align-items: center;
     justify-content: center;
     padding: 3px var(--space-2);
-    background: rgba(0, 0, 0, 0.55);
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
     backdrop-filter: blur(4px);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -145,7 +143,7 @@
   }
 
   .hud-toggle:hover {
-    background: rgba(0, 0, 0, 0.75);
+    background: var(--surface);
     color: var(--text);
     border-color: var(--text-dim);
   }
