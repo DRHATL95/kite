@@ -1,14 +1,17 @@
 version: 2
 
-# Dependency-update PRs target `dev` (the active development branch), NOT the
-# default branch (`main`) — new work lands on dev and flows into a release.
+# PRs target the default branch (`main`). `target-branch: dev` was removed
+# 2026-08-29: with it set, Dependabot does not use this configuration for
+# security updates, so the `glib` ignore below never applied to them and the
+# security-update job kept failing on every default-branch push — the exact
+# failure that ignore was written to stop. Version and security updates now
+# both read this file; sync dev from main to pick the bumps up.
 updates:
   # Rust crates (Cargo.toml / Cargo.lock at the repo root)
   - package-ecosystem: cargo
     directory: "/"
     schedule:
       interval: weekly
-    target-branch: dev
     open-pull-requests-limit: 5
     ignore:
       # glib RUSTSEC-2024-0429 (VariantStrIter unsoundness) needs glib >= 0.20,
@@ -26,7 +29,6 @@ updates:
     directory: "/ui"
     schedule:
       interval: weekly
-    target-branch: dev
     open-pull-requests-limit: 5
 
   # GitHub Actions used in .github/workflows/
@@ -34,5 +36,4 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    target-branch: dev
     open-pull-requests-limit: 5
