@@ -64,7 +64,7 @@
   const audioOnly = $derived(connectionStore.audioOnly);
   const audioView = $derived(audioViewActive(connectionStore.audioOnly, connectionStore.videoHidden));
 
-  // Route the volume slider's linear gain (0–1.5) to the active audio sink:
+  // Route the volume slider's linear gain (0–1, unity at 1) to the active sink:
   // native → Rust/cpal via rtc_set_volume; browser → the Web Audio GainNode.
   const onVolumeChange = nativeMode
     ? (gain: number) => {
@@ -126,13 +126,13 @@
       return;
     }
 
-    // Route this element's audio through the Web Audio graph (boost + output
-    // routing). Idempotent per element; re-runs (and re-taps) on a focus swap.
-    streamAudio.attach(videoEl);
-    // A focus-mode <video> swap re-taps a fresh element mid-session; explicitly
-    // resume the (shared, already-running) context so audio never waits on
-    // autoplay luck. The swap runs inside the Immersive click's task, so
-    // resume() is honored.
+    // Route this stream's audio through the Web Audio graph (boost + output
+    // routing) and hand element ownership over. Idempotent per stream; a focus
+    // swap re-points the element without rebuilding the graph.
+    streamAudio.attach(videoEl, stream);
+    // A focus-mode <video> swap happens mid-session; explicitly resume the
+    // (shared, already-running) context so audio never waits on autoplay luck.
+    // The swap runs inside the Immersive click's task, so resume() is honored.
     streamAudio.resume();
     void streamAudio.setSinkId(savedOutputDeviceId());
 
@@ -150,16 +150,14 @@
           // A running Web Audio context is required for audio to flow through
           // the graph; resume it here (autoplay policy permitting).
           streamAudio.resume();
-          // Attempt to unmute — browser may refuse if no user gesture occurred
-          videoEl!.muted = false;
-          if (!videoEl!.muted && !streamAudio.isSuspended()) {
-            // Fully unmuted and the graph is running — no affordance needed
-            needsUnmute = false;
-          } else {
-            // Autoplay policy kept it muted, or the graph needs a gesture to
-            // resume — show the Unmute button (its click resumes the context).
-            needsUnmute = true;
-          }
+          // With the graph live the element stays muted on purpose (streamAudio
+          // owns it — the graph is the only output), so the gesture is needed
+          // only when the context is suspended. Without a graph the element is
+          // the sink: try to unmute and see whether the browser allowed it.
+          if (!streamAudio.isGraphLive()) videoEl!.muted = false;
+          needsUnmute = streamAudio.isGraphLive()
+            ? streamAudio.isSuspended()
+            : videoEl!.muted;
         })
         .catch((err: Error) => {
           // Play itself was blocked (very restrictive policy)
@@ -174,8 +172,10 @@
 
   function handleUnmute() {
     if (!videoEl) return;
-    videoEl.muted = false;
-    streamAudio.attach(videoEl); // idempotent; retries the tap if it hadn't run
+    // Retries the tap if it hadn't run; streamAudio re-mutes the element itself
+    // when the graph is live, and leaves it audible when it isn't.
+    streamAudio.attach(videoEl, connectionStore.mediaStream);
+    if (!streamAudio.isGraphLive()) videoEl.muted = false;
     streamAudio.resume();
     if (videoEl.paused) {
       videoEl.play().catch(() => {});
@@ -310,7 +310,6 @@
 
     <!-- ── Controls bar (bottom) ───────────────────────────────────────────── -->
     <StreamControls
-      video={nativeMode ? null : videoEl}
       fullscreenEl={containerEl}
       bind:focusMode
       {onVolumeChange}
@@ -375,7 +374,6 @@
 
       <!-- ── Floating controls bar — bottom-centre ─────────────────────────── -->
       <StreamControls
-        video={nativeMode ? null : videoEl}
         fullscreenEl={containerEl}
         bind:focusMode
         floating={true}

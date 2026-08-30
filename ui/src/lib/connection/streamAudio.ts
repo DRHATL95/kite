@@ -1,19 +1,28 @@
 // ui/src/lib/connection/streamAudio.ts
 /**
- * streamAudio — module singleton that routes the browser <video> element's
- * audio through a Web Audio graph so volume can exceed 100% (GainNode) and be
- * directed to a chosen output device (AudioContext.setSinkId).
+ * streamAudio — module singleton that routes the WebRTC audio track through a
+ * Web Audio graph so playback level (GainNode) and output device
+ * (AudioContext.setSinkId) are both controllable. The graph is required for the
+ * device picker, so it stays even though the level never exceeds unity.
  *
  * A singleton, not a Svelte prop, because two components coordinate around it:
- * Stream.svelte owns the <video> element; StreamControls owns the volume value.
- * The singleton bridges them and remembers the last gain + sink so attach-order
- * doesn't matter.
+ * Stream.svelte owns the <video> element + MediaStream; StreamControls owns the
+ * volume value. The singleton bridges them and remembers the last gain + sink so
+ * attach-order doesn't matter.
  *
- * When the graph is live the GainNode is the sole volume authority and the
- * element's .volume is pinned neutral (1.0), so effective level == gain
- * regardless of how the browser treats element volume after the tap. When the
- * graph can't be built, the element's own .volume is the 0–100% authority so the
- * slider never goes inert (see applyLevel) — the spec §5 degradation guarantee.
+ * The graph taps the MediaStream (createMediaStreamSource), NOT the <video>
+ * element. Chromium's createMediaElementSource() returns a node that carries
+ * ZERO samples when the element's source is a MediaStream (srcObject) — and it
+ * does not throw, so a try/catch fallback never fires. Tapping the element left
+ * the gain node silent and the volume slider inert. Tap the stream.
+ *
+ * Because a stream tap leaves the element's own audio output intact (an element
+ * tap would have re-routed it), the element is muted while the graph is live —
+ * otherwise the same audio plays twice, once at a level the slider can't reach.
+ *
+ * When the graph can't be built, the element's own .volume is the 0–100%
+ * authority so the slider never goes inert (see applyLevel) — the spec §5
+ * degradation guarantee. Mute in that mode is simply gain 0.
  *
  * Every operation is best-effort and never throws into the caller: on any
  * failure audio simply plays without boost/routing. Playback must never break.
@@ -25,9 +34,9 @@ type SinkableAudioContext = AudioContext & {
 };
 
 let ctx: SinkableAudioContext | null = null;
-let currentEl: HTMLVideoElement | null = null;
-let managedEl: HTMLVideoElement | null = null; // element whose .volume we fall back to
-let source: MediaElementAudioSourceNode | null = null;
+let currentStream: MediaStream | null = null;
+let managedEl: HTMLVideoElement | null = null; // element whose audio we own
+let source: MediaStreamAudioSourceNode | null = null;
 let gainNode: GainNode | null = null;
 let lastGain = 1;
 let lastSinkId = "";
@@ -49,18 +58,17 @@ function ensureContext(): SinkableAudioContext | null {
 
 /**
  * Apply the remembered gain to whichever authority is live. When the graph is
- * connected the GainNode is the sole authority (0–1.5) and the element volume is
- * pinned neutral (1.0), so effective level == gain regardless of whether the
- * browser honours element volume after the tap. When the graph is NOT live
- * (AudioContext or createMediaElementSource failed), the element's own .volume
- * is the authority for the 0–100% region — so the slider is never inert. This is
- * the spec §5 "degrade to plain audio at <=100%" guarantee.
+ * connected the GainNode is the sole authority (0–1) and the element is muted
+ * so its untouched output can't double the audio. When the graph is NOT live
+ * (AudioContext or createMediaStreamSource failed), the element's own .volume is
+ * the authority for the 0–100% region — so the slider is never inert. Muting in
+ * that mode is gain 0; `muted` is left to the caller's autoplay handling.
  */
 function applyLevel(): void {
   const graphLive = !!(gainNode && source);
   if (graphLive) {
     gainNode!.gain.value = lastGain;
-    if (managedEl) managedEl.volume = 1;
+    if (managedEl) managedEl.muted = true;
   } else if (managedEl) {
     managedEl.volume = Math.min(1, lastGain);
   }
@@ -68,19 +76,19 @@ function applyLevel(): void {
 
 export const streamAudio = {
   /**
-   * Route `video`'s audio through the graph. Idempotent per element; a NEW
-   * element rebuilds the source (createMediaElementSource may tap each element
-   * only once — but a focus-mode swap unmounts the old element, so this only
-   * ever taps a fresh one).
+   * Route `stream`'s audio through the graph and hand element ownership to
+   * `video`. Idempotent per stream: a focus-mode element swap re-points the
+   * element without rebuilding the graph (the tap is bound to the stream, not
+   * the element), and a new stream rebuilds the source.
    */
-  attach(video: HTMLVideoElement): void {
+  attach(video: HTMLVideoElement, stream: MediaStream | null): void {
     managedEl = video; // remembered even if the tap fails, for the volume fallback
-    if (video === currentEl && source) {
+    if (stream && stream === currentStream && source) {
       applyLevel();
       return;
     }
     const c = ensureContext();
-    if (!c || !gainNode) {
+    if (!c || !gainNode || !stream) {
       applyLevel(); // no graph → the element's own .volume is the authority
       return;
     }
@@ -90,25 +98,32 @@ export const streamAudio = {
       /* ignore */
     }
     try {
-      source = c.createMediaElementSource(video);
+      source = c.createMediaStreamSource(stream);
       source.connect(gainNode);
-      currentEl = video;
+      currentStream = stream;
       void this.setSinkId(lastSinkId);
     } catch (err) {
-      // Element already tapped or source creation failed — fall back to the
-      // element's own .volume (applyLevel handles it). Boost won't apply.
+      // Source creation failed — fall back to the element's own .volume
+      // (applyLevel handles it). Boost won't apply.
       console.warn("streamAudio: attach failed", err);
       source = null;
-      currentEl = null;
+      currentStream = null;
     }
     applyLevel();
   },
 
-  /** Set the linear gain (0–1.5). Remembered even before attach. Routed to the
-   *  live authority (GainNode, or the element's .volume fallback) by applyLevel. */
+  /** Set the linear gain (0–1, unity at 1). Remembered even before attach. Routed
+   *  to the live authority (GainNode, or the element's .volume fallback) by
+   *  applyLevel. */
   setGain(gain: number): void {
     lastGain = gain;
     applyLevel();
+  },
+
+  /** True while the Web Audio graph is carrying the audio (so the element is
+   *  muted by us and autoplay/unmute keys off the context, not element.muted). */
+  isGraphLive(): boolean {
+    return !!(gainNode && source);
   },
 
   /**
@@ -154,7 +169,7 @@ export const streamAudio = {
     ctx = null;
     source = null;
     gainNode = null;
-    currentEl = null;
+    currentStream = null;
     managedEl = null;
   },
 };
