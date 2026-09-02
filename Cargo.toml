@@ -65,7 +65,7 @@ gtk = { version = "0.18", optional = true }
 glow = { version = "0.13", optional = true }
 libloading = { version = "0.9", optional = true }
 tao = { version = "0.36", optional = true }
-wry = { version = "0.55", optional = true }
+wry = { version = "0.56", optional = true }
 
 # Phase-0 throwaway de-risk spike: str0m offerer → receive Xbox H.264 → decode
 # one frame → PNG. Only built when the native stack is available.
