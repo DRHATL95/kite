@@ -21,7 +21,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-store": "^2.4.4",
-    "svelte": "^5.57.0"
+    "svelte": "^5.57.1"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
