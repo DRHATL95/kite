@@ -13,7 +13,7 @@
         "focus": true,
         "decorations": true,
         "alwaysOnTop": false,
-        "transparent": true
+        "transparent": false
       }
     ]
   }
