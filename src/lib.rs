@@ -59,6 +59,12 @@ pub fn run() {
         if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
             unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
         }
+        // Nvidia: the DMA-BUF renderer fails with "Failed to create GBM buffer" and the
+        // webview paints white. Checked against the UI only, not live video; a value
+        // already in the environment wins.
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+        }
     }
 
     tauri::Builder::default()
