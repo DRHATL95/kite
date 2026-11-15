@@ -41,7 +41,7 @@ regex = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 muxide = "0.2.5"
 str0m = { version = "0.22", optional = true }
-opus = { version = "0.3", optional = true }
+opus = { version = "0.4", optional = true }
 ffmpeg-the-third = { version = "5", optional = true }
 bytes = { version = "1", optional = true }
 cpal = { version = "0.18", optional = true }
