@@ -14,14 +14,6 @@ import { initPersistence } from "./lib/persist/store.js";
 // construction reads settings) or mounting the app. Dynamic imports run after
 // the await, so every read hits the hydrated snapshot — and the persisted
 // theme is applied before first paint, avoiding a flash.
-// WebKitGTK runs with compositing disabled here (NVIDIA + XWayland cannot display it), and
-// in that mode a CSS transition that runs during startup leaves the whole window unpainted
-// until a manual resize. Keyframe animations are unaffected. Measured 2026-11-16: black on
-// every launch with transitions, painted on every launch without.
-if (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)) {
-  document.documentElement.classList.add("no-transitions");
-}
-
 async function bootstrap(): Promise<void> {
   await initPersistence();
 
