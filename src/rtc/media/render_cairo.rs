@@ -96,13 +96,32 @@ impl CairoVideo {
         }
     }
 
-    /// Paint the latest frame centred in `area` (x, y, w, h in cairo user units),
-    /// then black everywhere else, all underneath what is already drawn. `scale`
-    /// is the widget scale factor the frame was sized with.
-    pub fn paint_under(&self, cr: &cairo::Context, area: (f64, f64, f64, f64), scale: f64) {
+    /// Forget the current picture (the stream ended).
+    pub fn clear(&mut self) {
+        self.surface = None;
+    }
+
+    /// Paint black over `area` (x, y, w, h in cairo user units) with the latest frame
+    /// centred in it. `scale` is the widget scale factor the frame was sized with.
+    ///
+    /// `under = true` paints beneath what is already drawn (`DEST_OVER`): for a draw
+    /// handler that runs after the webview. `under = false` paints normally: for one
+    /// that runs before it. Which one works depends on how GTK draws the webview; see
+    /// `native_render::mount`.
+    pub fn paint(&self, cr: &cairo::Context, area: (f64, f64, f64, f64), scale: f64, under: bool) {
         let (x, y, w, h) = area;
+        // The window is transparent (tauri.linux.conf.json); never let the desktop show through.
+        let backing = |cr: &cairo::Context| {
+            cr.set_source_rgb(0.0, 0.0, 0.0);
+            cr.rectangle(x, y, w, h);
+            let _ = cr.fill();
+        };
         cr.save().ok();
-        cr.set_operator(cairo::Operator::DestOver);
+        if under {
+            cr.set_operator(cairo::Operator::DestOver);
+        } else {
+            backing(cr);
+        }
         if let Some(s) = &self.surface {
             let (sw, sh) = (s.width() as f64 / scale, s.height() as f64 / scale);
             cr.save().ok();
@@ -114,10 +133,9 @@ impl CairoVideo {
             }
             cr.restore().ok();
         }
-        // The window is transparent (tauri.linux.conf.json); never let the desktop show through.
-        cr.set_source_rgb(0.0, 0.0, 0.0);
-        cr.rectangle(x, y, w, h);
-        let _ = cr.fill();
+        if under {
+            backing(cr);
+        }
         cr.restore().ok();
     }
 }

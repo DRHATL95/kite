@@ -76,4 +76,6 @@ pub mod frame_sink;
 #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
 pub mod render_cairo;
 #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+pub mod render_gdkgl;
+#[cfg(all(target_os = "linux", feature = "native-webrtc"))]
 pub mod render_gtk;

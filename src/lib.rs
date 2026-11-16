@@ -45,10 +45,29 @@ pub fn run() {
     // SAFETY: runs at the very top of run() (the first thing main() calls),
     // before any other thread is spawned, so there is no concurrent access to the
     // environment.
+    //
+    // The native engine never hands video to WebKit, so none of that applies to a
+    // native-webrtc build, and the workaround is actively harmful there: with the
+    // DMA-BUF renderer off WebKit has no composited mode left, and its non-composited
+    // mode only shows regions that change (window black until a resize, static HUD
+    // text missing, measured 2026-11-16 on NVIDIA + KDE). On a Wayland session such a
+    // build therefore stays on native Wayland with WebKit's default renderer.
+    // KITE_FORCE_XWAYLAND=1 restores the workaround.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("KITE_NATIVE_WAYLAND").is_none()
-        && std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none()
-    {
+    let native_wayland = std::env::var_os("KITE_NATIVE_WAYLAND").is_some()
+        || std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_some()
+        || (cfg!(feature = "native-webrtc")
+            && std::env::var_os("WAYLAND_DISPLAY").is_some()
+            && std::env::var_os("KITE_FORCE_XWAYLAND").is_none());
+    // Drawing the video through GDK's GL path on NVIDIA + Wayland aborts at startup with
+    // "Error 71 (Protocol error)" unless explicit sync is off (measured 2026-11-16). Other
+    // drivers ignore the variable. SAFETY: as below, no other thread exists yet.
+    #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+    if native_wayland && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+        unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
+    }
+    #[cfg(target_os = "linux")]
+    if !native_wayland {
         if std::env::var_os("GDK_BACKEND").is_none() {
             unsafe { std::env::set_var("GDK_BACKEND", "x11") };
         }
@@ -849,12 +868,17 @@ mod tauri_commands {
             // Forward events to the webview. The task exits when the channel
             // closes (engine exited), emitting `Ended` as the final event.
             let app_for_task = app.clone();
+            #[cfg(target_os = "linux")]
+            let sink_for_task = state.frame_sink.clone();
             tokio::spawn(async move {
                 let mut rx = rx;
                 while let Some(ev) = rx.recv().await {
                     let dto = rtc_event_to_dto(ev);
                     let _ = app_for_task.emit("rtc_event", dto);
                 }
+                // However the engine ended (disconnect, console off, error), drop its last frame.
+                #[cfg(target_os = "linux")]
+                sink_for_task.clear();
                 let _ = app_for_task.emit("rtc_event", RtcEventDto::Ended);
             });
 
@@ -988,6 +1012,7 @@ mod native_render {
 
     use crate::rtc::media::frame_sink::SharedFrame;
     use crate::rtc::media::render_cairo::CairoVideo;
+    use crate::rtc::media::render_gdkgl::GlUnderlay;
 
     /// Paint decoded video in the main window, underneath its webview.
     ///
@@ -1022,9 +1047,20 @@ mod native_render {
             };
 
             let video = std::rc::Rc::new(std::cell::RefCell::new(CairoVideo::default()));
+            let video_tick = std::rc::Rc::clone(&video);
             let sink_draw = Arc::clone(&frame_sink);
-            // `true` = run after the default handler, i.e. once the webview has drawn.
-            gtk_window.connect_local("draw", true, move |args| {
+            // How the video gets under the webview depends on how GTK draws the webview
+            // (each measured 2026-11-16, NVIDIA + KDE):
+            // - Wayland, WebKit composited: the webview goes through GDK's GL path, which
+            //   only blends it over other GL content. Draw a texture BEFORE it.
+            // - X11/XWayland, WebKit non-composited: the webview replaces whatever is under
+            //   it, so paint with cairo AFTER it, beneath (DEST_OVER).
+            let wayland = gtk_window.display().type_().name().contains("Wayland");
+            let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
+            let dirty_tick = std::rc::Rc::clone(&dirty);
+            let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
+            let gl_failed = std::cell::Cell::new(false);
+            gtk_window.connect_local("draw", !wayland, move |args| {
                 use gtk::glib::value::ToValue;
                 if let (Ok(win), Ok(cr)) = (
                     args[0].get::<gtk::ApplicationWindow>(),
@@ -1032,16 +1068,41 @@ mod native_render {
                 ) {
                     let area = win.child().map(|c| c.allocation()).unwrap_or_else(|| win.allocation());
                     let scale = win.scale_factor().max(1);
+                    let size = (area.width().max(1) * scale, area.height().max(1) * scale);
                     let mut video = video.borrow_mut();
                     if let Some(frame) = sink_draw.take_latest() {
-                        let px = |v: i32| (v.max(1) * scale) as u32;
-                        video.update(&frame, (px(area.width()), px(area.height())));
+                        video.update(&frame, (size.0 as u32, size.1 as u32));
+                        dirty.set(true);
                     }
-                    video.paint_under(
-                        &cr,
-                        (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
-                        scale as f64,
-                    );
+                    match win.window() {
+                        Some(gdk_window) if wayland && !gl_failed.get() => {
+                            let mut underlay = underlay.borrow_mut();
+                            if underlay.is_none() {
+                                match GlUnderlay::new(&gdk_window) {
+                                    Ok(u) => *underlay = Some(u),
+                                    Err(e) => {
+                                        tracing::error!("native_render: GL underlay unavailable, video hidden: {e}");
+                                        gl_failed.set(true);
+                                    }
+                                }
+                            }
+                            if let Some(u) = underlay.as_mut() {
+                                if dirty.replace(false) || u.size() != size {
+                                    u.upload(&video, size);
+                                }
+                                cr.save().ok();
+                                cr.translate(area.x() as f64, area.y() as f64);
+                                u.draw(&cr, &gdk_window, scale);
+                                cr.restore().ok();
+                            }
+                        }
+                        _ => video.paint(
+                            &cr,
+                            (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
+                            scale as f64,
+                            true,
+                        ),
+                    }
                 }
                 Some(false.to_value())
             });
@@ -1053,6 +1114,12 @@ mod native_render {
             let tick_id = gtk::glib::timeout_add_local(
                 std::time::Duration::from_millis(16),
                 move || {
+                    if sink_tick.take_cleared() {
+                        // The stream ended: never leave its last frame behind the UI.
+                        video_tick.borrow_mut().clear();
+                        dirty_tick.set(true);
+                        window_tick.queue_draw();
+                    }
                     if sink_tick.has_pending() {
                         window_tick.queue_draw();
                     }

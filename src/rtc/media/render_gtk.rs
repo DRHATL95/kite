@@ -251,7 +251,7 @@ fn build_gl_state(gl: glow::Context) -> Result<GlState, String> {
 /// intentionally leaked into a `OnceLock`: glow calls this for every GL entry
 /// point during realize, and the resolved function pointers must outlive any
 /// `dlclose`. Returns null if neither library nor symbol is available.
-fn load_gl_proc(s: &str) -> *const std::ffi::c_void {
+pub(crate) fn load_gl_proc(s: &str) -> *const std::ffi::c_void {
     use std::sync::OnceLock;
     type GetProc = unsafe extern "C" fn(*const i8) -> *const std::ffi::c_void;
 
