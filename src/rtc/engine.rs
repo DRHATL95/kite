@@ -215,11 +215,18 @@ async fn connect_and_stream<S: Signaling, T: Transport>(
 ) -> SessionEnd {
     match connect(signaling, transport, server_id, play_path).await {
         Ok((rtc, session, ids, video_mid, audio_mid)) => {
-            stream(
+            let end = stream(
                 rtc, transport, signaling, &session, ids, video_mid, audio_mid, cmd_rx, event_tx,
                 state, frame_sink,
             )
-            .await
+            .await;
+            // Tell xHome the session is over, however it ended. Without this the service
+            // keeps it, and a session create right after a disconnect hangs for the full
+            // timeout (measured 2026-11-16: 30 s, then the retry succeeds). Best-effort.
+            if let Err(e) = signaling.end_session(&session).await {
+                tracing::debug!("end_session failed (ignored): {e}");
+            }
+            end
         }
         Err(e) => SessionEnd::Dropped(format!("connect: {e}")),
     }

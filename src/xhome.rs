@@ -1307,6 +1307,37 @@ impl XHomeClient {
         ))
     }
 
+    /// End a streaming session: `DELETE /{sessionPath}`, as xbox-xcloud-player's
+    /// `Stream.stop()` does. Bounded at 5 s so a disconnect never waits on the service.
+    pub async fn delete_session(&self, session_path: &str) -> Result<()> {
+        let gs_token = self
+            .gs_token
+            .as_ref()
+            .ok_or_else(|| XboxError::AuthError("Not logged in to xHome".to_string()))?;
+        let api_base = self
+            .api_base
+            .as_ref()
+            .ok_or_else(|| XboxError::AuthError("No API base URL".to_string()))?;
+        let url = format!(
+            "{}/{}",
+            api_base.trim_end_matches('/'),
+            session_path.trim_start_matches('/')
+        );
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.client
+                .delete(&url)
+                .header("Authorization", format!("Bearer {}", gs_token))
+                .header("x-gssv-client", "XboxComBrowser")
+                .send(),
+        )
+        .await
+        .map_err(|_| XboxError::ConnectionError("Timeout ending session".to_string()))?
+        .map_err(XboxError::NetworkError)?;
+        info!("Session end ({}): {}", session_path, response.status());
+        Ok(())
+    }
+
     /// Keep session alive with heartbeat
     /// Returns the HTTP status code as a string so JS can log it
     pub async fn send_keepalive(&self, session_path: &str) -> Result<String> {

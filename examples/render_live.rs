@@ -33,6 +33,17 @@ fn main() -> wry::Result<()> {
     if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
         unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
     }
+    // WebKit's DMA-BUF renderer fails on NVIDIA ("Failed to create GBM buffer") and the HUD never paints.
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+    // Without a subscriber every engine error is silent and a failed connect looks like a black window.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,kite=debug")),
+        )
+        .init();
 
     // ── Auth + engine, publishing frames into a SharedFrame ───────────────────
     let server_id = std::env::var("XBOX_SERVER_ID")

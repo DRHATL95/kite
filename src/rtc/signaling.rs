@@ -51,6 +51,11 @@ pub trait Signaling: Send {
 
     /// API-side keepalive (valid only while the session is provisioning).
     async fn keepalive(&self, session: &SessionInfo) -> Result<()>;
+
+    /// Tell the service the session is over. Default: nothing to do (test doubles).
+    async fn end_session(&self, _session: &SessionInfo) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Pure map: xHome `StreamConfig` → seam `SessionInfo` (keepalive defaults to 0).
@@ -150,6 +155,15 @@ impl Signaling for XHomeSignaling {
             .await
             .map_err(|e| RtcError::Signaling(format!("keepalive: {e}")))?;
         Ok(())
+    }
+
+    async fn end_session(&self, session: &SessionInfo) -> Result<()> {
+        self.client
+            .lock()
+            .await
+            .delete_session(&session.session_path)
+            .await
+            .map_err(|e| RtcError::Signaling(format!("end_session: {e}")))
     }
 }
 
