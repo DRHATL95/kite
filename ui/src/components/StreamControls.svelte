@@ -24,6 +24,7 @@
    */
 
   import { onDestroy } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { connectionStore } from "$lib/stores/connection.svelte.js";
   import { settings } from "$lib/stores/settings.svelte.js";
   import { persisted } from "$lib/persist/store.js";
@@ -146,7 +147,30 @@
 
   document.addEventListener("fullscreenchange", handleFullscreenChange);
 
+  // Native mode: the video is painted by the window itself, not by a DOM element, so
+  // element fullscreen (which shows only that element) cannot show it. Fullscreen the window.
+  async function setNativeFullscreen(next: boolean) {
+    try {
+      await getCurrentWindow().setFullscreen(next);
+      isFullscreen = next;
+    } catch {
+      // Leave the state as it was; the button simply does nothing.
+    }
+  }
+
+  function handleFullscreenEscape(e: KeyboardEvent) {
+    if (e.key === "Escape" && connectionStore.nativeMode && isFullscreen) {
+      void setNativeFullscreen(false);
+    }
+  }
+
+  window.addEventListener("keydown", handleFullscreenEscape);
+
   function toggleFullscreen() {
+    if (connectionStore.nativeMode) {
+      void setNativeFullscreen(!isFullscreen);
+      return;
+    }
     const el = fullscreenEl ?? document.documentElement;
     if (!document.fullscreenElement) {
       el.requestFullscreen().catch(() => {});
@@ -206,6 +230,9 @@
 
   onDestroy(() => {
     document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    window.removeEventListener("keydown", handleFullscreenEscape);
+    // Never leave the window fullscreen once the stream screen is gone.
+    if (connectionStore.nativeMode && isFullscreen) void setNativeFullscreen(false);
     document.removeEventListener("mousemove", showControls);
     clearFocusMouseTimer();
   });
