@@ -13,6 +13,7 @@ pub struct SharedFrame {
     slot: Mutex<Option<DecodedFrame>>,
     /// Mirrors `slot.is_some()` for a lock-free `has_pending()` poll.
     pending: AtomicBool,
+    cleared: AtomicBool,
 }
 
 impl SharedFrame {
@@ -38,6 +39,19 @@ impl SharedFrame {
     /// Lock-free check for a waiting frame. Lets the GTK render tick skip
     /// `queue_render` when idle so it doesn't churn the main thread (and starve
     /// the WebKit HUD) at 60fps with nothing new to show.
+    /// Drop any unconsumed frame and tell the renderer to forget its picture.
+    /// Called when a stream ends so its last frame never lingers on screen.
+    pub fn clear(&self) {
+        *self.slot.lock().unwrap() = None;
+        self.pending.store(false, Ordering::Release);
+        self.cleared.store(true, Ordering::Release);
+    }
+
+    /// True once after each [`clear`](Self::clear).
+    pub fn take_cleared(&self) -> bool {
+        self.cleared.swap(false, Ordering::AcqRel)
+    }
+
     pub fn has_pending(&self) -> bool {
         self.pending.load(Ordering::Acquire)
     }
@@ -59,6 +73,16 @@ mod tests {
                 strides: vec![2, 1, 1],
             },
         }
+    }
+
+    #[test]
+    fn clear_drops_the_frame_and_reports_once() {
+        let sink = SharedFrame::new();
+        sink.put(frame(3));
+        sink.clear();
+        assert!(!sink.has_pending() && sink.take_latest().is_none());
+        assert!(sink.take_cleared());
+        assert!(!sink.take_cleared(), "reported once");
     }
 
     #[test]

@@ -121,11 +121,15 @@ Releases are built by **GitHub Actions** (`.github/workflows/release.yml`) on a
   stable). Only `dev` pushes and `v*` tags trigger CI — pushing `main`/`staging`
   builds nothing. PRs target `dev`; promote `dev`→`main` via PR (main is
   branch-protected: require-PR + enforce-admins, no direct/force pushes) then tag.
-- **Nightly**: every push to `dev` builds **both** platforms in one job and
+- **Nightly**: every push to `dev` builds **both** platforms (two jobs) and
   force-updates the rolling `nightly` release on this repo. Windows NSIS
   is cross-compiled (`cargo tauri build --runner cargo-xwin --target
-  x86_64-pc-windows-msvc --bundles nsis`); the Linux AppImage is built natively
-  on the same runner. Both updater artifacts are signed. Nightly version =
+  x86_64-pc-windows-msvc --bundles nsis`); the Linux AppImage is built by the
+  `linux-appimage` job on a **GitHub-hosted Ubuntu 24.04** runner with
+  `--features native-webrtc` and an LGPL FFmpeg from `scripts/ci/build-ffmpeg.sh`
+  (it must not be built on 22.04: its GTK 3.24.33 renders the stream black until a
+  resize), then fetched by the self-hosted job. If that job fails the release
+  still publishes, Windows only. Both updater artifacts are signed. Nightly version =
   `<target>-nightly.<run_number>` (committed `Cargo.toml` version = next
   unreleased `X.Y.Z`), injected via `--config` so the tree stays clean.
 - **Stable**: pushing a `vX.Y.Z` tag (on `main`) cuts a permanent `vX.Y.Z`

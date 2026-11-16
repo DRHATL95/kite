@@ -7,9 +7,11 @@ name: release
 # Branch model: dev (nightly source) -> staging (soak/integration, no build) ->
 #               main (release; tag vX.Y.Z on main to cut stable).
 #
-# Single job on the SELF-HOSTED Linux runner producing BOTH platforms:
-#   - Windows installer CROSS-COMPILED via cargo-xwin.
-#   - Linux AppImage built NATIVELY on the same runner.
+# Two jobs:
+#   - linux-appimage: GitHub-hosted Ubuntu 24.04, builds the native-webrtc AppImage.
+#   - release: the SELF-HOSTED runner, cross-compiles the Windows installer via
+#     cargo-xwin, collects the AppImage, and publishes both.
+# The publish job runs even when the AppImage job fails, and then ships Windows only.
 # Releases are published to THIS repo's own GitHub Releases (public), so the
 # in-app updater can read latest.json + binaries anonymously. Auth uses the
 # built-in GITHUB_TOKEN (contents: write) — no cross-repo PAT.
@@ -22,7 +24,90 @@ permissions:
   contents: write
 
 jobs:
+  linux-appimage:
+    # GitHub-hosted on purpose. The AppImage bundles the build image's GTK, and the
+    # video underlay needs GTK >= 3.24.41: an AppImage built on Ubuntu 22.04 (GTK
+    # 3.24.33, the self-hosted runner's OS) was black until a manual resize, and the
+    # same source built on 24.04 was not (measured 2026-11-16). The cost is a glibc
+    # 2.39 floor, so the AppImage does not run on Ubuntu 22.04 / Debian 12.
+    name: linux AppImage (native-webrtc)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Keeps the compiled cargo-tauri between runs (it lives in ~/.cargo/bin).
+          cache-bin: true
+
+      - name: Compute version + channel
+        id: v
+        run: bash scripts/ci/version.sh >> "$GITHUB_OUTPUT"
+
+      - name: Install GTK + audio build deps
+        run: |
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y --no-install-recommends \
+            pkg-config libclang-dev libssl-dev libopus-dev libasound2-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libfuse2t64 file
+
+      - name: Build FFmpeg (LGPL, H.264 decode only)
+        # Not the distro's: that one is GPL-configured and would be bundled into the
+        # AppImage. See the script for the pinned version and checksum.
+        run: sudo bash scripts/ci/build-ffmpeg.sh /opt/kite-ffmpeg
+
+      - name: Build frontend
+        working-directory: ui
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Install the Tauri CLI
+        run: command -v cargo-tauri >/dev/null 2>&1 || cargo install tauri-cli --locked --version "^2"
+
+      - name: Tauri build (signed AppImage, native-webrtc)
+        env:
+          # pkg-config finds the LGPL FFmpeg for the build; the loader path lets the
+          # bundler copy it into the AppImage.
+          PKG_CONFIG_PATH: /opt/kite-ffmpeg/lib/pkgconfig
+          LD_LIBRARY_PATH: /opt/kite-ffmpeg/lib
+        run: |
+          printf '{"version":"%s"}' "${{ steps.v.outputs.version }}" > ci-version.json
+          cargo tauri build --bundles appimage --features native-webrtc --config ci-version.json
+          # Fail here, not at publish, if a distro FFmpeg ever sneaks into the bundle.
+          app="target/release/bundle/appimage/Kite_${{ steps.v.outputs.version }}_amd64.AppImage"
+          test -f "$app" && test -f "$app.sig"
+          want="$(basename "$(readlink -f /opt/kite-ffmpeg/lib/libavcodec.so)" | cut -d. -f1-3)"
+          "$app" --appimage-extract >/dev/null
+          found="$(find squashfs-root -name 'libavcodec.so*' -printf '%f\n' | sort -u | tr '\n' ' ')"
+          echo "bundled libavcodec: ${found:-none} (want ${want})"
+          case " $found" in *" ${want}"*) ;; *) echo "::error::AppImage does not bundle ${want}"; exit 1 ;; esac
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-appimage
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/appimage/*.AppImage.sig
+
   release:
+    needs: linux-appimage
+    # Publish Windows even when the AppImage job failed (BUILD_LINUX below turns
+    # every Linux step off in that case); only a cancelled run skips publishing.
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64]
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -30,20 +115,14 @@ jobs:
       XWIN_ACCEPT_LICENSE: "1"
       APPIMAGE_EXTRACT_AND_RUN: "1"
       RELEASES_REPO: ${{ github.repository }}
-      # Linux (AppImage) builds are DISABLED: WebKitGTK renders WebRTC video
-      # black, so the AppImage isn't shippable. The fix is the native-webrtc
-      # engine. CI now DOES compile that feature (the `rust-native-webrtc` job,
-      # added 2026-08-16), so it is no longer unverified code — but compiling is
-      # not rendering: nothing drives a live console in CI, so a green job says
-      # nothing about whether the stream actually paints. v1.1.0 and v1.2.0 both
-      # shipped Windows-only.
-      # Deliberately NOT re-targeted at a version number — earlier comments here
-      # promised 1.1 and then 1.2 and both slipped. The AppImage has to actually
-      # render video before this flips; that is the only gate.
-      # This gates every Linux step below — flip to 'true' to re-enable Linux
-      # nightly + stable builds. Nothing is removed; the build/stage/manifest/
-      # upload logic all remain.
-      BUILD_LINUX: 'false'
+      # 'true' only when the linux-appimage job produced an AppImage. It gates every
+      # Linux step below, so a broken Linux build degrades to a Windows-only release
+      # (latest.json simply has no linux entry) instead of blocking it.
+      # History: Linux was off until 2026-11-16 because WebKitGTK renders WebRTC
+      # video black; the gate was "the AppImage has to actually render video". It
+      # did, with the native-webrtc engine, on Fedora 45 / KDE Wayland / NVIDIA.
+      # Not covered by that test: X11 sessions and non-NVIDIA GPUs.
+      BUILD_LINUX: ${{ needs.linux-appimage.result == 'success' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,17 +137,7 @@ jobs:
       - name: Compute version + channel
         id: v
         shell: bash
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VER="${{ github.ref_name }}"; VER="${VER#v}"
-            { echo "version=$VER"; echo "pointer_tag=stable"; echo "archive_tag=v$VER";
-              echo "name=v$VER"; echo "prerelease=false"; } >> "$GITHUB_OUTPUT"
-          else
-            TARGET="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
-            VER="${TARGET}-nightly.${{ github.run_number }}"
-            { echo "version=$VER"; echo "pointer_tag=nightly"; echo "archive_tag=";
-              echo "name=Nightly $VER"; echo "prerelease=true"; } >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/ci/version.sh >> "$GITHUB_OUTPUT"
 
       - name: Build frontend
         # Run from ui/ so corepack reads the pinned pnpm from ui/package.json's
@@ -90,11 +159,12 @@ jobs:
           cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
             --bundles nsis --config ci-version.json
 
-      - name: Tauri build (signed AppImage for Linux x64)
+      - name: Fetch the AppImage built by the linux-appimage job
         if: env.BUILD_LINUX == 'true'
-        shell: bash
-        run: |
-          cargo tauri build --bundles appimage --config ci-version.json
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-appimage
+          path: target/release/bundle/appimage
 
       - name: Stage artifacts
         shell: bash

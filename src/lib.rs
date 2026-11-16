@@ -45,10 +45,29 @@ pub fn run() {
     // SAFETY: runs at the very top of run() (the first thing main() calls),
     // before any other thread is spawned, so there is no concurrent access to the
     // environment.
+    //
+    // The native engine never hands video to WebKit, so none of that applies to a
+    // native-webrtc build, and the workaround is actively harmful there: with the
+    // DMA-BUF renderer off WebKit has no composited mode left, and its non-composited
+    // mode only shows regions that change (window black until a resize, static HUD
+    // text missing, measured 2026-11-16 on NVIDIA + KDE). On a Wayland session such a
+    // build therefore stays on native Wayland with WebKit's default renderer.
+    // KITE_FORCE_XWAYLAND=1 restores the workaround.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("KITE_NATIVE_WAYLAND").is_none()
-        && std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none()
-    {
+    let native_wayland = std::env::var_os("KITE_NATIVE_WAYLAND").is_some()
+        || std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_some()
+        || (cfg!(feature = "native-webrtc")
+            && std::env::var_os("WAYLAND_DISPLAY").is_some()
+            && std::env::var_os("KITE_FORCE_XWAYLAND").is_none());
+    // Drawing the video through GDK's GL path on NVIDIA + Wayland aborts at startup with
+    // "Error 71 (Protocol error)" unless explicit sync is off (measured 2026-11-16). Other
+    // drivers ignore the variable. SAFETY: as below, no other thread exists yet.
+    #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+    if native_wayland && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+        unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
+    }
+    #[cfg(target_os = "linux")]
+    if !native_wayland {
         if std::env::var_os("GDK_BACKEND").is_none() {
             unsafe { std::env::set_var("GDK_BACKEND", "x11") };
         }
@@ -58,6 +77,12 @@ pub fn run() {
         // only making the HUD transparent once video is actually flowing.
         if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
             unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
+        }
+        // Nvidia: the DMA-BUF renderer fails with "Failed to create GBM buffer" and the
+        // webview paints white. Checked against the UI only, not live video; a value
+        // already in the environment wins.
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
         }
     }
 
@@ -843,11 +868,27 @@ mod tauri_commands {
             // Forward events to the webview. The task exits when the channel
             // closes (engine exited), emitting `Ended` as the final event.
             let app_for_task = app.clone();
+            #[cfg(target_os = "linux")]
+            let sink_for_task = state.frame_sink.clone();
             tokio::spawn(async move {
                 let mut rx = rx;
                 while let Some(ev) = rx.recv().await {
                     let dto = rtc_event_to_dto(ev);
                     let _ = app_for_task.emit("rtc_event", dto);
+                }
+                // However the engine ended (disconnect, console off, error), drop its last frame.
+                #[cfg(target_os = "linux")]
+                sink_for_task.clear();
+                // The engine is gone: forget its handle, or the next rtc_connect is refused
+                // as "already connected" until the app restarts (seen 2026-11-16 after the
+                // engine gave up on a console that was powered off).
+                {
+                    use tauri::Manager;
+                    let handle = app_for_task.state::<AppState>().rtc.lock().await.take();
+                    if let Some(handle) = handle {
+                        // disconnect() joins the (already finishing) engine thread.
+                        let _ = tokio::task::spawn_blocking(move || handle.disconnect()).await;
+                    }
                 }
                 let _ = app_for_task.emit("rtc_event", RtcEventDto::Ended);
             });
@@ -981,9 +1022,10 @@ mod native_render {
     use tauri::{AppHandle, Manager};
 
     use crate::rtc::media::frame_sink::SharedFrame;
-    use crate::rtc::media::render_gtk::GtkGlRenderer;
+    use crate::rtc::media::render_cairo::CairoVideo;
+    use crate::rtc::media::render_gdkgl::GlUnderlay;
 
-    /// Re-parent the main window's webview onto a GL video surface.
+    /// Paint decoded video in the main window, underneath its webview.
     ///
     /// Must run on the GTK main thread; Tauri's `.setup()` runs there, and the
     /// GTK work is additionally deferred into [`tauri::WebviewWindow::with_webview`],
@@ -1002,33 +1044,11 @@ mod native_render {
         let result = window.with_webview(move |platform_webview| {
             use gtk::prelude::*;
 
-            // The live webkit2gtk::WebView (an `IsA<gtk::Widget>`). Upcast to a
-            // plain Widget so we never have to name the webkit2gtk crate (it's a
-            // transitive dep of wry/tauri, sharing our gtk 0.18).
-            let webview_widget: gtk::Widget = platform_webview.inner().upcast();
-
-            // Tauri's window tree is `gtk::ApplicationWindow → gtk::Box (vbox) →
-            // webview`. We re-home the webview into a `gtk::Overlay` so video can
-            // composite under it — but the overlay must become the window's
-            // *direct* child, NOT another layer inside the vbox.
-            //
-            // Why: wry attaches an undecorated-resize handler to every webview
-            // (`tauri-runtime-wry .../undecorated_resizing.rs`) that, on a
-            // left-button press, does `webview.parent().parent().downcast::<gtk::
-            // Window>().unwrap()`. That walks exactly two levels up and expects
-            // the gtk::Window. If we leave the overlay nested in the vbox
-            // (`window → vbox → overlay → webview`), that walk lands on the vbox
-            // (a GtkBox), the downcast `unwrap()` fails, and because it runs
-            // inside a GTK C callback the panic is non-unwinding → the whole app
-            // aborts on the first click. Keeping `window → overlay → webview`
-            // preserves the two-hop invariant. (Found live, 2026-06-22.)
-            let vbox = match window_for_closure.default_vbox() {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!("native_render: default_vbox() failed: {e}");
-                    return;
-                }
-            };
+            // The webview is deliberately left exactly where Tauri put it. Re-parenting it
+            // into a gtk::Overlay above a GLArea (the 2026-06 design) empties WebKit's
+            // backing store: the window stayed black until a manual resize. Instead the
+            // window paints the video itself, after its children, underneath them.
+            let _ = platform_webview;
             let gtk_window = match window_for_closure.gtk_window() {
                 Ok(w) => w,
                 Err(e) => {
@@ -1037,66 +1057,104 @@ mod native_render {
                 }
             };
 
-            // Detach the webview from the vbox, then remove the now-empty vbox
-            // from the window so the overlay can take its place as the window's
-            // sole child (gtk::ApplicationWindow is a Bin — one child only).
-            if let Some(parent) = webview_widget.parent()
-                && let Ok(container) = parent.downcast::<gtk::Container>()
-            {
-                container.remove(&webview_widget);
-            }
-            gtk_window.remove(&vbox);
+            let video = std::rc::Rc::new(std::cell::RefCell::new(CairoVideo::default()));
+            let video_tick = std::rc::Rc::clone(&video);
+            let sink_draw = Arc::clone(&frame_sink);
+            // How the video gets under the webview depends on how GTK draws the webview
+            // (each measured 2026-11-16, NVIDIA + KDE):
+            // - Wayland, WebKit composited: the webview goes through GDK's GL path, which
+            //   only blends it over other GL content. Draw a texture BEFORE it.
+            // - X11/XWayland, WebKit non-composited: the webview replaces whatever is under
+            //   it, so paint with cairo AFTER it, beneath (DEST_OVER).
+            let wayland = gtk_window.display().type_().name().contains("Wayland");
+            let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
+            let dirty_tick = std::rc::Rc::clone(&dirty);
+            let cleared = std::rc::Rc::new(std::cell::Cell::new(false));
+            let cleared_tick = std::rc::Rc::clone(&cleared);
+            let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
+            let gl_failed = std::cell::Cell::new(false);
+            gtk_window.connect_local("draw", !wayland, move |args| {
+                use gtk::glib::value::ToValue;
+                if let (Ok(win), Ok(cr)) = (
+                    args[0].get::<gtk::ApplicationWindow>(),
+                    args[1].get::<gtk::cairo::Context>(),
+                ) {
+                    let area = win.child().map(|c| c.allocation()).unwrap_or_else(|| win.allocation());
+                    let scale = win.scale_factor().max(1);
+                    let size = (area.width().max(1) * scale, area.height().max(1) * scale);
+                    let frame = sink_draw.take_latest();
+                    match win.window() {
+                        Some(gdk_window) if wayland && !gl_failed.get() => {
+                            let mut underlay = underlay.borrow_mut();
+                            if underlay.is_none() {
+                                match GlUnderlay::new(&gdk_window) {
+                                    Ok(u) => *underlay = Some(u),
+                                    Err(e) => {
+                                        tracing::error!("native_render: GL underlay unavailable, video hidden: {e}");
+                                        gl_failed.set(true);
+                                    }
+                                }
+                            }
+                            if let Some(u) = underlay.as_mut() {
+                                if cleared.replace(false) {
+                                    u.clear();
+                                }
+                                if frame.is_some() || dirty.replace(false) || u.size() != size {
+                                    u.render(frame.as_ref(), size);
+                                }
+                                cr.save().ok();
+                                cr.translate(area.x() as f64, area.y() as f64);
+                                u.draw(&cr, &gdk_window, scale);
+                                cr.restore().ok();
+                            }
+                        }
+                        _ => {
+                            let mut video = video.borrow_mut();
+                            if let Some(frame) = &frame {
+                                video.update(frame, (size.0 as u32, size.1 as u32));
+                            }
+                            video.paint(
+                                &cr,
+                                (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
+                                scale as f64,
+                                true,
+                            );
+                        }
+                    }
+                }
+                Some(false.to_value())
+            });
 
-            // Build Overlay { GLArea base (video), webview overlay on top }.
-            // Mirrors examples/render_live.rs's flicker-free composite. We add the
-            // existing webview as the overlay child directly — gtk::Overlay sizes
-            // overlay children to fill the overlay by default.
-            let overlay = gtk::Overlay::new();
-            let gl_area = gtk::GLArea::new();
-            gl_area.set_has_alpha(true);
-            gl_area.set_auto_render(true);
-
-            // Wire the reusable GL renderer (realize + render closures) before
-            // the area is shown, matching render_live's ordering.
-            GtkGlRenderer::attach(&gl_area, Arc::clone(&frame_sink));
-
-            overlay.add(&gl_area);
-            overlay.add_overlay(&webview_widget);
-
-            // Install the overlay as the window's direct child and show the tree.
-            gtk_window.add(&overlay);
-            overlay.show_all();
-
-            // ~60fps render tick on the GTK main loop (Tauri-owned): repaint the
-            // GL surface only when the decode thread has actually published a new
-            // frame. Skipping queue_render while idle keeps the shared GTK main
-            // thread free for the WebKit HUD — otherwise a constant 60fps redraw
-            // (with WebKit compositing disabled) makes the HUD sluggish on the
-            // login / console-list / connecting screens.
-            let area_tick = gl_area.clone();
+            // ~60fps tick on the GTK main loop (Tauri-owned): redraw only when the decode
+            // thread has published a new frame, so an idle HUD costs nothing.
+            let window_tick = gtk_window.clone();
             let sink_tick = Arc::clone(&frame_sink);
             let tick_id = gtk::glib::timeout_add_local(
                 std::time::Duration::from_millis(16),
                 move || {
+                    if sink_tick.take_cleared() {
+                        // The stream ended: never leave its last frame behind the UI.
+                        video_tick.borrow_mut().clear();
+                        dirty_tick.set(true);
+                        cleared_tick.set(true);
+                        window_tick.queue_draw();
+                    }
                     if sink_tick.has_pending() {
-                        area_tick.queue_render();
+                        window_tick.queue_draw();
                     }
                     gtk::glib::ControlFlow::Continue
                 },
             );
-
-            // Cancel the tick when the GLArea is destroyed so we never call
-            // queue_render on a dead widget and never leak the source (matters
-            // if the window/area is ever torn down and re-created).
+            // Stop the tick with the window so it never touches a destroyed widget.
             let tick_id = std::rc::Rc::new(std::cell::RefCell::new(Some(tick_id)));
-            gl_area.connect_unrealize(move |_| {
+            gtk_window.connect_destroy(move |_| {
                 if let Some(id) = tick_id.borrow_mut().take() {
                     id.remove();
                 }
             });
 
             tracing::info!(
-                "native_render: mounted GLArea under the webview HUD (awaiting frames from rtc_connect)"
+                "native_render: window paints video under the webview HUD (awaiting frames from rtc_connect)"
             );
         });
 
