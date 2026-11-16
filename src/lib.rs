@@ -879,6 +879,17 @@ mod tauri_commands {
                 // However the engine ended (disconnect, console off, error), drop its last frame.
                 #[cfg(target_os = "linux")]
                 sink_for_task.clear();
+                // The engine is gone: forget its handle, or the next rtc_connect is refused
+                // as "already connected" until the app restarts (seen 2026-11-16 after the
+                // engine gave up on a console that was powered off).
+                {
+                    use tauri::Manager;
+                    let handle = app_for_task.state::<AppState>().rtc.lock().await.take();
+                    if let Some(handle) = handle {
+                        // disconnect() joins the (already finishing) engine thread.
+                        let _ = tokio::task::spawn_blocking(move || handle.disconnect()).await;
+                    }
+                }
                 let _ = app_for_task.emit("rtc_event", RtcEventDto::Ended);
             });
 
