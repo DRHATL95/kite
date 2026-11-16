@@ -54,16 +54,87 @@ const FS_SRC: &str = r#"#version 330 core
         FragColor = vec4(clamp(vec3(r, g, b), 0.0, 1.0), 1.0);
     }"#;
 
-struct GlState {
-    gl: glow::Context,
+pub(crate) struct GlState {
+    pub(crate) gl: glow::Context,
     program: glow::Program,
     vao: glow::VertexArray,
     tex: [glow::Texture; 3], // Y, U, V planes
     u_planes: [Option<glow::UniformLocation>; 3],
-    dims: Option<(u32, u32)>, // current texture dims; None until first frame
+    pub(crate) dims: Option<(u32, u32)>, // current texture dims; None until first frame
 }
 
 /// Wires a [`gtk::GLArea`] to render I420 frames from a [`SharedFrame`].
+impl GlState {
+    /// Upload `frame`'s I420 planes.
+    ///
+    /// # Safety
+    /// The GL context this state was built with must be current.
+    pub(crate) unsafe fn upload(&mut self, frame: &crate::rtc::media::DecodedFrame) {
+        use glow::HasContext as _;
+        let FramePixels::Cpu { planes, .. } = &frame.pixels;
+        let (w, h) = (frame.width, frame.height);
+        let realloc = self.dims != Some((w, h));
+        self.dims = Some((w, h));
+        let sizes = [(w, h), (w / 2, h / 2), (w / 2, h / 2)];
+        // SAFETY: caller guarantees the context is current; the textures belong to it.
+        unsafe {
+            for i in 0..3 {
+                self.gl.active_texture(glow::TEXTURE0 + i as u32);
+                self.gl.bind_texture(glow::TEXTURE_2D, Some(self.tex[i]));
+                let (pw, ph) = sizes[i];
+                if realloc {
+                    self.gl.tex_image_2d(
+                        glow::TEXTURE_2D, 0, glow::R8 as i32, pw as i32, ph as i32, 0,
+                        glow::RED, glow::UNSIGNED_BYTE, Some(&planes[i]),
+                    );
+                } else {
+                    self.gl.tex_sub_image_2d(
+                        glow::TEXTURE_2D, 0, 0, 0, pw as i32, ph as i32,
+                        glow::RED, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(&planes[i]),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Clear to black, then draw the current frame (if any) over the whole viewport.
+    ///
+    /// # Safety
+    /// The GL context this state was built with must be current.
+    pub(crate) unsafe fn draw(&self) {
+        use glow::HasContext as _;
+        // SAFETY: caller guarantees the context is current.
+        unsafe {
+            self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+            self.draw_frame();
+        }
+    }
+
+    /// Draw the current frame (if any) over the whole viewport, without clearing.
+    ///
+    /// # Safety
+    /// The GL context this state was built with must be current.
+    pub(crate) unsafe fn draw_frame(&self) {
+        use glow::HasContext as _;
+        if self.dims.is_none() {
+            return;
+        }
+        // SAFETY: caller guarantees the context is current; all handles belong to it.
+        unsafe {
+            self.gl.use_program(Some(self.program));
+            self.gl.bind_vertex_array(Some(self.vao));
+            for i in 0..3 {
+                // Rebind every draw: other code on this context may have changed the units.
+                self.gl.active_texture(glow::TEXTURE0 + i as u32);
+                self.gl.bind_texture(glow::TEXTURE_2D, Some(self.tex[i]));
+                self.gl.uniform_1_i32(self.u_planes[i].as_ref(), i as i32);
+            }
+            self.gl.draw_arrays(glow::TRIANGLES, 0, 3);
+        }
+    }
+}
+
 pub struct GtkGlRenderer;
 
 impl GtkGlRenderer {
@@ -128,52 +199,9 @@ impl GtkGlRenderer {
 
                     // Upload a fresh frame if one is waiting.
                     if let Some(frame) = frames.take_latest() {
-                        let FramePixels::Cpu { planes, .. } = &frame.pixels;
-                        let (w, h) = (frame.width, frame.height);
-                        let realloc = st.dims != Some((w, h));
-                        st.dims = Some((w, h));
-                        let sizes = [(w, h), (w / 2, h / 2), (w / 2, h / 2)];
-                        for i in 0..3 {
-                            st.gl.active_texture(glow::TEXTURE0 + i as u32);
-                            st.gl.bind_texture(glow::TEXTURE_2D, Some(st.tex[i]));
-                            let (pw, ph) = sizes[i];
-                            if realloc {
-                                st.gl.tex_image_2d(
-                                    glow::TEXTURE_2D,
-                                    0,
-                                    glow::R8 as i32,
-                                    pw as i32,
-                                    ph as i32,
-                                    0,
-                                    glow::RED,
-                                    glow::UNSIGNED_BYTE,
-                                    Some(&planes[i]),
-                                );
-                            } else {
-                                st.gl.tex_sub_image_2d(
-                                    glow::TEXTURE_2D,
-                                    0,
-                                    0,
-                                    0,
-                                    pw as i32,
-                                    ph as i32,
-                                    glow::RED,
-                                    glow::UNSIGNED_BYTE,
-                                    glow::PixelUnpackData::Slice(&planes[i]),
-                                );
-                            }
-                        }
+                        st.upload(&frame);
                     }
-                    st.gl.clear_color(0.0, 0.0, 0.0, 1.0);
-                    st.gl.clear(glow::COLOR_BUFFER_BIT);
-                    if st.dims.is_some() {
-                        st.gl.use_program(Some(st.program));
-                        st.gl.bind_vertex_array(Some(st.vao));
-                        for i in 0..3 {
-                            st.gl.uniform_1_i32(st.u_planes[i].as_ref(), i as i32);
-                        }
-                        st.gl.draw_arrays(glow::TRIANGLES, 0, 3);
-                    }
+                    st.draw();
                 }
             }
             gtk::glib::Propagation::Proceed
@@ -187,7 +215,7 @@ impl GtkGlRenderer {
 ///
 /// Returns `Err` (never panics) on any allocation/compile/link failure so the
 /// caller can log and disable rendering while keeping the rest of the UI alive.
-fn build_gl_state(gl: glow::Context) -> Result<GlState, String> {
+pub(crate) fn build_gl_state(gl: glow::Context) -> Result<GlState, String> {
     use glow::HasContext as _;
     // SAFETY: called from `connect_realize` on the GTK main thread with the
     // GLArea context made current; every handle created here belongs to `gl`.

@@ -4,24 +4,33 @@
 //! In that mode GDK only blends the webview over other *GL* content: anything
 //! painted with plain cairo in the same area, before or after it, is discarded
 //! (measured 2026-11-16: the window was see-through behind the HUD both ways).
-//! So the picture is uploaded to a texture and handed to GDK with
+//! So the frame is rendered into a window-sized texture and handed to GDK with
 //! `gdk_cairo_draw_from_gl` from the window's draw handler, before the webview
 //! draws; GDK then blends the translucent webview over it.
+//!
+//! The GPU does the colour conversion and the scaling (the I420 shader from
+//! `render_gtk`): only the source-resolution planes are uploaded per frame. A
+//! first version scaled on the CPU and uploaded a window-sized image, which was
+//! choppy when maximised (up to ~59 MB per frame on a 4K display at 2x).
 
 use glow::HasContext;
 use gtk::cairo;
 use gtk::gdk;
 use gtk::gdk::prelude::*;
 
-use super::render_cairo::CairoVideo;
+use super::DecodedFrame;
+use super::render_cairo::fit;
+use super::render_gtk::{GlState, build_gl_state, load_gl_proc};
 
 const GL_TEXTURE: i32 = 0x1702;
 
 pub struct GlUnderlay {
     ctx: gdk::GLContext,
-    gl: glow::Context,
-    tex: glow::Texture,
-    /// Size of the uploaded picture in device pixels; (0, 0) until the first upload.
+    st: GlState,
+    fbo: glow::Framebuffer,
+    /// The window-sized picture GDK is given.
+    color: glow::Texture,
+    /// Size of `color` in device pixels; (0, 0) until the first render.
     size: (i32, i32),
 }
 
@@ -32,66 +41,79 @@ impl GlUnderlay {
         ctx.realize().map_err(|e| format!("realize: {e}"))?;
         ctx.make_current();
         // SAFETY: `ctx` is current on this (the GTK main) thread for every GL call below.
-        let gl = unsafe { glow::Context::from_loader_function(super::render_gtk::load_gl_proc) };
-        let tex = unsafe {
-            let tex = gl.create_texture()?;
-            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+        let gl = unsafe { glow::Context::from_loader_function(load_gl_proc) };
+        let st = build_gl_state(gl)?;
+        let (fbo, color) = unsafe {
+            let color = st.gl.create_texture()?;
+            st.gl.active_texture(glow::TEXTURE0);
+            st.gl.bind_texture(glow::TEXTURE_2D, Some(color));
             for (k, v) in [
-                (glow::TEXTURE_MIN_FILTER, glow::LINEAR),
-                (glow::TEXTURE_MAG_FILTER, glow::LINEAR),
+                (glow::TEXTURE_MIN_FILTER, glow::NEAREST),
+                (glow::TEXTURE_MAG_FILTER, glow::NEAREST),
                 (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE),
                 (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE),
             ] {
-                gl.tex_parameter_i32(glow::TEXTURE_2D, k, v as i32);
+                st.gl.tex_parameter_i32(glow::TEXTURE_2D, k, v as i32);
             }
-            tex
+            (st.gl.create_framebuffer()?, color)
         };
-        Ok(Self { ctx, gl, tex, size: (0, 0) })
-    }
-
-    /// Compose black + the letterboxed frame at `size` device pixels and upload it.
-    pub fn upload(&mut self, video: &CairoVideo, size: (i32, i32)) {
-        let (w, h) = (size.0.max(1), size.1.max(1));
-        let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h) else {
-            return;
-        };
-        {
-            let Ok(cr) = cairo::Context::new(&surface) else { return };
-            // GDK treats the texture as GL-oriented (first row at the bottom), so compose flipped.
-            cr.translate(0.0, h as f64);
-            cr.scale(1.0, -1.0);
-            video.paint(&cr, (0.0, 0.0, w as f64, h as f64), 1.0, false);
-        }
-        surface.flush();
-        let stride = surface.stride();
-        let Ok(data) = surface.data() else { return };
-        self.ctx.make_current();
-        // SAFETY: context current (above); `data` is h rows of `stride` bytes of BGRA,
-        // which is what cairo's ARgb32 is on little-endian.
-        unsafe {
-            self.gl.bind_texture(glow::TEXTURE_2D, Some(self.tex));
-            self.gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, stride / 4);
-            self.gl.tex_image_2d(
-                glow::TEXTURE_2D, 0, glow::RGBA8 as i32, w, h, 0,
-                glow::BGRA, glow::UNSIGNED_BYTE, Some(&data),
-            );
-            self.gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, 0);
-        }
-        self.size = (w, h);
+        Ok(Self { ctx, st, fbo, color, size: (0, 0) })
     }
 
     pub fn size(&self) -> (i32, i32) {
         self.size
     }
 
-    /// Hand the picture to GDK at the cairo origin. No-op before the first upload.
+    /// Forget the current frame (the stream ended); the next render is plain black.
+    pub fn clear(&mut self) {
+        self.st.dims = None;
+    }
+
+    /// Upload `frame` if given, then redraw the picture at `size` device pixels:
+    /// black, with the current frame letterboxed in it.
+    pub fn render(&mut self, frame: Option<&DecodedFrame>, size: (i32, i32)) {
+        let (w, h) = (size.0.max(1), size.1.max(1));
+        self.ctx.make_current();
+        // SAFETY: our context is current (above) and owns every handle used here.
+        unsafe {
+            if let Some(frame) = frame {
+                self.st.upload(frame);
+            }
+            let gl = &self.st.gl;
+            if self.size != (w, h) {
+                gl.active_texture(glow::TEXTURE0);
+                gl.bind_texture(glow::TEXTURE_2D, Some(self.color));
+                gl.tex_image_2d(
+                    glow::TEXTURE_2D, 0, glow::RGBA8 as i32, w, h, 0,
+                    glow::RGBA, glow::UNSIGNED_BYTE, None,
+                );
+                self.size = (w, h);
+            }
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(self.color), 0,
+            );
+            gl.viewport(0, 0, w, h);
+            gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+            if let Some(src) = self.st.dims {
+                let (fw, fh) = fit(src, (w as u32, h as u32));
+                gl.viewport((w - fw as i32) / 2, (h - fh as i32) / 2, fw as i32, fh as i32);
+                self.st.draw_frame();
+            }
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            gl.flush();
+        }
+    }
+
+    /// Hand the picture to GDK at the cairo origin. No-op before the first render.
     pub fn draw(&self, cr: &cairo::Context, window: &gdk::Window, scale: i32) {
         if self.size == (0, 0) {
             return;
         }
-        // SAFETY: `tex` is a live texture of `size` in a context sharing with GDK's paint context.
+        // SAFETY: `color` is a live texture of `size` in a context sharing with GDK's paint context.
         unsafe {
-            cr.draw_from_gl(window, self.tex.0.get() as i32, GL_TEXTURE, scale, 0, 0, self.size.0, self.size.1);
+            cr.draw_from_gl(window, self.color.0.get() as i32, GL_TEXTURE, scale, 0, 0, self.size.0, self.size.1);
         }
     }
 }

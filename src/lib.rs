@@ -1058,6 +1058,8 @@ mod native_render {
             let wayland = gtk_window.display().type_().name().contains("Wayland");
             let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
             let dirty_tick = std::rc::Rc::clone(&dirty);
+            let cleared = std::rc::Rc::new(std::cell::Cell::new(false));
+            let cleared_tick = std::rc::Rc::clone(&cleared);
             let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
             let gl_failed = std::cell::Cell::new(false);
             gtk_window.connect_local("draw", !wayland, move |args| {
@@ -1069,11 +1071,7 @@ mod native_render {
                     let area = win.child().map(|c| c.allocation()).unwrap_or_else(|| win.allocation());
                     let scale = win.scale_factor().max(1);
                     let size = (area.width().max(1) * scale, area.height().max(1) * scale);
-                    let mut video = video.borrow_mut();
-                    if let Some(frame) = sink_draw.take_latest() {
-                        video.update(&frame, (size.0 as u32, size.1 as u32));
-                        dirty.set(true);
-                    }
+                    let frame = sink_draw.take_latest();
                     match win.window() {
                         Some(gdk_window) if wayland && !gl_failed.get() => {
                             let mut underlay = underlay.borrow_mut();
@@ -1087,8 +1085,11 @@ mod native_render {
                                 }
                             }
                             if let Some(u) = underlay.as_mut() {
-                                if dirty.replace(false) || u.size() != size {
-                                    u.upload(&video, size);
+                                if cleared.replace(false) {
+                                    u.clear();
+                                }
+                                if frame.is_some() || dirty.replace(false) || u.size() != size {
+                                    u.render(frame.as_ref(), size);
                                 }
                                 cr.save().ok();
                                 cr.translate(area.x() as f64, area.y() as f64);
@@ -1096,12 +1097,18 @@ mod native_render {
                                 cr.restore().ok();
                             }
                         }
-                        _ => video.paint(
-                            &cr,
-                            (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
-                            scale as f64,
-                            true,
-                        ),
+                        _ => {
+                            let mut video = video.borrow_mut();
+                            if let Some(frame) = &frame {
+                                video.update(frame, (size.0 as u32, size.1 as u32));
+                            }
+                            video.paint(
+                                &cr,
+                                (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
+                                scale as f64,
+                                true,
+                            );
+                        }
                     }
                 }
                 Some(false.to_value())
@@ -1118,6 +1125,7 @@ mod native_render {
                         // The stream ended: never leave its last frame behind the UI.
                         video_tick.borrow_mut().clear();
                         dirty_tick.set(true);
+                        cleared_tick.set(true);
                         window_tick.queue_draw();
                     }
                     if sink_tick.has_pending() {
