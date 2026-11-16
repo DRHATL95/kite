@@ -1047,8 +1047,8 @@ mod native_render {
             // The webview is deliberately left exactly where Tauri put it. Re-parenting it
             // into a gtk::Overlay above a GLArea (the 2026-06 design) empties WebKit's
             // backing store: the window stayed black until a manual resize. Instead the
-            // window paints the video itself, after its children, underneath them.
-            let _ = platform_webview;
+            // video is drawn under it in place; how depends on the backend (below).
+            let webview_widget: gtk::Widget = platform_webview.inner().upcast();
             let gtk_window = match window_for_closure.gtk_window() {
                 Ok(w) => w,
                 Err(e) => {
@@ -1058,99 +1058,105 @@ mod native_render {
             };
 
             let video = std::rc::Rc::new(std::cell::RefCell::new(CairoVideo::default()));
-            let video_tick = std::rc::Rc::clone(&video);
             let sink_draw = Arc::clone(&frame_sink);
             // How the video gets under the webview depends on how GTK draws the webview
             // (each measured 2026-11-16, NVIDIA + KDE):
             // - Wayland, WebKit composited: the webview goes through GDK's GL path, which
-            //   only blends it over other GL content. Draw a texture BEFORE it.
+            //   only blends it over other GL content, so the video is a GL texture. It is
+            //   drawn from the WEBVIEW's own draw signal, ahead of WebKit's handler, and
+            //   the texture has no alpha. Both matter: GTK marks a widget's area as
+            //   "cairo painted over GL" just before emitting its draw signal, and WebKit's
+            //   translucent draw then re-uploads GTK's whole cairo layer for that area
+            //   (59 MB per frame at 4K x2, measured as ~7 of every 25 GL transfer calls)
+            //   unless an opaque texture has been drawn there since (gdk/gdkgl.c).
             // - X11/XWayland, WebKit non-composited: the webview replaces whatever is under
-            //   it, so paint with cairo AFTER it, beneath (DEST_OVER).
+            //   it, so paint with cairo from the WINDOW's draw signal AFTER it, beneath
+            //   (DEST_OVER).
             let wayland = gtk_window.display().type_().name().contains("Wayland");
             let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
             let dirty_tick = std::rc::Rc::clone(&dirty);
             let cleared = std::rc::Rc::new(std::cell::Cell::new(false));
             let cleared_tick = std::rc::Rc::clone(&cleared);
-            let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
-            let gl_failed = std::cell::Cell::new(false);
-            gtk_window.connect_local("draw", !wayland, move |args| {
-                use gtk::glib::value::ToValue;
-                if let (Ok(win), Ok(cr)) = (
-                    args[0].get::<gtk::ApplicationWindow>(),
-                    args[1].get::<gtk::cairo::Context>(),
-                ) {
-                    let area = win.child().map(|c| c.allocation()).unwrap_or_else(|| win.allocation());
-                    let scale = win.scale_factor().max(1);
-                    let size = (area.width().max(1) * scale, area.height().max(1) * scale);
-                    let frame = sink_draw.take_latest();
-                    match win.window() {
-                        Some(gdk_window) if wayland && !gl_failed.get() => {
-                            let mut underlay = underlay.borrow_mut();
-                            if underlay.is_none() {
-                                match GlUnderlay::new(&gdk_window) {
-                                    Ok(u) => *underlay = Some(u),
-                                    Err(e) => {
-                                        tracing::error!("native_render: GL underlay unavailable, video hidden: {e}");
-                                        gl_failed.set(true);
-                                    }
+            if wayland {
+                let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
+                let gl_failed = std::cell::Cell::new(false);
+                webview_widget.connect_draw(move |widget, cr| {
+                    let scale = widget.scale_factor().max(1);
+                    let size = (
+                        widget.allocated_width().max(1) * scale,
+                        widget.allocated_height().max(1) * scale,
+                    );
+                    let frame = sink_draw.take_due(std::time::Instant::now());
+                    if let (Some(gdk_window), false) = (widget.window(), gl_failed.get()) {
+                        let mut underlay = underlay.borrow_mut();
+                        if underlay.is_none() {
+                            match GlUnderlay::new(&gdk_window) {
+                                Ok(u) => *underlay = Some(u),
+                                Err(e) => {
+                                    tracing::error!("native_render: GL underlay unavailable, video hidden: {e}");
+                                    gl_failed.set(true);
                                 }
-                            }
-                            if let Some(u) = underlay.as_mut() {
-                                if cleared.replace(false) {
-                                    u.clear();
-                                }
-                                if frame.is_some() || dirty.replace(false) || u.size() != size {
-                                    u.render(frame.as_ref(), size);
-                                }
-                                cr.save().ok();
-                                cr.translate(area.x() as f64, area.y() as f64);
-                                u.draw(&cr, &gdk_window, scale);
-                                cr.restore().ok();
                             }
                         }
-                        _ => {
-                            let mut video = video.borrow_mut();
-                            if let Some(frame) = &frame {
-                                video.update(frame, (size.0 as u32, size.1 as u32));
+                        if let Some(u) = underlay.as_mut() {
+                            if cleared.replace(false) {
+                                u.clear();
                             }
-                            video.paint(
-                                &cr,
-                                (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
-                                scale as f64,
-                                true,
-                            );
+                            if frame.is_some() || dirty.replace(false) || u.size() != size {
+                                u.render(frame.as_ref(), size);
+                            }
+                            u.draw(cr, &gdk_window, scale);
                         }
                     }
-                }
-                Some(false.to_value())
-            });
+                    gtk::glib::Propagation::Proceed
+                });
+            } else {
+                // `true` = run after the default handler, i.e. once the webview has drawn.
+                gtk_window.connect_local("draw", true, move |args| {
+                    use gtk::glib::value::ToValue;
+                    if let (Ok(win), Ok(cr)) = (
+                        args[0].get::<gtk::ApplicationWindow>(),
+                        args[1].get::<gtk::cairo::Context>(),
+                    ) {
+                        let area = win.child().map(|c| c.allocation()).unwrap_or_else(|| win.allocation());
+                        let scale = win.scale_factor().max(1);
+                        let mut video = video.borrow_mut();
+                        if cleared.replace(false) {
+                            video.clear();
+                        }
+                        if let Some(frame) = sink_draw.take_due(std::time::Instant::now()) {
+                            let px = |v: i32| (v.max(1) * scale) as u32;
+                            video.update(&frame, (px(area.width()), px(area.height())));
+                        }
+                        video.paint(
+                            &cr,
+                            (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
+                            scale as f64,
+                            true,
+                        );
+                    }
+                    Some(false.to_value())
+                });
+            }
 
-            // ~60fps tick on the GTK main loop (Tauri-owned): redraw only when the decode
-            // thread has published a new frame, so an idle HUD costs nothing.
-            let window_tick = gtk_window.clone();
+            // Present on the display's own frame clock (GdkFrameClock), not a timer: a new
+            // frame is picked up at the next refresh after its playout time, whatever the
+            // refresh rate. A 16 ms glib timer here lost 12 to 22 frames a second in
+            // gameplay (see frame_sink). The tick only asks for a redraw when a frame is
+            // due, so an idle HUD still costs nothing. GTK removes it with the widget.
             let sink_tick = Arc::clone(&frame_sink);
-            let tick_id = gtk::glib::timeout_add_local(
-                std::time::Duration::from_millis(16),
-                move || {
-                    if sink_tick.take_cleared() {
-                        // The stream ended: never leave its last frame behind the UI.
-                        video_tick.borrow_mut().clear();
-                        dirty_tick.set(true);
-                        cleared_tick.set(true);
-                        window_tick.queue_draw();
-                    }
-                    if sink_tick.has_pending() {
-                        window_tick.queue_draw();
-                    }
-                    gtk::glib::ControlFlow::Continue
-                },
-            );
-            // Stop the tick with the window so it never touches a destroyed widget.
-            let tick_id = std::rc::Rc::new(std::cell::RefCell::new(Some(tick_id)));
-            gtk_window.connect_destroy(move |_| {
-                if let Some(id) = tick_id.borrow_mut().take() {
-                    id.remove();
+            let redraw: gtk::Widget = if wayland { webview_widget.clone() } else { gtk_window.clone().upcast() };
+            redraw.add_tick_callback(move |widget, _clock| {
+                if sink_tick.take_cleared() {
+                    // The stream ended: never leave its last frame behind the UI.
+                    dirty_tick.set(true);
+                    cleared_tick.set(true);
+                    widget.queue_draw();
                 }
+                if sink_tick.has_due(std::time::Instant::now()) {
+                    widget.queue_draw();
+                }
+                gtk::glib::ControlFlow::Continue
             });
 
             tracing::info!(
