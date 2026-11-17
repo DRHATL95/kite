@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { logger } from "$lib/log/logger.js";
 
 export type UpdateInfo = { version: string; notes?: string };
 export type UpdateChannel = "stable" | "nightly";
@@ -23,7 +24,7 @@ export async function checkForUpdate(
     if (!meta) return null;
     return { version: meta.version, notes: meta.notes ?? undefined };
   } catch (e) {
-    console.warn("Update check failed:", e);
+    logger.warn("update", `check failed (${channel}): ${String(e)}`);
     return null;
   }
 }
