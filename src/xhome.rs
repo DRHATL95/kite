@@ -1372,7 +1372,13 @@ impl XHomeClient {
         let body = response.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            warn!("Keepalive failed: {} - {}", status, body);
+            // Expected once the SDP exchange is done: the service stops accepting REST
+            // keepalives and the UI hands keepalive over to the data channel.
+            if body.contains("SessionInUnexpectedState") {
+                info!("Keepalive rejected, session past setup: {} - {}", status, body);
+            } else {
+                warn!("Keepalive failed: {} - {}", status, body);
+            }
             return Err(XboxError::ConnectionError(format!(
                 "Keepalive HTTP {}: {}",
                 status, body
