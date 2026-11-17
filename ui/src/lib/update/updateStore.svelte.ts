@@ -25,6 +25,7 @@
 
 import { checkForUpdate, applyUpdate, type UpdateInfo } from "./updater.js";
 import { settings, type UpdateChannel } from "$lib/stores/settings.svelte.js";
+import { logger } from "$lib/log/logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Store class — reactive fields via $state runes
@@ -86,6 +87,7 @@ class UpdateStore {
     } catch (e) {
       this.error = String(e);
       this.installing = false;
+      logger.error("update", `install failed: ${this.error}`);
     }
   }
 
