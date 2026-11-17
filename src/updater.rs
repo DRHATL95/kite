@@ -78,7 +78,13 @@ pub async fn check_update(
         current_version: u.current_version.clone(),
         notes: u.body.clone(),
     });
-    *pending.0.lock().unwrap() = maybe;
+    // Only a found update replaces the slot. An upgrade-only check that finds nothing
+    // (e.g. "Check" on stable while running a newer nightly) must not wipe the update a
+    // channel switch just offered: the banner stays up, so Update would then fail with
+    // "no pending update" (suspected cause of a failed nightly -> stable switch, 2026-11-16).
+    if maybe.is_some() {
+        *pending.0.lock().unwrap() = maybe;
+    }
     Ok(meta)
 }
 
