@@ -1,5 +1,5 @@
 /**
- * dataChannels.ts — Xbox Remote WebRTC data-channel setup + Xbox handshake
+ * dataChannels.ts — Kite WebRTC data-channel setup + Xbox handshake
  *
  * Creates the four required data channels, runs the message-channel handshake
  * sequence, sends the post-handshake control/config messages, and routes
@@ -23,6 +23,8 @@ import {
   KEYFRAME_REQUEST,
   KEYFRAME_DELAY_MS,
 } from "./constants.js";
+
+import { buildDimensionsPayload } from "./streamQuality.js";
 
 import type {
   HandshakeMessage,
@@ -93,6 +95,10 @@ export interface DataChannelHandlers {
    * Optional logging callback.  Receives human-readable diagnostic strings.
    */
   onLog?: (msg: string) => void;
+
+  /** Session config (NOT a callback): target dimensions for the dimensionschanged
+   *  message. Absent ⇒ 1920×1080 (unchanged). */
+  dimensions?: { width: number; height: number };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -212,10 +218,14 @@ function sendInputStart(
 function sendConfigMessages(
   messageChannel: RTCDataChannel,
   log: (msg: string) => void,
+  dimensions?: { width: number; height: number },
 ): void {
   if (messageChannel.readyState !== "open") return;
+  const dims = dimensions ?? { width: 1920, height: 1080 };
 
-  // Config targets and payloads — taken verbatim from app.js:528-535
+  // Config targets and payloads — taken verbatim from app.js:528-535, except
+  // dimensionschanged: its content is computed from the requested resolution
+  // (default 1920×1080) via buildDimensionsPayload(), not a fixed literal.
   const configs: { target: string; content: string }[] = [
     {
       target: "/streaming/systemUi/configuration",
@@ -239,16 +249,7 @@ function sendConfigMessages(
     },
     {
       target: "/streaming/characteristics/dimensionschanged",
-      content: JSON.stringify({
-        horizontal: 1920,
-        vertical: 1080,
-        preferredWidth: 1920,
-        preferredHeight: 1080,
-        safeAreaLeft: 0,
-        safeAreaTop: 0,
-        safeAreaRight: 1920,
-        safeAreaBottom: 1080,
-      }),
+      content: JSON.stringify(buildDimensionsPayload(dims.width, dims.height)),
     },
   ];
 
@@ -351,7 +352,7 @@ function onHandshakeComplete(
   sendInputStart(channels.control, log);
 
   // Step 3: streaming config messages
-  sendConfigMessages(channels.message, log);
+  sendConfigMessages(channels.message, log, handlers.dimensions);
 
   // Notify the ConnectionManager
   handlers.onHandshakeComplete?.();

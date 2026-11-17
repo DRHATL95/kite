@@ -16,7 +16,7 @@ Sign in with your Microsoft account (same account you use for Xbox).
 1. Search for **"App registrations"** in the top search bar
 2. Click **"+ New registration"**
 3. Fill in:
-   - **Name**: `Xbox Remote` (or any name you like)
+   - **Name**: `Kite` (or any name you like)
    - **Supported account types**: **"Personal Microsoft accounts only"**
    - **Redirect URI**: Leave blank
 4. Click **"Register"**

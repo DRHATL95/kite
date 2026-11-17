@@ -1,6 +1,21 @@
-# Xbox Remote
+# Kite
 
-A desktop application for streaming Xbox consoles via Microsoft's cloud Remote Play service, built with Rust and Tauri. Implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth device-code auth, the xHome REST API for session setup, and WebRTC for media. Developed on Windows, targeting cross-platform (Linux/macOS/Windows).
+A lightweight desktop app for streaming your own Xbox console over the internet (Xbox Remote Play), built with Rust and Tauri. It implements the same protocol as [Greenlight](https://github.com/unknownskl/greenlight): OAuth sign-in, the xHome REST API for session setup, and WebRTC for media. Your console does the work; your PC just plays the stream.
+
+## Download
+
+**[⬇ Get the latest release](https://github.com/DRHATL95/kite/releases)**
+
+- **Windows**: download the installer (`kite_<version>_x64-setup.exe`) and run it.
+- **Linux** (since 1.3.0): download the AppImage (`kite_<version>_amd64.AppImage`), make it executable (`chmod +x`), and run it.
+  - Needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, or later). It does not run on Ubuntu 22.04 or Debian 12.
+  - Tested on a Wayland session with an NVIDIA GPU. X11 sessions and other GPUs are untested.
+  - Keep the AppImage somewhere writable (for example `~/Applications`): the updater replaces the file in place.
+- **macOS**: build from source (below).
+- The installer isn't code-signed yet, so Windows SmartScreen warns **"Unknown publisher"** — click **More info → Run anyway**. (Code-signing is on the roadmap.)
+- The app **auto-updates** after install — choose **Stable** or **Nightly** in Settings → Updates.
+
+Requires an Xbox console with Remote Play enabled and the same Microsoft account.
 
 ## Features
 
@@ -9,7 +24,7 @@ A desktop application for streaming Xbox consoles via Microsoft's cloud Remote P
 - **WebRTC streaming** — video and audio as WebRTC media tracks; gamepad and keyboard input forwarded to the console
 - **Resilient streaming** — a media-flow watchdog gates the "Streaming" state on real decoded frames and auto-recovers (keyframe nudge → reconnect, then an honest failure message) when a console stalls
 - **Clipping (opt-in)** — save the last N seconds as a lossless, native **MP4** (H.264 + AAC). Taps the console's already-encoded video via WebRTC Insertable Streams and remuxes it in Rust, so capturing never disturbs the live stream; plays in the Xbox media player, Discord, and VLC
-- **Modern UI** — Svelte 5 + TypeScript, a themeable "Signal Deck" design system, in-app settings (theme, sign-out), and a diagnostics HUD (press `` ` ``) for live WebRTC stats
+- **Modern UI** — Svelte 5 + TypeScript, a themeable "Signal Deck" design system (five themes), a dedicated settings view, minimize-to-tray, and an opt-in diagnostics HUD for live WebRTC stats
 - **Auto-update with channels** — checks on launch and installs signed updates in-app; choose **Stable** or **Nightly** in Settings
 
 ## Prerequisites
@@ -42,8 +57,8 @@ xcode-select --install
 
 1. Clone the repository:
 ```powershell
-git clone https://github.com/DRHATL95/xbox-remote.git
-cd xbox-remote
+git clone https://github.com/DRHATL95/kite.git
+cd kite
 ```
 
 2. Build the frontend, then run:
@@ -66,7 +81,7 @@ There are no feature flags. `cargo run` builds and launches the full Tauri app.
 > **Important:** This project does not use the Tauri CLI / `tauri dev`, and Tauri
 > embeds `ui/dist` at compile time. You must run `pnpm --dir ui run build` before
 > `cargo run`, or the app will ship a stale/empty frontend. After any change under
-> `ui/src/`, rebuild the frontend and run `cargo clean -p xbox-remote && cargo run`
+> `ui/src/`, rebuild the frontend and run `cargo clean -p kite && cargo run`
 > so the new assets are re-embedded.
 
 ## Usage
@@ -84,7 +99,7 @@ There are no feature flags. `cargo run` builds and launches the full Tauri app.
 ## Project Structure
 
 ```
-xbox-remote/
+kite/
 ├── src/
 │   ├── main.rs              # Tauri entry point and command registration
 │   ├── auth.rs              # OAuth device-code flow and token chain
@@ -118,6 +133,8 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID,
 - Ensure your Xbox is signed in with the same Microsoft account
 - Enable "Remote features" in Xbox Settings > Devices & streaming
 - Ensure your Xbox has an internet connection
+- Set the console's power mode to **Sleep**. In "Shutdown (energy saving)" it cannot be woken remotely, and connecting fails with `WaitingForServerToRegister`.
+- If you run a DNS ad blocker (AdGuard Home, Pi-hole), allow `wns.windows.com`. The console registers for remote play through Windows Push Notification Service; with that domain blocked it never appears in the list.
 
 ### Authentication Issues
 
@@ -128,7 +145,7 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID,
 ### Build Issues
 
 - `edition = "2024"` requires Rust 1.85+. Run `rustup update stable`.
-- After changing files under `ui/src/`, run `pnpm --dir ui run build`, then `cargo clean -p xbox-remote` before rebuilding so the new frontend assets are re-embedded.
+- After changing files under `ui/src/`, run `pnpm --dir ui run build`, then `cargo clean -p kite` before rebuilding so the new frontend assets are re-embedded.
 
 ## Development
 
@@ -156,7 +173,7 @@ cargo run
 
 ## Building a Windows Installer
 
-Xbox Remote uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
+Kite uses Tauri's NSIS bundler for Windows setup `.exe` releases. Build the frontend first so Tauri embeds the current `ui/dist` assets, then run the Tauri build from the repository root:
 
 ```powershell
 pnpm --dir ui install
@@ -167,13 +184,14 @@ cargo tauri build
 The installer is written to:
 
 ```text
-target\release\bundle\nsis\Xbox Remote_<version>_x64-setup.exe
+target\release\bundle\nsis\Kite_<version>_x64-setup.exe
 ```
 
 Windows installer builds require the normal Windows Tauri prerequisites: MSVC Build Tools and WebView2. The generated setup executable uses Tauri's WebView2 download bootstrapper when WebView2 is missing.
 
-> Releases are produced by CI, not by hand. See [docs/RELEASES.md](./docs/RELEASES.md)
-> for how versioning works and how the nightly and stable channels differ.
+> Releases are produced by CI (GitHub Actions), not by hand: pushing to `dev`
+> cuts a rolling **nightly**, and tagging `vX.Y.Z` cuts a permanent **stable**
+> release. The in-app updater tracks whichever channel you pick in Settings.
 
 ## How It Works
 
@@ -186,11 +204,15 @@ The streaming protocol follows the same approach as Greenlight:
 5. **Data channels**: Four channels opened — `chat`, `control`, `message`, `input`
 6. **Keepalive**: Both a data-channel heartbeat and an API keepalive at the interval provided by Xbox
 
-See [TECHNICAL_DETAILS.md](./TECHNICAL_DETAILS.md) for implementation notes and [docs/ARCHITECTURE_RESEARCH.md](./docs/ARCHITECTURE_RESEARCH.md) for the initial protocol research that shaped this design.
+See [TECHNICAL_DETAILS.md](./TECHNICAL_DETAILS.md) for protocol and implementation notes.
+
+## Disclaimer
+
+Kite is an unofficial, third-party project — **not affiliated with, endorsed by, or sponsored by Microsoft or Xbox**. "Xbox" and related names are trademarks of Microsoft. Use it only with your own console and account, and in accordance with the [Microsoft Services Agreement](https://www.microsoft.com/servicesagreement).
 
 ## License
 
-This project is open source. Please ensure compliance with Xbox's terms of service when using.
+[MIT](./LICENSE) © David Howard. Provided as-is; use it responsibly and in accordance with Xbox's terms of service.
 
 ## Acknowledgments
 

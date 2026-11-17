@@ -4,9 +4,9 @@
 #![cfg(feature = "native-webrtc")]
 
 use std::time::{Duration, Instant};
-use xbox_remote::auth::XboxAuth;
-use xbox_remote::rtc::RtcEvent;
-use xbox_remote::rtc::engine;
+use kite::auth::XboxAuth;
+use kite::rtc::RtcEvent;
+use kite::rtc::engine;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_connect_handshake_receive() {
@@ -91,7 +91,7 @@ async fn e2e_connect_handshake_receive() {
 
     let clip = handle.clip().await.expect("a clip should assemble from the buffered AUs");
     assert!(!clip.video.is_empty(), "clip has video frames");
-    let mp4 = xbox_remote::clip::mux_opus_to_mp4(&clip).expect("mux the clip to MP4");
+    let mp4 = kite::clip::mux_opus_to_mp4(&clip).expect("mux the clip to MP4");
     assert!(mp4.windows(4).any(|w| w == b"ftyp"), "muxed clip is a fast-start MP4");
 
     handle.disconnect();

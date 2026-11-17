@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "Xbox Remote",
+        "title": "Kite",
         "width": 1280,
         "height": 800,
         "resizable": true,

@@ -25,6 +25,18 @@ describe("connectingSteps", () => {
       video: "done",
     });
   });
+
+  it("marks the video step 'na' (grayed) in audio-only mode", () => {
+    expect(
+      connectingSteps({ handshakeComplete: true, videoArrived: false, audioOnly: true }),
+    ).toEqual({ session: "done", handshake: "done", video: "na" });
+  });
+
+  it("keeps video 'na' in audio-only even before the handshake completes", () => {
+    expect(
+      connectingSteps({ handshakeComplete: false, videoArrived: false, audioOnly: true }).video,
+    ).toBe("na");
+  });
 });
 
 describe("shouldShowSplash", () => {

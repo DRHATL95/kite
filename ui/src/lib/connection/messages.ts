@@ -1,5 +1,5 @@
 /**
- * messages.ts — Xbox Remote wire-protocol message types
+ * messages.ts — Kite wire-protocol message types
  *
  * TypeScript shapes for every JSON message sent or received over the
  * WebRTC data channels.  All field names / values are taken verbatim from

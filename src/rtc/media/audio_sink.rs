@@ -80,16 +80,19 @@ mod cpal_sink {
             let device = host
                 .default_output_device()
                 .ok_or_else(|| RtcError::Decode("no audio output device".into()))?;
+            // cpal 0.18 turned SampleRate from a newtype into a plain alias, so
+            // the rate is written bare rather than wrapped.
             let config = cpal::StreamConfig {
                 channels: 2,
-                sample_rate: cpal::SampleRate(48_000),
+                sample_rate: 48_000,
                 buffer_size: cpal::BufferSize::Default,
             };
             let ring = Arc::new(AudioRing::new(Self::RING_CAP));
             let cb_ring = ring.clone();
             let stream = device
+                // 0.18 takes the config by value; nothing reads it afterwards.
                 .build_output_stream(
-                    &config,
+                    config,
                     move |out: &mut [i16], _| cb_ring.fill(out),
                     |e| tracing::warn!("cpal stream error: {e}"),
                     None,

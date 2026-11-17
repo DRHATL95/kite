@@ -1,4 +1,4 @@
-//! Xbox Remote library crate.
+//! Kite library crate.
 //!
 //! The application logic lives here as a library so that **examples**
 //! (`examples/*.rs`), **integration tests** (`tests/*.rs`), and future binaries
@@ -10,12 +10,14 @@ pub mod auth;
 pub mod clip;
 pub mod error;
 pub mod logging;
+pub mod releases;
 // `rtc` compiles in the default build: its pure protocol modules (input/protocol/
 // clip_tap) and trait seams carry no codec/transport deps and are unit-tested
 // without the feature. Only the str0m/ffmpeg-backed engine + adapters inside it
 // are gated behind `native-webrtc` (see src/rtc/mod.rs).
 pub mod rtc;
 pub mod token_store;
+pub mod tray;
 pub mod updater;
 pub mod xhome;
 
@@ -36,14 +38,36 @@ pub fn run() {
     //
     // Each variable is only set if the user hasn't already set it (so they can
     // override individually), and the entire workaround is skipped when
-    // XBOX_REMOTE_NATIVE_WAYLAND is set — for setups where native Wayland already
-    // works and the user prefers it (e.g. HiDPI/latency reasons).
+    // KITE_NATIVE_WAYLAND is set (legacy alias: XBOX_REMOTE_NATIVE_WAYLAND) — for
+    // setups where native Wayland already works and the user prefers it (e.g.
+    // HiDPI/latency reasons).
     //
     // SAFETY: runs at the very top of run() (the first thing main() calls),
     // before any other thread is spawned, so there is no concurrent access to the
     // environment.
+    //
+    // The native engine never hands video to WebKit, so none of that applies to a
+    // native-webrtc build, and the workaround is actively harmful there: with the
+    // DMA-BUF renderer off WebKit has no composited mode left, and its non-composited
+    // mode only shows regions that change (window black until a resize, static HUD
+    // text missing, measured 2026-11-16 on NVIDIA + KDE). On a Wayland session such a
+    // build therefore stays on native Wayland with WebKit's default renderer.
+    // KITE_FORCE_XWAYLAND=1 restores the workaround.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_none() {
+    let native_wayland = std::env::var_os("KITE_NATIVE_WAYLAND").is_some()
+        || std::env::var_os("XBOX_REMOTE_NATIVE_WAYLAND").is_some()
+        || (cfg!(feature = "native-webrtc")
+            && std::env::var_os("WAYLAND_DISPLAY").is_some()
+            && std::env::var_os("KITE_FORCE_XWAYLAND").is_none());
+    // Drawing the video through GDK's GL path on NVIDIA + Wayland aborts at startup with
+    // "Error 71 (Protocol error)" unless explicit sync is off (measured 2026-11-16). Other
+    // drivers ignore the variable. SAFETY: as below, no other thread exists yet.
+    #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
+    if native_wayland && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+        unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
+    }
+    #[cfg(target_os = "linux")]
+    if !native_wayland {
         if std::env::var_os("GDK_BACKEND").is_none() {
             unsafe { std::env::set_var("GDK_BACKEND", "x11") };
         }
@@ -53,6 +77,12 @@ pub fn run() {
         // only making the HUD transparent once video is actually flowing.
         if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
             unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
+        }
+        // Nvidia: the DMA-BUF renderer fails with "Failed to create GBM buffer" and the
+        // webview paints white. Checked against the UI only, not live video; a value
+        // already in the environment wins.
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
         }
     }
 
@@ -68,11 +98,11 @@ pub fn run() {
             let log_dir = app
                 .path()
                 .app_log_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("xbox-remote-logs"));
+                .unwrap_or_else(|_| std::env::temp_dir().join("kite-logs"));
             let (log_state, log_guard) = logging::init_logging(&log_dir);
             app.manage(log_state);
             app.manage(log_guard);
-            tracing::info!("xbox-remote starting; logs at {}", log_dir.display());
+            tracing::info!("kite starting; logs at {}", log_dir.display());
 
             // Initialize app state
             let auth = auth::XboxAuth::new();
@@ -95,6 +125,12 @@ pub fn run() {
                 rtc: Mutex::new(None),
             });
             app.manage(updater::PendingUpdate::default());
+
+            // Always-on system tray (Show/Quit + restore-on-click). Non-fatal:
+            // if it fails, the app still runs and close simply quits.
+            if let Err(e) = tray::build_tray(app) {
+                tracing::warn!("tray icon setup failed (continuing without tray): {e}");
+            }
 
             // Mount the native GTK video surface UNDER the transparent web HUD.
             // Linux + native-webrtc only; the browser path (Windows/macOS, or
@@ -153,11 +189,13 @@ pub fn run() {
             tauri_commands::save_clip,
             updater::check_update,
             updater::install_update,
+            releases::get_releases,
             logging::log_event,
             logging::get_recent_logs,
             logging::set_log_verbosity,
             logging::open_log_dir,
             logging::export_logs,
+            tray::set_tray_theme,
             tauri_commands::rtc_native_available,
             tauri_commands::rtc_connect,
             tauri_commands::rtc_disconnect,
@@ -407,10 +445,29 @@ mod tauri_commands {
         play_path: Option<String>,
         state: State<'_, AppState>,
     ) -> Result<String, String> {
+        // Self-heal auth before creating the session. The persistent XHomeClient
+        // mints its gsToken once at login and never refreshes it, and the XSTS
+        // token also expires ~1h — so a reconnect (or a connect from an idle
+        // console list) after expiry would 401 and surface as a generic failure.
+        // Refresh the XSTS if near expiry (auth-before-xhome lock order), then
+        // re-login for a fresh gsToken, then create the session.
+        state
+            .auth
+            .lock()
+            .await
+            .ensure_valid_tokens()
+            .await
+            .map_err(|e| format!("Session auth refresh failed: {}", e))?;
+
         let mut xhome = state.xhome.lock().await;
         let client = xhome
             .as_mut()
             .ok_or_else(|| "Not authenticated. Please login first.".to_string())?;
+
+        client
+            .login()
+            .await
+            .map_err(|e| format!("xHome re-login failed: {}", e))?;
 
         let stream_config = client
             .create_session(&server_id, play_path.as_deref())
@@ -523,7 +580,7 @@ mod tauri_commands {
         }
     }
 
-    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Xbox Remote Clips/.
+    /// Persist a recorded clip (raw WebM bytes) under <Videos>/Kite Clips/.
     /// Bytes arrive as a raw IPC body; the file name is passed via the X-Clip-Name header.
     /// Returns the absolute path of the written file.
     #[tauri::command]
@@ -539,7 +596,7 @@ mod tauri_commands {
 
         let dir = dirs::video_dir()
             .ok_or_else(|| "could not resolve Videos directory".to_string())?
-            .join("Xbox Remote Clips");
+            .join("Kite Clips");
         std::fs::create_dir_all(&dir).map_err(|e| format!("create dir failed: {e}"))?;
 
         let path = clip_file_path(&dir, name)?;
@@ -565,6 +622,7 @@ mod tauri_commands {
 
     /// Minimal gamepad button state mirroring the JS `GamepadButton` interface.
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)] // fields mirror the JS DTO shape for deserialization; not read on the Rust side
     pub struct GamepadButtonDto {
         pub pressed: bool,
         pub value: f64,
@@ -575,6 +633,7 @@ mod tauri_commands {
     /// `buttons`: full Standard Gamepad button array.
     /// `axes`: [leftX, leftY, rightX, rightY] in the range −1..+1.
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)] // fields mirror the JS DTO shape for deserialization; not read on the Rust side
     pub struct GamepadStateDto {
         pub buttons: Vec<GamepadButtonDto>,
         pub axes: [f64; 4],
@@ -729,14 +788,14 @@ mod tauri_commands {
         }
     }
 
-    /// Resolve the clips directory (`<Videos>/Xbox Remote Clips/`), creating it
+    /// Resolve the clips directory (`<Videos>/Kite Clips/`), creating it
     /// if absent. Shared between `save_clip` (browser path) and `rtc_save_clip`
     /// (native path).
     #[cfg(feature = "native-webrtc")]
     fn clips_dir() -> Result<std::path::PathBuf, String> {
         let dir = dirs::video_dir()
             .ok_or_else(|| "could not resolve Videos directory".to_string())?
-            .join("Xbox Remote Clips");
+            .join("Kite Clips");
         std::fs::create_dir_all(&dir).map_err(|e| format!("create clips dir: {e}"))?;
         Ok(dir)
     }
@@ -809,11 +868,27 @@ mod tauri_commands {
             // Forward events to the webview. The task exits when the channel
             // closes (engine exited), emitting `Ended` as the final event.
             let app_for_task = app.clone();
+            #[cfg(target_os = "linux")]
+            let sink_for_task = state.frame_sink.clone();
             tokio::spawn(async move {
                 let mut rx = rx;
                 while let Some(ev) = rx.recv().await {
                     let dto = rtc_event_to_dto(ev);
                     let _ = app_for_task.emit("rtc_event", dto);
+                }
+                // However the engine ended (disconnect, console off, error), drop its last frame.
+                #[cfg(target_os = "linux")]
+                sink_for_task.clear();
+                // The engine is gone: forget its handle, or the next rtc_connect is refused
+                // as "already connected" until the app restarts (seen 2026-11-16 after the
+                // engine gave up on a console that was powered off).
+                {
+                    use tauri::Manager;
+                    let handle = app_for_task.state::<AppState>().rtc.lock().await.take();
+                    if let Some(handle) = handle {
+                        // disconnect() joins the (already finishing) engine thread.
+                        let _ = tokio::task::spawn_blocking(move || handle.disconnect()).await;
+                    }
                 }
                 let _ = app_for_task.emit("rtc_event", RtcEventDto::Ended);
             });
@@ -947,9 +1022,10 @@ mod native_render {
     use tauri::{AppHandle, Manager};
 
     use crate::rtc::media::frame_sink::SharedFrame;
-    use crate::rtc::media::render_gtk::GtkGlRenderer;
+    use crate::rtc::media::render_cairo::CairoVideo;
+    use crate::rtc::media::render_gdkgl::GlUnderlay;
 
-    /// Re-parent the main window's webview onto a GL video surface.
+    /// Paint decoded video in the main window, underneath its webview.
     ///
     /// Must run on the GTK main thread; Tauri's `.setup()` runs there, and the
     /// GTK work is additionally deferred into [`tauri::WebviewWindow::with_webview`],
@@ -968,33 +1044,11 @@ mod native_render {
         let result = window.with_webview(move |platform_webview| {
             use gtk::prelude::*;
 
-            // The live webkit2gtk::WebView (an `IsA<gtk::Widget>`). Upcast to a
-            // plain Widget so we never have to name the webkit2gtk crate (it's a
-            // transitive dep of wry/tauri, sharing our gtk 0.18).
+            // The webview is deliberately left exactly where Tauri put it. Re-parenting it
+            // into a gtk::Overlay above a GLArea (the 2026-06 design) empties WebKit's
+            // backing store: the window stayed black until a manual resize. Instead the
+            // video is drawn under it in place; how depends on the backend (below).
             let webview_widget: gtk::Widget = platform_webview.inner().upcast();
-
-            // Tauri's window tree is `gtk::ApplicationWindow → gtk::Box (vbox) →
-            // webview`. We re-home the webview into a `gtk::Overlay` so video can
-            // composite under it — but the overlay must become the window's
-            // *direct* child, NOT another layer inside the vbox.
-            //
-            // Why: wry attaches an undecorated-resize handler to every webview
-            // (`tauri-runtime-wry .../undecorated_resizing.rs`) that, on a
-            // left-button press, does `webview.parent().parent().downcast::<gtk::
-            // Window>().unwrap()`. That walks exactly two levels up and expects
-            // the gtk::Window. If we leave the overlay nested in the vbox
-            // (`window → vbox → overlay → webview`), that walk lands on the vbox
-            // (a GtkBox), the downcast `unwrap()` fails, and because it runs
-            // inside a GTK C callback the panic is non-unwinding → the whole app
-            // aborts on the first click. Keeping `window → overlay → webview`
-            // preserves the two-hop invariant. (Found live, 2026-06-22.)
-            let vbox = match window_for_closure.default_vbox() {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!("native_render: default_vbox() failed: {e}");
-                    return;
-                }
-            };
             let gtk_window = match window_for_closure.gtk_window() {
                 Ok(w) => w,
                 Err(e) => {
@@ -1003,66 +1057,110 @@ mod native_render {
                 }
             };
 
-            // Detach the webview from the vbox, then remove the now-empty vbox
-            // from the window so the overlay can take its place as the window's
-            // sole child (gtk::ApplicationWindow is a Bin — one child only).
-            if let Some(parent) = webview_widget.parent()
-                && let Ok(container) = parent.downcast::<gtk::Container>()
-            {
-                container.remove(&webview_widget);
-            }
-            gtk_window.remove(&vbox);
-
-            // Build Overlay { GLArea base (video), webview overlay on top }.
-            // Mirrors examples/render_live.rs's flicker-free composite. We add the
-            // existing webview as the overlay child directly — gtk::Overlay sizes
-            // overlay children to fill the overlay by default.
-            let overlay = gtk::Overlay::new();
-            let gl_area = gtk::GLArea::new();
-            gl_area.set_has_alpha(true);
-            gl_area.set_auto_render(true);
-
-            // Wire the reusable GL renderer (realize + render closures) before
-            // the area is shown, matching render_live's ordering.
-            GtkGlRenderer::attach(&gl_area, Arc::clone(&frame_sink));
-
-            overlay.add(&gl_area);
-            overlay.add_overlay(&webview_widget);
-
-            // Install the overlay as the window's direct child and show the tree.
-            gtk_window.add(&overlay);
-            overlay.show_all();
-
-            // ~60fps render tick on the GTK main loop (Tauri-owned): repaint the
-            // GL surface only when the decode thread has actually published a new
-            // frame. Skipping queue_render while idle keeps the shared GTK main
-            // thread free for the WebKit HUD — otherwise a constant 60fps redraw
-            // (with WebKit compositing disabled) makes the HUD sluggish on the
-            // login / console-list / connecting screens.
-            let area_tick = gl_area.clone();
-            let sink_tick = Arc::clone(&frame_sink);
-            let tick_id = gtk::glib::timeout_add_local(
-                std::time::Duration::from_millis(16),
-                move || {
-                    if sink_tick.has_pending() {
-                        area_tick.queue_render();
+            let video = std::rc::Rc::new(std::cell::RefCell::new(CairoVideo::default()));
+            let sink_draw = Arc::clone(&frame_sink);
+            // How the video gets under the webview depends on how GTK draws the webview
+            // (each measured 2026-11-16, NVIDIA + KDE):
+            // - Wayland, WebKit composited: the webview goes through GDK's GL path, which
+            //   only blends it over other GL content, so the video is a GL texture. It is
+            //   drawn from the WEBVIEW's own draw signal, ahead of WebKit's handler, and
+            //   the texture has no alpha. Both matter: GTK marks a widget's area as
+            //   "cairo painted over GL" just before emitting its draw signal, and WebKit's
+            //   translucent draw then re-uploads GTK's whole cairo layer for that area
+            //   (59 MB per frame at 4K x2, measured as ~7 of every 25 GL transfer calls)
+            //   unless an opaque texture has been drawn there since (gdk/gdkgl.c).
+            // - X11/XWayland, WebKit non-composited: the webview replaces whatever is under
+            //   it, so paint with cairo from the WINDOW's draw signal AFTER it, beneath
+            //   (DEST_OVER).
+            let wayland = gtk_window.display().type_().name().contains("Wayland");
+            let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
+            let dirty_tick = std::rc::Rc::clone(&dirty);
+            let cleared = std::rc::Rc::new(std::cell::Cell::new(false));
+            let cleared_tick = std::rc::Rc::clone(&cleared);
+            if wayland {
+                let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
+                let gl_failed = std::cell::Cell::new(false);
+                webview_widget.connect_draw(move |widget, cr| {
+                    let scale = widget.scale_factor().max(1);
+                    let size = (
+                        widget.allocated_width().max(1) * scale,
+                        widget.allocated_height().max(1) * scale,
+                    );
+                    let frame = sink_draw.take_due(std::time::Instant::now());
+                    if let (Some(gdk_window), false) = (widget.window(), gl_failed.get()) {
+                        let mut underlay = underlay.borrow_mut();
+                        if underlay.is_none() {
+                            match GlUnderlay::new(&gdk_window) {
+                                Ok(u) => *underlay = Some(u),
+                                Err(e) => {
+                                    tracing::error!("native_render: GL underlay unavailable, video hidden: {e}");
+                                    gl_failed.set(true);
+                                }
+                            }
+                        }
+                        if let Some(u) = underlay.as_mut() {
+                            if cleared.replace(false) {
+                                u.clear();
+                            }
+                            if frame.is_some() || dirty.replace(false) || u.size() != size {
+                                u.render(frame.as_ref(), size);
+                            }
+                            u.draw(cr, &gdk_window, scale);
+                        }
                     }
-                    gtk::glib::ControlFlow::Continue
-                },
-            );
+                    gtk::glib::Propagation::Proceed
+                });
+            } else {
+                // `true` = run after the default handler, i.e. once the webview has drawn.
+                gtk_window.connect_local("draw", true, move |args| {
+                    use gtk::glib::value::ToValue;
+                    if let (Ok(win), Ok(cr)) = (
+                        args[0].get::<gtk::ApplicationWindow>(),
+                        args[1].get::<gtk::cairo::Context>(),
+                    ) {
+                        let area = win.child().map(|c| c.allocation()).unwrap_or_else(|| win.allocation());
+                        let scale = win.scale_factor().max(1);
+                        let mut video = video.borrow_mut();
+                        if cleared.replace(false) {
+                            video.clear();
+                        }
+                        if let Some(frame) = sink_draw.take_due(std::time::Instant::now()) {
+                            let px = |v: i32| (v.max(1) * scale) as u32;
+                            video.update(&frame, (px(area.width()), px(area.height())));
+                        }
+                        video.paint(
+                            &cr,
+                            (area.x() as f64, area.y() as f64, area.width() as f64, area.height() as f64),
+                            scale as f64,
+                            true,
+                        );
+                    }
+                    Some(false.to_value())
+                });
+            }
 
-            // Cancel the tick when the GLArea is destroyed so we never call
-            // queue_render on a dead widget and never leak the source (matters
-            // if the window/area is ever torn down and re-created).
-            let tick_id = std::rc::Rc::new(std::cell::RefCell::new(Some(tick_id)));
-            gl_area.connect_unrealize(move |_| {
-                if let Some(id) = tick_id.borrow_mut().take() {
-                    id.remove();
+            // Present on the display's own frame clock (GdkFrameClock), not a timer: a new
+            // frame is picked up at the next refresh after its playout time, whatever the
+            // refresh rate. A 16 ms glib timer here lost 12 to 22 frames a second in
+            // gameplay (see frame_sink). The tick only asks for a redraw when a frame is
+            // due, so an idle HUD still costs nothing. GTK removes it with the widget.
+            let sink_tick = Arc::clone(&frame_sink);
+            let redraw: gtk::Widget = if wayland { webview_widget.clone() } else { gtk_window.clone().upcast() };
+            redraw.add_tick_callback(move |widget, _clock| {
+                if sink_tick.take_cleared() {
+                    // The stream ended: never leave its last frame behind the UI.
+                    dirty_tick.set(true);
+                    cleared_tick.set(true);
+                    widget.queue_draw();
                 }
+                if sink_tick.has_due(std::time::Instant::now()) {
+                    widget.queue_draw();
+                }
+                gtk::glib::ControlFlow::Continue
             });
 
             tracing::info!(
-                "native_render: mounted GLArea under the webview HUD (awaiting frames from rtc_connect)"
+                "native_render: window paints video under the webview HUD (awaiting frames from rtc_connect)"
             );
         });
 

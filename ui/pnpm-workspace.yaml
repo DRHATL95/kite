@@ -1,0 +1,6 @@
+# pnpm 10+ refuses to run dependency install scripts unless they're allowed
+# here, and `pnpm install --frozen-lockfile` exits 1 (ERR_PNPM_IGNORED_BUILDS)
+# when any are ignored — which broke every CI run. esbuild's postinstall just
+# unpacks its platform-native binary, which vite needs to build.
+allowBuilds:
+  esbuild: true

@@ -81,9 +81,7 @@ fn main() -> wry::Result<()> {
             eprintln!("GLArea context error");
             return;
         }
-        let gl = unsafe {
-            glow::Context::from_loader_function(|s| load_gl_proc(s))
-        };
+        let gl = unsafe { glow::Context::from_loader_function(load_gl_proc) };
         unsafe {
             use glow::HasContext as _;
             let vao = gl.create_vertex_array().unwrap();
@@ -244,14 +242,13 @@ fn load_gl_proc(s: &str) -> *const std::ffi::c_void {
             ("libGL.so.1", b"glXGetProcAddress\0".as_slice()),
             ("libEGL.so.1", b"eglGetProcAddress\0".as_slice()),
         ] {
-            if let Ok(lib) = libloading::Library::new(lib_name) {
-                if let Ok(f) = lib
-                    .get::<unsafe extern "C" fn(*const i8) -> *const std::ffi::c_void>(sym)
-                {
-                    let ptr = f(name.as_ptr());
-                    if !ptr.is_null() {
-                        return ptr;
-                    }
+            if let Ok(lib) = libloading::Library::new(lib_name)
+                && let Ok(f) =
+                    lib.get::<unsafe extern "C" fn(*const i8) -> *const std::ffi::c_void>(sym)
+            {
+                let ptr = f(name.as_ptr());
+                if !ptr.is_null() {
+                    return ptr;
                 }
             }
         }

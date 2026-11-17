@@ -35,13 +35,15 @@ import {
 
 import type { XHomeConsole } from "../ipc/types.js";
 import type { EncodedTap } from "../clip/EncodedTap.js";
-import type { ConnectionBackend } from "./backend.js";
-import type { ConnectionManagerCallbacks } from "./ConnectionManager.js";
+import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
 import type { DiagnosticsSnapshot, SessionState } from "./types.js";
+import type { QualityParams } from "./streamQuality.js";
 
 import { GamepadPoller } from "./input.js";
+import { KeyboardTracker } from "./keyboardTracker.js";
 import { mapStats, completeSnapshot } from "./nativeStats.js";
 import { RECONNECT_MAX_ATTEMPTS } from "./constants.js";
+import { DEFAULT_MAPPING, type ControllerMapping } from "./controllerMapping.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NativeConnection
@@ -62,7 +64,9 @@ export class NativeConnection implements ConnectionBackend {
   private _generation = 0;
   private _unlisten: UnlistenFn | null = null;
   private _poller: GamepadPoller | null = null;
+  private _keyboardTracker: KeyboardTracker | null = null;
   private _console: XHomeConsole | null = null;
+  private _controllerMapping: ControllerMapping = DEFAULT_MAPPING;
 
   // ── Synthesised snapshot fields ────────────────────────────────────────────
   /** Fields we synthesise from lifecycle events (no RTCStats in native mode). */
@@ -86,11 +90,12 @@ export class NativeConnection implements ConnectionBackend {
    * Does not throw; failures arrive as a terminal `disconnected` event which
    * transitions state to "failed" and fires `onStateChange("failed")`.
    */
-  async connect(xboxConsole: XHomeConsole): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams; controllerMapping?: ControllerMapping }): Promise<void> {
     this._console = xboxConsole;
     this._connectStartedAt = Date.now();
     this._synth = {};
     this._currentAttempt = 0;
+    this._controllerMapping = opts?.controllerMapping ?? DEFAULT_MAPPING;
 
     // Bump generation: any in-flight callbacks from a previous session are now stale.
     const myGeneration = ++this._generation;
@@ -104,6 +109,12 @@ export class NativeConnection implements ConnectionBackend {
       this._handleEvent(event);
     });
 
+    // Keyboard-as-gamepad fallback (same as the browser path): consulted only
+    // when no physical pad is connected.
+    const keyboard = new KeyboardTracker();
+    keyboard.attach();
+    this._keyboardTracker = keyboard;
+
     // Start the gamepad poller. On 'gamepad' emits forward state to the engine;
     // 'metadata' emits are ignored (the native engine handles client-metadata itself).
     this._poller = new GamepadPoller((emit) => {
@@ -113,7 +124,7 @@ export class NativeConnection implements ConnectionBackend {
         });
       }
       // metadata → no-op
-    });
+    }, () => keyboard.pressed, () => this._controllerMapping);
     this._poller.start();
   }
 
@@ -136,6 +147,11 @@ export class NativeConnection implements ConnectionBackend {
       this._poller = null;
     }
 
+    if (this._keyboardTracker) {
+      this._keyboardTracker.detach();
+      this._keyboardTracker = null;
+    }
+
     this._setState("idle");
   }
 
@@ -147,6 +163,9 @@ export class NativeConnection implements ConnectionBackend {
       // Best-effort
     });
   }
+
+  /** No-op: native video renders via the GTK GLArea, not a DOM receiver track. */
+  setVideoHidden(_hidden: boolean): void {}
 
   /**
    * Attach/detach the encoded-frame clip tap.

@@ -1,5 +1,5 @@
 /**
- * ConnectionManager.ts — Xbox Remote streaming state machine
+ * ConnectionManager.ts — Kite streaming state machine
  *
  * Pure-TS class (no Svelte imports).  Owns the session lifecycle, WebRTC peer
  * connection, keepalives, handshake event routing, reconnect logic, and stats
@@ -13,37 +13,34 @@
 
 import {
   createXhomeSession,
-  getIceServers,
-  exchangeSdp,
-  sendIceCandidate,
-  pollIceCandidates,
-  sendSessionKeepalive,
   setStreamStatus,
 } from "../ipc/commands.js";
 
 import {
-  API_KEEPALIVE_MS,
-  IDLE_KEEPALIVE_INTERVAL_MS,
-  IDLE_PULSE_LEFT_THUMB_X,
-  IDLE_PULSE_RECENTER_MS,
-  RECONNECT_MAX_ATTEMPTS,
-  RECONNECT_BASE_DELAY_MS,
-  WAIT_FOR_DATA_CHANNELS_MS,
-  ICE_POLL_MAX_ATTEMPTS,
-  ICE_POLL_INTERVAL_MS,
-  DISCONNECT_GRACE_MS,
-  ICE_GATHER_WAIT_MS,
-  REPORT_TYPE_GAMEPAD,
   MEDIA_MONITOR_TICK_MS,
 } from "./constants.js";
 
 import { createDataChannels, sendKeyframeRequest } from "./dataChannels.js";
+import { serverDisconnectReason } from "./failureReason.js";
+import { QUALITY_PRESETS, type QualityParams } from "./streamQuality.js";
+import { buildManagerStats, type ManagerStatsInputs } from "./managerStats.js";
+import { KeepaliveController } from "./keepalive.js";
+import {
+  resolveIceServers,
+  wireLocalIceForwarding,
+  runSdpExchange,
+  pollRemoteIceCandidates,
+} from "./signaling.js";
+import { ReconnectController } from "./reconnect.js";
 
 import type { EncodedTap } from "../clip/EncodedTap.js";
-import type { ConnectionBackend } from "./backend.js";
+import type { ConnectionBackend, ConnectionManagerCallbacks } from "./backend.js";
 import type { DataChannelSet } from "./dataChannels.js";
 
 import { GamepadPoller, encodeInputEmit, type InputEmit } from "./input.js";
+import { videoTransceiverDirection, tracksReadyToStream, setVideoReceiverEnabled } from "./audioOnly.js";
+import { KeyboardTracker } from "./keyboardTracker.js";
+import { DEFAULT_MAPPING, type ControllerMapping } from "./controllerMapping.js";
 
 import { MediaMonitor } from "./mediaMonitor.js";
 
@@ -51,33 +48,23 @@ import { logger } from "$lib/log/logger.js";
 
 import { StatsSampler } from "./stats.js";
 
-import type { DiagnosticsSnapshot, ManagerStats, SessionState, ChannelStats } from "./types.js";
-import type { XHomeConsole, IceServer, StreamConfig } from "../ipc/types.js";
+import type { DiagnosticsSnapshot, SessionState } from "./types.js";
+import type { XHomeConsole, StreamConfig } from "../ipc/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public interface
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Callbacks the ConnectionManager fires on state changes and data events. */
-export interface ConnectionManagerCallbacks {
-  /** Called on every SessionState transition. */
-  onStateChange: (state: SessionState) => void;
-  /** Called on each DiagnosticsSnapshot emitted by the StatsSampler. */
-  onDiagnostics: (snapshot: DiagnosticsSnapshot) => void;
-  /** Human-readable log messages. */
-  onLog: (msg: string) => void;
-  /**
-   * Called when a MediaStream is ready (first track received).
-   * The stream may not yet have both tracks — the 'streaming' state
-   * transition is gated on BOTH tracks (spec §3.10).
-   */
-  onMediaStream: (stream: MediaStream) => void;
-  /**
-   * Called at the start of each reconnect attempt so the UI can show
-   * a live count without depending on the (stopped) StatsSampler snapshot.
-   */
-  onReconnectAttempt?: (current: number, max: number) => void;
-}
+/**
+ * Callbacks the ConnectionManager fires on state changes and data events.
+ *
+ * Moved to `backend.ts` (type-only; zero runtime change) so both backends
+ * (`ConnectionManager` and `NativeConnection`) can depend on it without
+ * either importing the other. Re-exported here for back-compat with existing
+ * `import type { ConnectionManagerCallbacks } from "./ConnectionManager.js"`
+ * call sites.
+ */
+export type { ConnectionManagerCallbacks } from "./backend.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ConnectionManager
@@ -101,12 +88,8 @@ export class ConnectionManager implements ConnectionBackend {
   private _channels: DataChannelSet | null = null;
 
   // ── Keepalives ─────────────────────────────────────────────────────────────
-  /** API keepalive timer; app.js:12 */
-  private _apiKeepAliveInterval: ReturnType<typeof setInterval> | null = null;
-  /** Periodic idle keepalive interval (after idle warning); app.js:424-428 */
-  private _idleKeepaliveInterval: ReturnType<typeof setInterval> | null = null;
-  /** Tracks when the last keepalive was sent (ms since epoch), for diagnostics. */
-  private _lastKeepaliveAt: number | null = null;
+  /** Owns the API + idle keepalive timers/state; see keepalive.ts. */
+  private readonly _keepalive: KeepaliveController;
 
   // ── Media ──────────────────────────────────────────────────────────────────
   /** app.js:13 */
@@ -141,14 +124,10 @@ export class ConnectionManager implements ConnectionBackend {
   private _sessionId: string | null = null;
 
   // ── Reconnect ──────────────────────────────────────────────────────────────
-  /** app.js:14 */
-  private _reconnectAttempts = 0;
-  /** app.js:16 */
-  private _disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Owns the trigger guards, backoff ladder, and disconnect-grace timer; see reconnect.ts. */
+  private readonly _reconnect: ReconnectController;
   /** Reason for the last reconnect trigger — reported to diagnostics. */
   private _lastTriggerReason: string | null = null;
-  /** Backoff used in the last reconnect (ms). */
-  private _lastBackoffMs: number | null = null;
 
   // ── ICE stats ──────────────────────────────────────────────────────────────
   /** ICE server provenance from getIceServers response. */
@@ -177,10 +156,14 @@ export class ConnectionManager implements ConnectionBackend {
 
   // ── Input stats ────────────────────────────────────────────────────────────
   private _gamepadPoller: GamepadPoller | null = null;
+  /** Active session's audio-only mode; set in connect(), reused across reconnects. */
+  private _audioOnly = false;
+  /** Whether video is hidden this session (receive track disabled). Reused across reconnects. */
+  private _videoHidden = false;
+  private _quality: QualityParams = QUALITY_PRESETS.auto;
+  private _controllerMapping: ControllerMapping = DEFAULT_MAPPING;
+  private _keyboardTracker: KeyboardTracker | null = null;
   private _keyframeRequestsSent = 0;
-
-  // ── Idle warning ───────────────────────────────────────────────────────────
-  private _lastIdleWarningSecondsUntilKick: number | null = null;
 
   // ── Stats sampler ──────────────────────────────────────────────────────────
   private _sampler: StatsSampler | null = null;
@@ -192,13 +175,30 @@ export class ConnectionManager implements ConnectionBackend {
   // ── Callbacks ──────────────────────────────────────────────────────────────
   private readonly _cb: ConnectionManagerCallbacks;
 
-  // ── Input sequence (for idle keepalive; mirrors app.js inputSequenceNum) ───
-  /** Shared with the idle keepalive encoder; app.js:1544 */
-  private _inputSeq = 0;
-
   // ──────────────────────────────────────────────────────────────────────────
   constructor(callbacks: ConnectionManagerCallbacks) {
     this._cb = callbacks;
+    this._keepalive = new KeepaliveController({
+      getSessionPath: () => this._sessionPath,
+      getInputChannel: () => this._channels?.input ?? null,
+      isStreaming: () => this._state === "streaming",
+      log: (m) => this._log(m),
+      onStatsChanged: () => this._pushManagerStats(),
+    });
+    this._reconnect = new ReconnectController({
+      runAttempt: () => this._createSessionAndStream(),
+      cleanup: () => this._cleanupConnection(),
+      getState: () => this._state,
+      setState: (s) => this._setState(s),
+      hasIdentity: () => this._serverId !== null,
+      getPc: () => this._pc,
+      getChannels: () => this._channels,
+      onAttempt: (c, m) => this._cb.onReconnectAttempt?.(c, m),
+      onTriggerAccepted: (reason) => {
+        this._lastTriggerReason = reason;
+      },
+      log: (m) => this._log(m),
+    });
     this._mediaMonitor = new MediaMonitor({
       onMediaStart: () => {
         if (this._state === "connecting" || this._state === "reconnecting") {
@@ -252,7 +252,7 @@ export class ConnectionManager implements ConnectionBackend {
    *
    * app.js:50-69 (connect)
    */
-  async connect(xboxConsole: XHomeConsole): Promise<void> {
+  async connect(xboxConsole: XHomeConsole, opts?: { audioOnly?: boolean; quality?: QualityParams; controllerMapping?: ControllerMapping }): Promise<void> {
     // spec §3.7 duplicate-guard — app.js:51-54
     // Use a local snapshot so TypeScript's control-flow narrowing does NOT
     // eliminate "connecting" from this._state's type for the rest of the method.
@@ -268,7 +268,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._cleanupConnection();
 
     this._setState("connecting");
-    this._reconnectAttempts = 0;
+    this._reconnect.resetAttempts();
 
     // Store for reconnect; app.js:58-60
     this._serverId = xboxConsole.serverId;
@@ -277,6 +277,10 @@ export class ConnectionManager implements ConnectionBackend {
       (xboxConsole as Record<string, unknown>)["serverName"] as string ||
       "Xbox";
     this._consoleType = xboxConsole.consoleType ?? null;
+    this._audioOnly = !!opts?.audioOnly;
+    this._quality = opts?.quality ?? QUALITY_PRESETS.auto;
+    this._controllerMapping = opts?.controllerMapping ?? DEFAULT_MAPPING;
+    this._videoHidden = false;
 
     try {
       await this._createSessionAndStream();
@@ -322,6 +326,17 @@ export class ConnectionManager implements ConnectionBackend {
     this._keyframeRequestsSent++;
     this._log("Sent manual keyframe request");
     this._pushManagerStats();
+  }
+
+  /** Hide/show video locally: disable/enable the video receive track (decode off/on). */
+  setVideoHidden(hidden: boolean): void {
+    this._videoHidden = hidden;
+    this._applyVideoHidden();
+  }
+
+  /** Apply the current hidden state to the live video receiver (no-op if none yet). */
+  private _applyVideoHidden(): void {
+    setVideoReceiverEnabled(this._pc?.getReceivers() ?? [], !this._videoHidden);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -387,7 +402,7 @@ export class ConnectionManager implements ConnectionBackend {
     //
     // app.js:192-198 (comment + _startApiKeepalive() call)
     // spec §3.1
-    this._startApiKeepalive();
+    this._keepalive.startApi();
 
     // Step 2: WebRTC — app.js:201
     await this._setupWebRTC();
@@ -402,43 +417,10 @@ export class ConnectionManager implements ConnectionBackend {
     this._log("Setting up WebRTC...");
 
     // ── ICE servers — app.js:212-232 ────────────────────────────────────────
-    // Fallback STUN list matches app.js:213-217
-    let iceServers: RTCIceServer[] = [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun.services.mozilla.com" },
-    ];
-    let iceSource: "xbox-provided" | "fallback-only" = "fallback-only";
-    let stunCount = 3;
-    let turnCount = 0;
-
-    try {
-      const serverIceConfig: IceServer[] = await getIceServers(
-        this._sessionPath!,
-      );
-      if (serverIceConfig && serverIceConfig.length > 0) {
-        iceServers = serverIceConfig.map((s) => ({
-          urls: s.urls,
-          username: s.username,
-          credential: s.credential,
-        }));
-        iceSource = "xbox-provided";
-
-        // Count STUN vs TURN for diagnostics (spec §5 ICE server provenance)
-        stunCount = 0;
-        turnCount = 0;
-        for (const s of serverIceConfig) {
-          const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
-          for (const u of urls) {
-            if (u.startsWith("turn:") || u.startsWith("turns:")) turnCount++;
-            else stunCount++;
-          }
-        }
-        this._log("ICE servers: " + JSON.stringify(iceServers));
-      }
-    } catch (e) {
-      this._log("Failed to get ICE servers: " + String(e));
-    }
+    // Resolution (fallback STUN list + xbox-provided override + stun/turn
+    // counting) now lives in signaling.ts — see resolveIceServers().
+    const { iceServers, stunCount, turnCount, source: iceSource } =
+      await resolveIceServers(this._sessionPath!, (m) => this._log(m));
 
     this._stunCount = stunCount;
     this._turnCount = turnCount;
@@ -466,6 +448,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._handshakeAckAt = null;
 
     this._channels = createDataChannels(this._pc, {
+      dimensions: { width: this._quality.width, height: this._quality.height },
       onHandshakeComplete: () => {
         this._handshakeAckAt = Date.now();
         this._log("HandshakeAck received — channels fully active");
@@ -476,24 +459,24 @@ export class ConnectionManager implements ConnectionBackend {
         this._pushManagerStats();
       },
       onIdleWarning: (secondsUntilKick: number) => {
-        this._lastIdleWarningSecondsUntilKick = secondsUntilKick;
-        this._log(
-          `Idle warning: ${secondsUntilKick}s until kick — sending keepalive`,
-        );
-        this._sendIdleKeepalive();
-        // Schedule periodic idle keepalives every 30 s to prevent repeated
-        // warnings — app.js:425-429
-        if (!this._idleKeepaliveInterval) {
-          this._idleKeepaliveInterval = setInterval(() => {
-            this._sendIdleKeepalive();
-          }, IDLE_KEEPALIVE_INTERVAL_MS);
-        }
+        // Record + immediate micro-pulse + arm the periodic 30s interval
+        // (once) — all owned by KeepaliveController now; see keepalive.ts.
+        this._keepalive.onIdleWarning(secondsUntilKick);
         this._pushManagerStats();
       },
       onServerDisconnect: (reason: string) => {
         this._log(`Server disconnect: ${reason}`);
-        // spec §3.9 — serverInitiatedDisconnect with reason ≠ WarningForBeingIdle
-        this._triggerReconnect("serverInitiatedDisconnect: " + reason);
+        // A serverInitiatedDisconnect is an ACTIVE control-channel message — the
+        // console is up and deliberately ending the session (power-off / standby /
+        // another user / session ended). Do NOT reconnect (that's the brief-blip
+        // path, driven by iceFailed/controlChannelClosed). Tear down and return to
+        // the console list with a notice via the existing failed → ConsoleList path.
+        // Only skip if already terminal — connecting/reconnecting still route to
+        // failed (the console is deliberately ending the session).
+        if (this._state === "idle" || this._state === "failed") return;
+        this._lastTriggerReason = serverDisconnectReason(reason);
+        this._cleanupConnection();
+        this._setState("failed");
       },
       onControlChannelClosed: () => {
         // spec §3.9 — control channel closed while streaming
@@ -535,35 +518,44 @@ export class ConnectionManager implements ConnectionBackend {
     // ── Transceivers — app.js:250-255 ───────────────────────────────────────
     // spec §3.3: audio sendrecv (for chat/mic), video recvonly
     this._pc.addTransceiver("audio", { direction: "sendrecv" });
-    this._pc.addTransceiver("video", { direction: "recvonly" });
+    this._pc.addTransceiver("video", {
+      direction: videoTransceiverDirection(this._audioOnly),
+    });
 
     // ── Track + connection state + ICE handlers — app.js:258-260 ────────────
     this._tracksReceived = { video: false, audio: false };
     this._hasStartedPlaying = false;
     this._setupTrackHandler();
     this._setupConnectionStateHandler();
-    this._setupIceHandling();
+    // Local-candidate forwarding — formerly _setupIceHandling(); now the
+    // stateless wireLocalIceForwarding() in signaling.ts.
+    wireLocalIceForwarding(this._pc, this._sessionPath!, (m) => this._log(m));
 
-    // ── Create offer — app.js:269-274 ───────────────────────────────────────
-    const offer = await this._pc.createOffer();
-    this._log(`Created SDP offer (${offer.sdp?.length ?? 0} bytes)`);
-    await this._pc.setLocalDescription(offer);
-
-    // Fixed ICE gather wait — spec §3.3, app.js:274 (ICE_GATHER_WAIT_MS = 1000)
-    await new Promise<void>((r) => setTimeout(r, ICE_GATHER_WAIT_MS));
-
-    // ── SDP exchange — app.js:277-287 ───────────────────────────────────────
-    const sdpAnswer: string = await exchangeSdp(
+    // ── Offer/answer SDP exchange — app.js:269-287 ──────────────────────────
+    // createOffer → applyVideoBitrateCap → setLocalDescription →
+    // ICE_GATHER_WAIT_MS wait → exchangeSdp → setRemoteDescription, in that
+    // EXACT order — now the stateless runSdpExchange() in signaling.ts.
+    await runSdpExchange(
+      this._pc,
       this._sessionPath!,
-      this._pc.localDescription!.sdp,
+      this._quality.maxBitrateKbps,
+      (m) => this._log(m),
     );
-    this._log(`Got SDP answer (${sdpAnswer.length} bytes)`);
-
-    await this._pc.setRemoteDescription({ type: "answer", sdp: sdpAnswer });
-    this._log("Set remote description OK");
 
     // ── ICE candidate polling — app.js:290 ──────────────────────────────────
-    await this._pollForIceCandidates();
+    // Formerly _pollForIceCandidates(); now the stateless
+    // pollRemoteIceCandidates() in signaling.ts. Takes a getPc() THUNK (not a
+    // captured pc) so the loop's liveness check still reads the manager's
+    // CURRENT _pc field — preserves the exact late-binding behaviour if
+    // cleanup nulls it mid-poll.
+    const icePoll = await pollRemoteIceCandidates(
+      () => this._pc,
+      this._sessionPath!,
+      (m) => this._log(m),
+    );
+    this._remoteCandidatesAdded = icePoll.added;
+    this._icePollAttemptsUsed = icePoll.attemptsUsed;
+    this._pushManagerStats();
 
     // ── Stats sampler — app.js:293 ──────────────────────────────────────────
     this._startStatsSampler();
@@ -639,18 +631,36 @@ export class ConnectionManager implements ConnectionBackend {
         }
       }
 
+      // Re-apply the in-session hidden state to the (possibly new) video receiver.
+      this._applyVideoHidden();
+
       // Dual-track gate — spec §3.10; app.js:627-666
       // Both tracks negotiated. NOTE: ontrack fires during setRemoteDescription,
       // BEFORE media actually flows. Do NOT go to "streaming" here — arm the
       // media watchdog and let it promote us once frames actually decode.
       if (
-        this._tracksReceived.video &&
-        this._tracksReceived.audio &&
+        tracksReadyToStream(
+          this._audioOnly,
+          this._tracksReceived.video,
+          this._tracksReceived.audio,
+        ) &&
         !this._hasStartedPlaying
       ) {
         this._hasStartedPlaying = true;
-        this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
-        this._mediaMonitor?.arm(Date.now());
+        if (this._audioOnly) {
+          // No video track/frame will ever arrive — promote on audio-track
+          // arrival and do NOT arm the decoded-frame watchdog (it would time out
+          // and reconnect-loop forever). Hard drops are still caught by the
+          // ICE/connection-state handlers.
+          this._log("Audio-only: audio track negotiated — transitioning to streaming");
+          if (this._state === "connecting" || this._state === "reconnecting") {
+            this._setState("streaming");
+            this._startGamepadPoller();
+          }
+        } else {
+          this._log("Both tracks negotiated — arming media watchdog (awaiting first frame)");
+          this._mediaMonitor?.arm(Date.now());
+        }
       }
 
       this._pushManagerStats();
@@ -734,10 +744,7 @@ export class ConnectionManager implements ConnectionBackend {
       setStreamStatus(connState).catch(() => {});
 
       // Clear any pending disconnect grace timer — app.js:698-700
-      if (this._disconnectGraceTimer !== null) {
-        clearTimeout(this._disconnectGraceTimer);
-        this._disconnectGraceTimer = null;
-      }
+      this._reconnect.clearDisconnectGrace();
 
       if (connState === "failed") {
         // spec §3.9 — immediate reconnect on 'failed'
@@ -747,13 +754,12 @@ export class ConnectionManager implements ConnectionBackend {
       } else if (connState === "disconnected") {
         // spec §3.9 — 10 s grace before reconnect
         this._log("WebRTC disconnected — 10s grace before reconnect");
-        this._disconnectGraceTimer = setTimeout(() => {
-          this._disconnectGraceTimer = null;
-          if (pc.connectionState === "disconnected") {
-            this._log("Still disconnected after grace period — reconnecting");
-            this._triggerReconnect("connectionStateDisconnected");
-          }
-        }, DISCONNECT_GRACE_MS);
+        // Grace-timer precision (design spec risk #1): the predicate MUST
+        // re-check THIS handler-closure's captured `pc`
+        // (pc.connectionState === "disconnected"), not a live getPc() thunk —
+        // preserved by capturing the same `pc` local here, exactly as the
+        // original inline setTimeout callback did.
+        this._reconnect.armDisconnectGrace(() => pc.connectionState === "disconnected");
       }
     };
 
@@ -766,231 +772,6 @@ export class ConnectionManager implements ConnectionBackend {
         this._triggerReconnect("iceFailed");
       }
     };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Internal: ICE handling (local candidates)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Wire onicecandidate to forward local candidates to xHome API.
-   *
-   * app.js:740-760 (_setupIceHandling)
-   */
-  private _setupIceHandling(): void {
-    const pc = this._pc!;
-
-    pc.onicecandidate = async (event: RTCPeerConnectionIceEvent) => {
-      if (event.candidate) {
-        this._log(
-          `Local ICE: ${event.candidate.candidate.substring(0, 50)}...`,
-        );
-        try {
-          await sendIceCandidate(
-            this._sessionPath!,
-            JSON.stringify(event.candidate),
-          );
-        } catch (error) {
-          this._log("Failed to send ICE: " + String(error));
-        }
-      } else {
-        this._log("ICE gathering complete");
-      }
-    };
-
-    pc.onicegatheringstatechange = () => {
-      this._log(`ICE gathering state: ${pc.iceGatheringState}`);
-    };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Internal: ICE candidate polling (remote candidates)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Poll xHome for server ICE candidates and add them to the peer connection.
-   *
-   * app.js:763-813 (_pollForIceCandidates)
-   * spec §3.11: up to ICE_POLL_MAX_ATTEMPTS × ICE_POLL_INTERVAL_MS
-   */
-  private async _pollForIceCandidates(): Promise<void> {
-    let attempts = 0;
-    let totalCandidates = 0;
-
-    this._log("Starting ICE candidate polling...");
-
-    while (attempts < ICE_POLL_MAX_ATTEMPTS && this._pc) {
-      try {
-        const candidates = await pollIceCandidates(this._sessionPath!);
-
-        if (candidates && candidates.length > 0) {
-          this._log(`Got ${candidates.length} remote ICE candidates`);
-          for (const candidateObj of candidates) {
-            const candidateStr = candidateObj.candidate.trim();
-            try {
-              await this._pc.addIceCandidate(
-                new RTCIceCandidate({
-                  candidate: candidateStr,
-                  sdpMid: candidateObj.sdpMid,
-                  sdpMLineIndex: candidateObj.sdpMLineIndex,
-                }),
-              );
-              totalCandidates++;
-            } catch (e) {
-              this._log(
-                "Failed to add ICE: " +
-                  (e instanceof Error ? e.message : String(e)),
-              );
-            }
-          }
-        }
-
-        const iceState = this._pc.iceConnectionState;
-        if (iceState === "connected" || iceState === "completed") {
-          this._log("*** ICE CONNECTED ***");
-          break;
-        }
-        if (iceState === "failed") {
-          this._log("*** ICE FAILED ***");
-          break;
-        }
-      } catch (error) {
-        this._log("Error polling ICE: " + String(error));
-      }
-
-      attempts++;
-      await new Promise<void>((r) => setTimeout(r, ICE_POLL_INTERVAL_MS));
-    }
-
-    this._remoteCandidatesAdded = totalCandidates;
-    this._icePollAttemptsUsed = attempts;
-    this._log(`ICE polling done. Added ${totalCandidates} candidates`);
-    this._pushManagerStats();
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Internal: keepalives
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Start the API keepalive interval (must be called BEFORE SDP exchange).
-   *
-   * CRITICAL: session is in "Provisioned" state immediately after creation.
-   * Start the interval here; the first tick fires after API_KEEPALIVE_MS (30 s)
-   * so we don't send a keepalive before SDP is even exchanged — exactly matching
-   * app.js:556-586 (_startApiKeepalive) where the interval is set without an
-   * immediate first call.
-   *
-   * app.js:556-586 (_startApiKeepalive); spec §3.2
-   */
-  private _startApiKeepalive(): void {
-    // Idempotent — app.js:557
-    if (this._apiKeepAliveInterval !== null || !this._sessionPath) return;
-
-    this._log(
-      `Starting API keepalive every ${API_KEEPALIVE_MS / 1000}s for: ${this._sessionPath}`,
-    );
-
-    const sendApiKeepalive = (): void => {
-      if (!this._sessionPath) {
-        this._stopApiKeepalive();
-        return;
-      }
-      sendSessionKeepalive(this._sessionPath)
-        .then((status: string) => {
-          this._lastKeepaliveAt = Date.now();
-          this._log("API keepalive OK: " + status);
-          this._pushManagerStats();
-        })
-        .catch((e: unknown) => {
-          const errStr = String(e);
-          // Xbox rejects API keepalives once streaming starts (state machine
-          // moves past "Provisioned").  Stop silently — app.js:573-579.
-          if (
-            errStr.includes("SessionInUnexpectedState") ||
-            errStr.includes("400") ||
-            this._state === "streaming"
-          ) {
-            this._log("API keepalive stopped (data channel is keepalive)");
-            this._stopApiKeepalive();
-          } else {
-            this._log("API keepalive FAILED: " + errStr);
-          }
-        });
-    };
-
-    // Don't send immediately — start interval at 30 s — app.js:585
-    this._apiKeepAliveInterval = setInterval(sendApiKeepalive, API_KEEPALIVE_MS);
-  }
-
-  private _stopApiKeepalive(): void {
-    if (this._apiKeepAliveInterval !== null) {
-      clearInterval(this._apiKeepAliveInterval);
-      this._apiKeepAliveInterval = null;
-    }
-  }
-
-  private _stopAllKeepalives(): void {
-    this._stopApiKeepalive();
-    if (this._idleKeepaliveInterval !== null) {
-      clearInterval(this._idleKeepaliveInterval);
-      this._idleKeepaliveInterval = null;
-    }
-  }
-
-  /**
-   * Send a micro-pulse idle keepalive on the input channel.
-   *
-   * Sends a 38-byte gamepad packet with LeftThumbX = 4096 (~12.5% deflection,
-   * inside most game deadzones) to reset the Xbox idle timer, then recenters
-   * after IDLE_PULSE_RECENTER_MS.
-   *
-   * app.js:891-923 (sendIdleKeepalive); spec §3.2
-   */
-  private _sendIdleKeepalive(): void {
-    const inputCh = this._channels?.input;
-    if (!inputCh || inputCh.readyState !== "open") return;
-
-    try {
-      // Build micro-pulse packet — app.js:895-911 (setInt16(18, 4096, true))
-      const buf = new ArrayBuffer(38);
-      const v = new DataView(buf);
-      v.setUint16(0, REPORT_TYPE_GAMEPAD, true);     // reportType
-      v.setUint32(2, this._inputSeq++ >>> 0, true);  // sequence
-      v.setFloat64(6, performance.now(), true);       // timestamp
-      v.setUint8(14, 1);                             // frameCount
-      v.setUint8(15, 0);                             // gamepadIndex
-      v.setUint16(16, 0, true);                      // buttons (none)
-      v.setInt16(18, IDLE_PULSE_LEFT_THUMB_X, true); // LeftThumbX tiny pulse
-      v.setInt16(20, 0, true);                       // LeftThumbY
-      v.setInt16(22, 0, true);                       // RightThumbX
-      v.setInt16(24, 0, true);                       // RightThumbY
-      v.setUint16(26, 0, true);                      // LeftTrigger
-      v.setUint16(28, 0, true);                      // RightTrigger
-      v.setUint32(30, 1, true);                      // PhysicalPhysicality LE
-      v.setUint32(34, 1, false);                     // VirtualPhysicality BE
-      inputCh.send(buf);
-
-      // Immediately recenter so games don't see movement — app.js:914-919
-      setTimeout(() => {
-        const ch = this._channels?.input;
-        if (!ch || ch.readyState !== "open") return;
-        // Neutral frame: all zeros after header
-        const idle = new ArrayBuffer(38);
-        const iv = new DataView(idle);
-        iv.setUint16(0, REPORT_TYPE_GAMEPAD, true);
-        iv.setUint32(2, this._inputSeq++ >>> 0, true);
-        iv.setFloat64(6, performance.now(), true);
-        iv.setUint8(14, 1);
-        // remaining bytes zero → neutral gamepad state
-        iv.setUint32(30, 1, true);   // PhysicalPhysicality LE
-        iv.setUint32(34, 1, false);  // VirtualPhysicality BE
-        ch.send(idle);
-        this._log("Sent idle keepalive (stick micro-pulse + recenter)");
-      }, IDLE_PULSE_RECENTER_MS);
-    } catch (e) {
-      this._log("Idle keepalive failed: " + String(e));
-    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1013,9 +794,15 @@ export class ConnectionManager implements ConnectionBackend {
       ch.send(new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength));
     };
 
-    this._gamepadPoller = new GamepadPoller(onEmit, null);
+    // Keyboard-as-gamepad fallback: the poller prefers a physical pad and only
+    // consults the keyboard when none is connected, so the two never conflict.
+    const keyboard = new KeyboardTracker();
+    keyboard.attach();
+    this._keyboardTracker = keyboard;
+
+    this._gamepadPoller = new GamepadPoller(onEmit, () => keyboard.pressed, () => this._controllerMapping);
     this._gamepadPoller.start();
-    this._log("Started gamepad polling (60 Hz)");
+    this._log("Started gamepad polling (60 Hz) + keyboard input");
   }
 
   private _stopGamepadPoller(): void {
@@ -1023,6 +810,10 @@ export class ConnectionManager implements ConnectionBackend {
       this._gamepadPoller.stop();
       this._gamepadPoller = null;
       this._log("Stopped gamepad polling");
+    }
+    if (this._keyboardTracker !== null) {
+      this._keyboardTracker.detach();
+      this._keyboardTracker = null;
     }
   }
 
@@ -1064,78 +855,40 @@ export class ConnectionManager implements ConnectionBackend {
   /**
    * Build the current ManagerStats and push them into the StatsSampler so the
    * next snapshot emitted to the HUD contains up-to-date manager-owned fields.
+   *
+   * The assembly logic itself lives in the pure, standalone buildManagerStats()
+   * (managerStats.ts) — this method's job is only to gather the ~18 inputs
+   * from `this.*` fields and funnel the result into the sampler.
    */
   private _pushManagerStats(): void {
     if (!this._sampler) return;
 
-    const videoAt = this._videoArrivedAt;
-    const audioAt = this._audioArrivedAt;
-    const skewMs =
-      videoAt !== null && audioAt !== null
-        ? Math.abs(videoAt - audioAt)
-        : null;
-
-    // Per-channel diagnostics
-    const channels: ChannelStats[] = [
-      "chat",
-      "control",
-      "message",
-      "input",
-    ].map((label) => {
-      const ch = this._channels?.[label as keyof DataChannelSet];
-      return {
-        label,
-        state: (ch?.readyState ?? "closed") as RTCDataChannelState,
-        openedAt: this._channelOpenedAt[label] ?? null,
-      };
-    });
-
-    const handshakeMs =
-      this._firstChannelOpenAt !== null && this._handshakeAckAt !== null
-        ? this._handshakeAckAt - this._firstChannelOpenAt
-        : null;
-
-    const msSinceLastKeepalive =
-      this._lastKeepaliveAt !== null
-        ? Date.now() - this._lastKeepaliveAt
-        : null;
-
-    // Active keepalive mode
-    let activeKeepalive: "api" | "idle" | "none" = "none";
-    if (this._apiKeepAliveInterval !== null) {
-      activeKeepalive = "api";
-    } else if (this._idleKeepaliveInterval !== null) {
-      activeKeepalive = "idle";
-    }
-
-    const stats: ManagerStats = {
+    const inputs: ManagerStatsInputs = {
       state: this._state,
       keyframeRequestsSent: this._keyframeRequestsSent,
       remoteCandidatesAdded: this._remoteCandidatesAdded,
       icePollAttemptsUsed: this._icePollAttemptsUsed,
-      source: this._iceSource,
+      iceSource: this._iceSource,
       stunCount: this._stunCount,
       turnCount: this._turnCount,
-      activeKeepalive,
-      msSinceLastKeepalive,
-      lastIdleWarningSecondsUntilKick: this._lastIdleWarningSecondsUntilKick,
-      channels,
-      handshakeMs,
-      currentAttempt: this._reconnectAttempts,
-      maxAttempts: RECONNECT_MAX_ATTEMPTS,
+      apiKeepAliveActive: this._keepalive.mode === "api",
+      idleKeepaliveActive: this._keepalive.mode === "idle",
+      lastKeepaliveAt: this._keepalive.lastKeepaliveAt,
+      lastIdleWarningSecondsUntilKick: this._keepalive.lastIdleWarningSecondsUntilKick,
+      channels: this._channels,
+      channelOpenedAt: this._channelOpenedAt,
+      firstChannelOpenAt: this._firstChannelOpenAt,
+      handshakeAckAt: this._handshakeAckAt,
+      currentAttempt: this._reconnect.attempts,
       lastTriggerReason: this._lastTriggerReason,
-      backoffMs: this._lastBackoffMs,
-      videoArrivedAt: videoAt,
-      audioArrivedAt: audioAt,
-      skewMs,
-      // GamepadPoller exposes no public seq/Hz — provide null for now
-      outboundPacketHz: null,
-      lastSequence: null,
+      backoffMs: this._reconnect.lastBackoffMs,
+      videoArrivedAt: this._videoArrivedAt,
+      audioArrivedAt: this._audioArrivedAt,
       consoleName: this._consoleName,
       consoleType: this._consoleType,
     };
 
-    this._sampler.setManagerStats(stats);
+    this._sampler.setManagerStats(buildManagerStats(inputs, Date.now()));
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1143,146 +896,20 @@ export class ConnectionManager implements ConnectionBackend {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Entry point for auto-reconnect.  Idempotent guards match app.js:731-736
-   * (onConnectionLost).
+   * Entry point for auto-reconnect.  Thin wrapper over ReconnectController —
+   * the entry guard, backoff ladder, and data-channel wait now all live in
+   * reconnect.ts (ReconnectController.trigger()). `_lastTriggerReason` — a
+   * manager-owned diagnostics field, set only when a trigger is actually
+   * honoured, exactly like the monolith — is recorded via the
+   * `onTriggerAccepted` callback wired in the constructor, which
+   * ReconnectController.trigger() calls from its SINGLE internal call site
+   * (after the guard passes) regardless of whether the caller was this
+   * method or the controller's own armDisconnectGrace() expiry.
    *
    * spec §3.9; app.js:731-737 (onConnectionLost)
    */
   private _triggerReconnect(reason: string): void {
-    // Already reconnecting, cleanly idle, or permanently failed — don't stack
-    if (
-      this._state === "reconnecting" ||
-      this._state === "idle" ||
-      this._state === "failed"
-    ) return;
-
-    this._log(`Connection lost (${reason}) — initiating auto-reconnect`);
-    this._lastTriggerReason = reason;
-    void this._reconnect();
-  }
-
-  /**
-   * Silent reconnect loop: up to RECONNECT_MAX_ATTEMPTS attempts with
-   * increasing backoff.  Uses a while-loop rather than recursion so that the
-   * "already reconnecting" guard at the top does not silently swallow retries.
-   *
-   * spec §3.8; app.js:72-122 (reconnect)
-   */
-  private async _reconnect(): Promise<void> {
-    // Prevent a second concurrent cycle (e.g. if _triggerReconnect fires twice
-    // in quick succession before the guard in _triggerReconnect kicks in).
-    // IMPORTANT: compare via a local snapshot so TypeScript's control-flow
-    // analysis does NOT narrow `this._state` for the rest of this async method —
-    // _setState() can change the property during any `await` below.
-    const stateNow = this._state;
-    if (stateNow === "reconnecting") {
-      this._log("Already reconnecting, skipping");
-      return;
-    }
-    if (!this._serverId) {
-      this._log("No serverId stored, cannot reconnect");
-      this._setState("failed");
-      return;
-    }
-
-    this._setState("reconnecting");
-
-    while (this._reconnectAttempts < RECONNECT_MAX_ATTEMPTS) {
-      this._reconnectAttempts++;
-      this._log(
-        `Reconnect attempt ${this._reconnectAttempts}/${RECONNECT_MAX_ATTEMPTS}`,
-      );
-      this._cb.onReconnectAttempt?.(this._reconnectAttempts, RECONNECT_MAX_ATTEMPTS);
-
-      // Clean up the previous (failed) connection before starting a new one.
-      this._cleanupConnection();
-
-      // Increasing backoff: 3 s, 6 s, 9 s — gives Xbox time to expire the old session.
-      // spec §3.8: RECONNECT_BASE_DELAY_MS × attemptNumber; app.js:98-100
-      const delay = RECONNECT_BASE_DELAY_MS * this._reconnectAttempts;
-      this._lastBackoffMs = delay;
-      this._log(`Waiting ${delay / 1000}s before reconnect...`);
-      await new Promise<void>((r) => setTimeout(r, delay));
-
-      // Bail out if the user disconnected during the backoff wait.
-      if (this._state !== "reconnecting") {
-        this._log("Reconnect aborted — state changed to " + this._state);
-        return;
-      }
-
-      try {
-        await this._createSessionAndStream();
-
-        // Bail if disconnect was called while _createSessionAndStream was awaiting.
-        if (this._state !== "reconnecting") {
-          this._cleanupConnection();
-          this._log("Reconnect aborted — state changed to " + this._state);
-          return;
-        }
-
-        // Wait for at least one data channel to open — app.js:106-110
-        const channelReady = await this._waitForDataChannels(
-          WAIT_FOR_DATA_CHANNELS_MS,
-        );
-        if (channelReady) {
-          this._log("Reconnect successful!");
-          this._reconnectAttempts = 0; // Reset counter on success — app.js:109
-          return;
-        }
-        this._log(
-          `Data channels did not open within ${WAIT_FOR_DATA_CHANNELS_MS / 1000}s`,
-        );
-      } catch (error) {
-        this._log(
-          `Reconnect attempt ${this._reconnectAttempts} failed: ` + String(error),
-        );
-      }
-    }
-
-    this._log("Max reconnect attempts reached — giving up");
-    this._setState("failed");
-  }
-
-  /**
-   * Wait for the message channel to reach 'open' state (proves SCTP works).
-   *
-   * app.js:125-150 (_waitForDataChannels)
-   */
-  private _waitForDataChannels(timeoutMs: number): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      // Already open?
-      if (
-        this._channels?.message &&
-        this._channels.message.readyState === "open"
-      ) {
-        resolve(true);
-        return;
-      }
-
-      const timeout = setTimeout(() => resolve(false), timeoutMs);
-
-      // Poll every 250 ms — app.js:136
-      const poll = setInterval(() => {
-        if (
-          this._channels?.message &&
-          this._channels.message.readyState === "open"
-        ) {
-          clearInterval(poll);
-          clearTimeout(timeout);
-          resolve(true);
-          return;
-        }
-        // Bail if connection already died — app.js:142-147
-        if (
-          !this._pc ||
-          this._pc.connectionState === "failed"
-        ) {
-          clearInterval(poll);
-          clearTimeout(timeout);
-          resolve(false);
-        }
-      }, 250);
-    });
+    this._reconnect.trigger(reason);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1297,7 +924,7 @@ export class ConnectionManager implements ConnectionBackend {
    * app.js:816-862 (_cleanupConnection)
    */
   private _cleanupConnection(): void {
-    this._stopAllKeepalives();
+    this._keepalive.stopAll();
     this._stopGamepadPoller();
     this._stopStatsSampler();
 
@@ -1307,10 +934,7 @@ export class ConnectionManager implements ConnectionBackend {
     }
     this._mediaMonitor?.reset();
 
-    if (this._disconnectGraceTimer !== null) {
-      clearTimeout(this._disconnectGraceTimer);
-      this._disconnectGraceTimer = null;
-    }
+    this._reconnect.clearDisconnectGrace();
 
     if (this._pc) {
       // Remove handlers to avoid triggering reconnect during cleanup — app.js:831-836
@@ -1335,7 +959,7 @@ export class ConnectionManager implements ConnectionBackend {
     this._lastSnapshot = null;
 
     // Reset input sequence so reconnect re-initialises — app.js:846-848
-    this._inputSeq = 0;
+    this._keepalive.resetInputSeq();
     this._remoteCandidatesAdded = 0;
     this._icePollAttemptsUsed = 0;
 

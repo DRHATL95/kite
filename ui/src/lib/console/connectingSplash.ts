@@ -12,7 +12,7 @@
  */
 import type { SessionState } from "../connection/types.js";
 
-export type StepStatus = "done" | "active" | "pending";
+export type StepStatus = "done" | "active" | "pending" | "na";
 
 export interface ConnectingSteps {
   session: StepStatus;
@@ -25,16 +25,27 @@ export interface ConnectingProgress {
   handshakeComplete: boolean;
   /** True once the first video track has arrived (videoArrivedAt set). */
   videoArrived: boolean;
+  /** Audio-only: no video track is negotiated, so the video step is N/A. */
+  audioOnly?: boolean;
 }
 
 export function connectingSteps({
   handshakeComplete,
   videoArrived,
+  audioOnly = false,
 }: ConnectingProgress): ConnectingSteps {
   return {
     session: "done",
     handshake: handshakeComplete ? "done" : "active",
-    video: videoArrived ? "done" : handshakeComplete ? "active" : "pending",
+    // Audio-only never negotiates video, so the step is grayed out rather than
+    // left forever "active"/"pending" (it can never complete).
+    video: audioOnly
+      ? "na"
+      : videoArrived
+        ? "done"
+        : handshakeComplete
+          ? "active"
+          : "pending",
   };
 }
 

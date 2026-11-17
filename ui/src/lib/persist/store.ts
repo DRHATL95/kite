@@ -9,11 +9,15 @@
  */
 
 import type { StorageLike } from "../settings/clipSettings.js";
+import { migrateLegacyKeys } from "./migrateLegacyKeys.js";
 
 /** Minimal backend the adapter persists through (injectable for tests). */
 export interface PersistBackend {
   entries(): Promise<[string, string][]>;
   set(key: string, value: string): Promise<void>;
+  /** Remove a key. Optional so lightweight test backends need not implement it;
+   *  used by the one-time legacy-key migration to drop renamed keys. */
+  delete?(key: string): Promise<void>;
 }
 
 const STORE_FILE = "settings.json";
@@ -41,6 +45,7 @@ async function createTauriBackend(): Promise<PersistBackend> {
   return {
     entries: () => store.entries() as Promise<[string, string][]>,
     set: (key, value) => store.set(key, value),
+    delete: (key) => store.delete(key).then(() => undefined),
   };
 }
 
@@ -55,6 +60,14 @@ export async function initPersistence(injected?: PersistBackend): Promise<void> 
     const entries = await backend.entries();
     snapshot.clear();
     for (const [k, v] of entries) snapshot.set(k, v);
+
+    // One-time rebrand migration: rename any surviving `xbox-remote*` keys to
+    // their `kite*` equivalents in the snapshot, then write the change through
+    // (persist the new key when copied, drop the legacy key either way).
+    for (const m of migrateLegacyKeys(snapshot)) {
+      if (m.copied) void backend?.set(m.newKey, m.value);
+      void backend?.delete?.(m.oldKey);
+    }
   } catch (err) {
     console.warn("persistence init failed; using in-memory defaults", err);
     backend = null;

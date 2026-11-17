@@ -13,6 +13,9 @@ function memBackend(initial: [string, string][] = []) {
     set: async (k, v) => {
       saved.set(k, v);
     },
+    delete: async (k) => {
+      saved.delete(k);
+    },
   };
   return { backend, saved };
 }
@@ -43,6 +46,19 @@ describe("persisted adapter", () => {
     persisted.setItem("a", "1");
     await Promise.resolve(); // flush the fire-and-forget write
     expect(saved.get("a")).toBe("1");
+  });
+
+  it("migrates a legacy rebrand key on init and drops it from the backend", async () => {
+    const { backend, saved } = memBackend([["xbox-remote-theme", "midnight"]]);
+    await initPersistence(backend);
+    await Promise.resolve(); // flush the fire-and-forget write-through
+
+    // snapshot exposes the new key, not the legacy one
+    expect(persisted.getItem("kite-theme")).toBe("midnight");
+    expect(persisted.getItem("xbox-remote-theme")).toBeNull();
+    // backend was rewritten: new key persisted, legacy key deleted
+    expect(saved.get("kite-theme")).toBe("midnight");
+    expect(saved.has("xbox-remote-theme")).toBe(false);
   });
 
   it("survives a backend that throws on init (in-memory fallback, no crash)", async () => {

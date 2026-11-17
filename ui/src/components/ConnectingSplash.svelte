@@ -15,9 +15,11 @@
   interface Props {
     console: XHomeConsole | null;
     steps: ConnectingSteps;
+    /** Optional: when provided, render a Cancel button that aborts the connect. */
+    onCancel?: () => void;
   }
 
-  let { console: xc, steps }: Props = $props();
+  let { console: xc, steps, onCancel }: Props = $props();
 
   const name = $derived(xc?.deviceName || "Xbox");
   const type = $derived(xc?.consoleType ?? "");
@@ -36,6 +38,9 @@
     <span class="step step--{steps.handshake}"><i class="dot"></i>handshake</span>
     <span class="step step--{steps.video}"><i class="dot"></i>video</span>
   </div>
+  {#if onCancel}
+    <button type="button" class="splash__cancel" onclick={onCancel}>Cancel</button>
+  {/if}
 </div>
 
 <style>
@@ -122,6 +127,31 @@
     margin-top: var(--space-1);
   }
 
+  /* Subtle escape hatch — lets the user bail out of a connect that's taking too
+     long without waiting for the watchdog timeout. */
+  .splash__cancel {
+    margin-top: var(--space-4);
+    padding: var(--space-1) var(--space-4);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text-dim);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+
+  .splash__cancel:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+
+  .splash__cancel:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+
   .step {
     display: inline-flex;
     align-items: center;
@@ -155,6 +185,13 @@
 
   .step--pending {
     opacity: 0.6;
+  }
+
+  /* Audio-only: the video step can never complete — show it dimmed + struck,
+     but still legible (0.35 was too faint to read). */
+  .step--na {
+    opacity: 0.55;
+    text-decoration: line-through;
   }
 
   @keyframes splashFloat {
