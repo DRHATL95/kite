@@ -308,3 +308,17 @@ All errors use `XboxError` from `src/error.rs`:
 - `IoError` — file / socket operations
 
 Functions return `Result<T>` which is `std::result::Result<T, XboxError>`.
+
+## Rust checks
+
+Run from the repo root before calling a Rust change done; both must pass:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+On Windows this covers default features only; the `native-webrtc` crates are checked by
+the Linux CI job (see **CI coverage** above).
+
+- No `unwrap()` outside tests. Propagate with `?` into `XboxError`, or handle the error.
