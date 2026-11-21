@@ -21,7 +21,9 @@ mod tests {
 
     #[test]
     fn stops_on_session_in_unexpected_state() {
-        assert!(keepalive_should_stop("keepalive: ApiError 400 SessionInUnexpectedState"));
+        assert!(keepalive_should_stop(
+            "keepalive: ApiError 400 SessionInUnexpectedState"
+        ));
     }
 
     #[test]

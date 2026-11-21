@@ -585,38 +585,70 @@ mod tests {
 
     #[test]
     fn mux_opus_produces_playable_mp4_with_opus_track() {
-        use crate::rtc::clip_tap::{AssembledClip, VideoAu, AudioAu};
+        use crate::rtc::clip_tap::{AssembledClip, AudioAu, VideoAu};
         // Minimal H.264 keyframe (SPS+PPS+IDR) — same shape muxide's own test uses.
         let mut kf = Vec::new();
-        kf.extend_from_slice(&[0,0,0,1,0x67,0x42,0x00,0x1e,0xab,0x40,0xf0,0x28,0xd0]); // SPS
-        kf.extend_from_slice(&[0,0,0,1,0x68,0xce,0x38,0x80]);                          // PPS
-        kf.extend_from_slice(&[0,0,0,1,0x65,0x88,0x84,0x00,0x10]);                     // IDR
+        kf.extend_from_slice(&[
+            0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1e, 0xab, 0x40, 0xf0, 0x28, 0xd0,
+        ]); // SPS
+        kf.extend_from_slice(&[0, 0, 0, 1, 0x68, 0xce, 0x38, 0x80]); // PPS
+        kf.extend_from_slice(&[0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00, 0x10]); // IDR
         // Valid Opus packet: TOC config=4 (SILK 20ms) stereo 1 frame = 0x24.
         let opus = vec![0x24u8, 0xc0, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
 
         let clip = AssembledClip {
-            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
-            sps: vec![], pps: vec![], // in-band in the keyframe above
-            video: vec![VideoAu { bytes: kf, pts_sec: 0.0, is_keyframe: true }],
+            width: 1920,
+            height: 1080,
+            fps_num: 60,
+            fps_den: 1,
+            sps: vec![],
+            pps: vec![], // in-band in the keyframe above
+            video: vec![VideoAu {
+                bytes: kf,
+                pts_sec: 0.0,
+                is_keyframe: true,
+            }],
             audio: vec![
-                AudioAu { bytes: opus.clone(), pts_sec: 0.0 },
-                AudioAu { bytes: opus, pts_sec: 0.02 },
+                AudioAu {
+                    bytes: opus.clone(),
+                    pts_sec: 0.0,
+                },
+                AudioAu {
+                    bytes: opus,
+                    pts_sec: 0.02,
+                },
             ],
             start_sec: 0.0,
         };
 
         let mp4 = mux_opus_to_mp4(&clip).expect("mux ok");
-        assert!(mp4.windows(4).any(|w| w == b"ftyp"), "fast-start ftyp present");
-        assert!(mp4.windows(4).any(|w| w == b"Opus"), "Opus sample entry present");
-        assert!(mp4.windows(4).any(|w| w == b"dOps"), "Opus config box present");
+        assert!(
+            mp4.windows(4).any(|w| w == b"ftyp"),
+            "fast-start ftyp present"
+        );
+        assert!(
+            mp4.windows(4).any(|w| w == b"Opus"),
+            "Opus sample entry present"
+        );
+        assert!(
+            mp4.windows(4).any(|w| w == b"dOps"),
+            "Opus config box present"
+        );
     }
 
     #[test]
     fn mux_opus_rejects_empty_video() {
         use crate::rtc::clip_tap::AssembledClip;
         let clip = AssembledClip {
-            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
-            sps: vec![], pps: vec![], video: vec![], audio: vec![], start_sec: 0.0,
+            width: 1920,
+            height: 1080,
+            fps_num: 60,
+            fps_den: 1,
+            sps: vec![],
+            pps: vec![],
+            video: vec![],
+            audio: vec![],
+            start_sec: 0.0,
         };
         assert!(mux_opus_to_mp4(&clip).is_err());
     }
@@ -625,10 +657,19 @@ mod tests {
     fn mux_opus_rejects_non_keyframe_first_frame() {
         use crate::rtc::clip_tap::{AssembledClip, VideoAu};
         let clip = AssembledClip {
-            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
-            sps: vec![], pps: vec![],
-            video: vec![VideoAu { bytes: vec![0, 0, 0, 1, 0x41], pts_sec: 0.0, is_keyframe: false }],
-            audio: vec![], start_sec: 0.0,
+            width: 1920,
+            height: 1080,
+            fps_num: 60,
+            fps_den: 1,
+            sps: vec![],
+            pps: vec![],
+            video: vec![VideoAu {
+                bytes: vec![0, 0, 0, 1, 0x41],
+                pts_sec: 0.0,
+                is_keyframe: false,
+            }],
+            audio: vec![],
+            start_sec: 0.0,
         };
         assert!(mux_opus_to_mp4(&clip).is_err());
     }
@@ -637,14 +678,25 @@ mod tests {
     fn save_assembled_clip_writes_an_mp4_file() {
         use crate::rtc::clip_tap::{AssembledClip, VideoAu};
         let mut kf = Vec::new();
-        kf.extend_from_slice(&[0,0,0,1,0x67,0x42,0x00,0x1e,0xab,0x40,0xf0,0x28,0xd0]);
-        kf.extend_from_slice(&[0,0,0,1,0x68,0xce,0x38,0x80]);
-        kf.extend_from_slice(&[0,0,0,1,0x65,0x88,0x84,0x00,0x10]);
+        kf.extend_from_slice(&[
+            0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1e, 0xab, 0x40, 0xf0, 0x28, 0xd0,
+        ]);
+        kf.extend_from_slice(&[0, 0, 0, 1, 0x68, 0xce, 0x38, 0x80]);
+        kf.extend_from_slice(&[0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00, 0x10]);
         let clip = AssembledClip {
-            width: 1920, height: 1080, fps_num: 60, fps_den: 1,
-            sps: vec![], pps: vec![],
-            video: vec![VideoAu { bytes: kf, pts_sec: 0.0, is_keyframe: true }],
-            audio: vec![], start_sec: 0.0,
+            width: 1920,
+            height: 1080,
+            fps_num: 60,
+            fps_den: 1,
+            sps: vec![],
+            pps: vec![],
+            video: vec![VideoAu {
+                bytes: kf,
+                pts_sec: 0.0,
+                is_keyframe: true,
+            }],
+            audio: vec![],
+            start_sec: 0.0,
         };
         let dir = std::env::temp_dir().join("kite-clip-test");
         let path = save_assembled_clip(&clip, &dir).expect("save ok");

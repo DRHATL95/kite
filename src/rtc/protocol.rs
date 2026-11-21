@@ -92,7 +92,11 @@ pub struct DcMessage {
 
 impl DcMessage {
     /// Construct a DcMessage with a pre-generated id.
-    pub fn new(target: impl Into<String>, content: impl Into<String>, id: impl Into<String>) -> Self {
+    pub fn new(
+        target: impl Into<String>,
+        content: impl Into<String>,
+        id: impl Into<String>,
+    ) -> Self {
         Self {
             msg_type: "Message".to_owned(),
             content: content.into(),
@@ -305,10 +309,7 @@ pub fn parse_message(bytes: &[u8]) -> InboundMsg {
     // ── Server-initiated disconnect ────────────────────────────────────────────
     // dataChannels.ts:305-328 / app.js:407-438
     if msg_type == "TransactionStart" || msg_type == "Message" {
-        let target = value
-            .get("target")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let target = value.get("target").and_then(|v| v.as_str()).unwrap_or("");
 
         if target.contains("serverInitiatedDisconnect") {
             let raw_content = value
