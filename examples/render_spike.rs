@@ -135,7 +135,8 @@ fn main() -> wry::Result<()> {
                 st.gl.use_program(Some(st.program));
                 st.gl.bind_vertex_array(Some(st.vao));
                 st.gl.uniform_1_f32(st.u_time.as_ref(), t);
-                st.gl.uniform_2_f32(st.u_res.as_ref(), w.max(1.0), h.max(1.0));
+                st.gl
+                    .uniform_2_f32(st.u_res.as_ref(), w.max(1.0), h.max(1.0));
                 st.gl.draw_arrays(glow::TRIANGLES, 0, 3);
             }
         }
@@ -261,7 +262,10 @@ fn compile_program(gl: &glow::Context, vs_src: &str, fs_src: &str) -> glow::Prog
     use glow::HasContext as _;
     unsafe {
         let program = gl.create_program().expect("create program");
-        let shaders = [(glow::VERTEX_SHADER, vs_src), (glow::FRAGMENT_SHADER, fs_src)];
+        let shaders = [
+            (glow::VERTEX_SHADER, vs_src),
+            (glow::FRAGMENT_SHADER, fs_src),
+        ];
         let mut compiled = Vec::new();
         for (kind, src) in shaders {
             let sh = gl.create_shader(kind).expect("create shader");

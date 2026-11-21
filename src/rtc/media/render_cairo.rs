@@ -7,9 +7,9 @@
 //! window's own draw handler with `DEST_OVER` leaves the webview untouched and
 //! still shows through every transparent pixel of the page (proven 2026-11-16).
 
-use ffmpeg_the_third as ffmpeg;
 use ffmpeg::format::Pixel;
 use ffmpeg::software::scaling;
+use ffmpeg_the_third as ffmpeg;
 use gtk::cairo;
 
 use super::{DecodedFrame, FramePixels, PixelFormat};
@@ -36,7 +36,12 @@ impl CairoVideo {
     /// Convert `frame` to fit a `dst` area given in device pixels. A frame this
     /// renderer cannot handle keeps the previous picture.
     pub fn update(&mut self, frame: &DecodedFrame, dst: (u32, u32)) {
-        let FramePixels::Cpu { format: PixelFormat::I420, planes, strides } = &frame.pixels else {
+        let FramePixels::Cpu {
+            format: PixelFormat::I420,
+            planes,
+            strides,
+        } = &frame.pixels
+        else {
             return;
         };
         if planes.len() < 3 || strides.len() < 3 {
@@ -46,8 +51,12 @@ impl CairoVideo {
         let key = (frame.width, frame.height, dw, dh);
         if self.scaler.as_ref().map(|(k, _)| *k) != Some(key) {
             let ctx = scaling::Context::get(
-                Pixel::YUV420P, frame.width, frame.height,
-                Pixel::BGRA, dw, dh,
+                Pixel::YUV420P,
+                frame.width,
+                frame.height,
+                Pixel::BGRA,
+                dw,
+                dh,
                 scaling::Flags::BILINEAR,
             );
             match ctx {
@@ -60,9 +69,13 @@ impl CairoVideo {
         }
 
         let mut src = ffmpeg::frame::Video::new(Pixel::YUV420P, frame.width, frame.height);
-        for (i, rows) in [frame.height, frame.height.div_ceil(2), frame.height.div_ceil(2)]
-            .into_iter()
-            .enumerate()
+        for (i, rows) in [
+            frame.height,
+            frame.height.div_ceil(2),
+            frame.height.div_ceil(2),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let (from, from_stride) = (&planes[i], strides[i]);
             let to_stride = src.stride(i);
@@ -172,6 +185,9 @@ mod tests {
         let stride = s.stride() as usize;
         let data = s.data().unwrap();
         let px = &data[stride * 16 + 16 * 4..][..3]; // B, G, R
-        assert!(px[2] > 200 && px[1] < 60 && px[0] < 60, "expected red, got BGR {px:?}");
+        assert!(
+            px[2] > 200 && px[1] < 60 && px[0] < 60,
+            "expected red, got BGR {px:?}"
+        );
     }
 }
