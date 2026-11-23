@@ -237,6 +237,27 @@ export async function saveClip(
 }
 
 /**
+ * Native audio output (Windows): kite.exe plays the stream's audio so Discord's
+ * window share hears it. See src/audio_out.rs and connection/nativeAudio.ts.
+ *
+ * Rust: audio_out_start(device) -> Result<bool, String>  (false = no native path)
+ */
+export async function audioOutStart(device: string): Promise<boolean> {
+  return invoke<boolean>("audio_out_start", { device });
+}
+
+/** One chunk of 48 kHz stereo i16 PCM, as a raw IPC body.
+ *  Rust: audio_out_push(request) -> Result<(), String> */
+export async function audioOutPush(pcm: ArrayBuffer): Promise<void> {
+  return invoke<void>("audio_out_push", pcm);
+}
+
+/** Rust: audio_out_stop() -> Result<(), String> */
+export async function audioOutStop(): Promise<void> {
+  return invoke<void>("audio_out_stop");
+}
+
+/**
  * Reveal a saved clip in the OS file manager (Explorer / Finder / Files).
  */
 export async function revealClip(path: string): Promise<void> {

@@ -24,9 +24,17 @@
  * authority so the slider never goes inert (see applyLevel) — the spec §5
  * degradation guarantee. Mute in that mode is simply gain 0.
  *
+ * On Windows the graph's output goes to kite.exe instead (nativeAudio.ts):
+ * source → gain → PCM tap, and Rust plays it, so Discord's window share hears
+ * it. Any native failure rewires gain → destination and the page plays again.
+ *
  * Every operation is best-effort and never throws into the caller: on any
  * failure audio simply plays without boost/routing. Playback must never break.
  */
+import { audioOutStart, audioOutStop } from "$lib/ipc/commands.js";
+import { logger } from "$lib/log/logger.js";
+import { savedOutputLabel } from "./audioOutput.js";
+import { NATIVE_SAMPLE_RATE, startNativeAudio } from "./nativeAudio.js";
 
 // AudioContext augmented with the (Chromium 110+) setSinkId method.
 type SinkableAudioContext = AudioContext & {
@@ -40,11 +48,66 @@ let source: MediaStreamAudioSourceNode | null = null;
 let gainNode: GainNode | null = null;
 let lastGain = 1;
 let lastSinkId = "";
+let tap: AudioWorkletNode | null = null; // live native-output tap (Windows)
+let nativeTried = false; // once per context: a failure is not retried
+let nativeDevice = ""; // device label the native player is open on
+
+/** Device label for the native player: the picker's label, "" = default. */
+function nativeDeviceLabel(): string {
+  return lastSinkId ? savedOutputLabel() : "";
+}
+
+/** Move playback to kite.exe, if this platform has a native path. */
+async function tryNative(c: SinkableAudioContext): Promise<void> {
+  if (nativeTried) return;
+  nativeTried = true;
+  try {
+    const device = nativeDeviceLabel();
+    const node = await startNativeAudio(c, device, fallBackToPage);
+    if (!node) return;
+    if (ctx !== c || !gainNode) {
+      void audioOutStop().catch(() => {}); // disposed while starting
+      return;
+    }
+    gainNode.disconnect();
+    gainNode.connect(node);
+    node.connect(c.destination); // silent; keeps the tap pulled by the graph
+    tap = node;
+    nativeDevice = device;
+    logger.info("audio", "native output: playing from kite.exe");
+  } catch (err) {
+    logger.warn("audio", `native output unavailable, playing in the page: ${String(err)}`);
+    void audioOutStop().catch(() => {});
+  }
+}
+
+/** Native output failed mid-stream: play through the page again. */
+function fallBackToPage(err: unknown): void {
+  logger.warn("audio", `native output failed, playing in the page: ${String(err)}`);
+  stopNative();
+  if (ctx && gainNode) {
+    gainNode.disconnect();
+    gainNode.connect(ctx.destination);
+  }
+}
+
+function stopNative(): void {
+  if (!tap) return;
+  tap.port.onmessage = null;
+  try {
+    tap.disconnect();
+  } catch {
+    /* ignore */
+  }
+  tap = null;
+  void audioOutStop().catch(() => {});
+}
 
 function ensureContext(): SinkableAudioContext | null {
   if (ctx) return ctx;
   try {
-    ctx = new AudioContext() as SinkableAudioContext;
+    // 48 kHz is WebRTC Opus's own rate and the native tap's wire format.
+    ctx = new AudioContext({ sampleRate: NATIVE_SAMPLE_RATE }) as SinkableAudioContext;
     gainNode = ctx.createGain();
     gainNode.gain.value = lastGain;
     gainNode.connect(ctx.destination);
@@ -102,6 +165,7 @@ export const streamAudio = {
       source.connect(gainNode);
       currentStream = stream;
       void this.setSinkId(lastSinkId);
+      void tryNative(c);
     } catch (err) {
       // Source creation failed — fall back to the element's own .volume
       // (applyLevel handles it). Boost won't apply.
@@ -132,6 +196,10 @@ export const streamAudio = {
    */
   async setSinkId(deviceId: string | null): Promise<boolean> {
     lastSinkId = deviceId ?? "";
+    if (tap && nativeDeviceLabel() !== nativeDevice) {
+      nativeDevice = nativeDeviceLabel();
+      audioOutStart(nativeDevice).catch(fallBackToPage);
+    }
     const c = ctx;
     if (!c || typeof c.setSinkId !== "function") return false;
     try {
@@ -155,6 +223,8 @@ export const streamAudio = {
 
   /** Tear down the graph + context (stream end / unmount). Keeps last gain/sink. */
   dispose(): void {
+    stopNative();
+    nativeTried = false;
     try {
       source?.disconnect();
     } catch {
