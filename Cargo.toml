@@ -58,6 +58,11 @@ insta = { version = "1", features = ["json"] }
 # Phase-0 spike only (examples/rtc_spike.rs): error context.
 anyhow = "1"
 
+[target.'cfg(windows)'.dependencies]
+# Plays the stream's audio from kite.exe itself (src/audio_out.rs) so Discord's
+# window share, which captures only the shared window's process, hears it.
+cpal = "0.18"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Native Linux render stack (Phase 4/6). Optional + feature-gated so the default
 # Win/macOS build stays lean and `cargo test` doesn't pull gtk on Windows.

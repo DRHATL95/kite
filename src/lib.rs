@@ -6,6 +6,7 @@
 //! the crate's *library*, not its binary. `src/main.rs` is a thin shim that calls
 //! [`run`]. (Idiomatic Tauri 2 lib+bin layout.)
 
+pub mod audio_out;
 pub mod auth;
 pub mod clip;
 pub mod error;
@@ -125,6 +126,7 @@ pub fn run() {
                 rtc: Mutex::new(None),
             });
             app.manage(updater::PendingUpdate::default());
+            app.manage(audio_out::AudioOut::default());
 
             // Always-on system tray (Show/Quit + restore-on-click). Non-fatal:
             // if it fails, the app still runs and close simply quits.
@@ -187,6 +189,9 @@ pub fn run() {
             tauri_commands::set_stream_status,
             tauri_commands::send_session_keepalive,
             tauri_commands::save_clip,
+            audio_out::audio_out_start,
+            audio_out::audio_out_push,
+            audio_out::audio_out_stop,
             updater::check_update,
             updater::install_update,
             releases::get_releases,

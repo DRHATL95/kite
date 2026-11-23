@@ -3,24 +3,38 @@
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// A bounded interleaved-i16 sample ring. The decode side `push`es; the audio
 /// callback `fill`s. On overflow the oldest samples are dropped (favor latency
 /// over backlog); on underrun the tail is filled with silence. `fill` applies a
 /// per-output gain (volume), read lock-free from `gain`.
+///
+/// With a non-zero `prebuffer`, `fill` plays silence until that many samples
+/// are queued, and re-arms after any underrun: a bursty producer (IPC-fed
+/// audio) then costs one short gap instead of a crackle on every late chunk.
 pub struct AudioRing {
     buf: Mutex<VecDeque<i16>>,
     cap: usize,
+    prebuffer: usize,
+    /// Written only while `buf` is locked; atomic just to keep `fill` `&self`.
+    primed: AtomicBool,
     /// Output gain as f32 bits; 1.0 = unity. Applied in `fill`.
     gain: AtomicU32,
 }
 
 impl AudioRing {
     pub fn new(cap: usize) -> Self {
+        Self::with_prebuffer(cap, 0)
+    }
+
+    /// A ring that holds playback back until `prebuffer` samples are queued.
+    pub fn with_prebuffer(cap: usize, prebuffer: usize) -> Self {
         Self {
             buf: Mutex::new(VecDeque::with_capacity(cap)),
             cap,
+            prebuffer: prebuffer.min(cap),
+            primed: AtomicBool::new(prebuffer == 0),
             gain: AtomicU32::new(1.0_f32.to_bits()),
         }
     }
@@ -43,6 +57,16 @@ impl AudioRing {
     pub fn fill(&self, out: &mut [i16]) {
         let gain = f32::from_bits(self.gain.load(Ordering::Relaxed));
         let mut buf = self.buf.lock().unwrap();
+        if !self.primed.load(Ordering::Relaxed) {
+            if buf.len() < self.prebuffer {
+                out.fill(0);
+                return;
+            }
+            self.primed.store(true, Ordering::Relaxed);
+        }
+        if self.prebuffer > 0 && buf.len() < out.len() {
+            self.primed.store(false, Ordering::Relaxed);
+        }
         for slot in out.iter_mut() {
             let s = buf.pop_front().unwrap_or(0);
             *slot = if gain == 1.0 {
@@ -180,5 +204,29 @@ mod tests {
         let mut out = [0i16; 4];
         ring.fill(&mut out);
         assert_eq!(out, [3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn prebuffer_holds_playback_until_filled_and_rearms_after_underrun() {
+        let ring = AudioRing::with_prebuffer(16, 4);
+        let mut out = [9i16; 2];
+
+        ring.push(&[1, 2, 3]);
+        ring.fill(&mut out);
+        assert_eq!(out, [0, 0], "below the prebuffer: silence, samples kept");
+
+        ring.push(&[4]);
+        ring.fill(&mut out);
+        assert_eq!(out, [1, 2], "prebuffer reached: plays in order");
+
+        ring.fill(&mut out);
+        assert_eq!(out, [3, 4]);
+
+        // Empty now: the underrun re-arms, so a lone late sample waits.
+        ring.fill(&mut out);
+        assert_eq!(out, [0, 0]);
+        ring.push(&[5]);
+        ring.fill(&mut out);
+        assert_eq!(out, [0, 0], "re-armed: waits for the prebuffer again");
     }
 }
