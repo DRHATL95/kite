@@ -7,6 +7,7 @@
     type Source,
   } from "$lib/connection/controllerMapping.js";
   import { startCapture } from "$lib/connection/gamepadCapture.js";
+  import Icon from "$lib/design/Icon.svelte";
 
   function effective(id: string): Source {
     return settings.controllerMapping[id] ?? OUTPUTS_BY_ID[id].defaultSource;
@@ -94,7 +95,7 @@
           class:remap-detect--active={capturingId === out.id}
           aria-label={`Detect input for ${out.label}`}
           onclick={() => detect(out.id)}
-        >{capturingId === out.id ? "…" : "⌖"}</button>
+        >{#if capturingId === out.id}…{:else}<Icon name="detect" size={14} />{/if}</button>
       </div>
     {/each}
   </div>

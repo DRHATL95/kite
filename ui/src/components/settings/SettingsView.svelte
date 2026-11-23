@@ -10,6 +10,7 @@
   import GeneralSettings from "./GeneralSettings.svelte";
   import DiagnosticsSettings from "./DiagnosticsSettings.svelte";
   import AboutSettings from "./AboutSettings.svelte";
+  import Icon from "$lib/design/Icon.svelte";
 
   interface Props {
     open?: boolean;
@@ -32,7 +33,7 @@
 {#if open}
   <div class="settings-view" role="dialog" aria-modal="true" aria-label="Settings">
     <header class="settings-view__header">
-      <button type="button" class="settings-view__back" onclick={onClose} aria-label="Back" title="Back">←</button>
+      <button type="button" class="settings-view__back" onclick={onClose} aria-label="Back" title="Back"><Icon name="back" /></button>
       <h2 class="settings-view__title">Settings</h2>
     </header>
 
