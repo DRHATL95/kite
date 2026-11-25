@@ -23,15 +23,15 @@ use super::channels::{ChannelEvent, ChannelLabel, ChannelWrite, HandshakeSequenc
 use super::keepalive::{API_KEEPALIVE_SECS, keepalive_should_stop};
 use super::signaling::{SessionInfo, Signaling};
 use super::state::{ConnectionState, Transition};
-use super::stats::{StatsAccumulator, STATS_SAMPLE_MS};
+use super::stats::{STATS_SAMPLE_MS, StatsAccumulator};
 use super::transport::Transport;
-use super::watchdog::{MediaWatchdog, WatchdogAction, MONITOR_TICK_MS};
+use super::watchdog::{MONITOR_TICK_MS, MediaWatchdog, WatchdogAction};
 use super::{Result, RtcError, RtcEvent};
 use crate::rtc::input::{GamepadFrame, encode_client_metadata, encode_gamepad};
-use crate::rtc::protocol::keyframe_request;
 use crate::rtc::media::audio_sink::AudioSink;
 use crate::rtc::media::frame_sink::SharedFrame;
 use crate::rtc::media::{AccessUnit, AudioDecoder, FfmpegDecoder, OpusDecoder, VideoDecoder};
+use crate::rtc::protocol::keyframe_request;
 
 const CHANNELS: [(&str, &str); 4] = [
     ("chat", "chatV1"),
@@ -117,7 +117,16 @@ pub fn spawn(
                 .build()
                 .expect("engine runtime");
             rt.block_on(async move {
-                if let Err(e) = drive(auth, server_id, play_path, cmd_rx, event_tx.clone(), frame_sink).await {
+                if let Err(e) = drive(
+                    auth,
+                    server_id,
+                    play_path,
+                    cmd_rx,
+                    event_tx.clone(),
+                    frame_sink,
+                )
+                .await
+                {
                     let _ = event_tx.send(RtcEvent::Disconnected(e.to_string()));
                 }
             });
@@ -358,10 +367,25 @@ async fn stream<S: Signaling, T: Transport>(
                     // and start the 30 s periodic repeat. The sequence counter is shared
                     // with SendInput so it stays monotonic across all input frames.
                     if let Some(secs) = seq.take_idle_warning() {
-                        tracing::info!(seconds_until_kick = secs, "server idle warning — sending keepalive micro-pulse");
+                        tracing::info!(
+                            seconds_until_kick = secs,
+                            "server idle warning — sending keepalive micro-pulse"
+                        );
                         let ts = started.elapsed().as_secs_f64() * 1000.0;
-                        send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::idle_pulse(), ts);
-                        send_input_frame(&mut rtc, &ids, &mut input_seq, GamepadFrame::neutral(), ts);
+                        send_input_frame(
+                            &mut rtc,
+                            &ids,
+                            &mut input_seq,
+                            GamepadFrame::idle_pulse(),
+                            ts,
+                        );
+                        send_input_frame(
+                            &mut rtc,
+                            &ids,
+                            &mut input_seq,
+                            GamepadFrame::neutral(),
+                            ts,
+                        );
                         idle_keepalive_on = true;
                     }
                 }
@@ -689,7 +713,9 @@ fn handle_event(
                 stats.record_video_bytes(data.data.len());
                 let pts = media_time_micros(&data);
                 let v_rtp = (pts as i128 * 9 / 100) as u32; // µs → 90 kHz ticks
-                media.clip_ring.push_video(data.data.to_vec(), v_rtp, data.is_keyframe());
+                media
+                    .clip_ring
+                    .push_video(data.data.to_vec(), v_rtp, data.is_keyframe());
                 // Hand the access unit to the decode thread (non-blocking) so the
                 // engine loop keeps draining the socket. Decode, the frame
                 // counter, FirstFrame, and GL publishing all happen on the worker.

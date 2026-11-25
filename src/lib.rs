@@ -152,15 +152,11 @@ pub fn run() {
                 // Block_on is safe here: we are on the GTK/Win32 event-loop
                 // thread (not inside a tokio async context), so we can create
                 // a throwaway runtime to run the brief async lock acquisition.
-                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                    .build()
-                {
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread().build() {
                     rt.block_on(async {
                         let handle_opt = state.rtc.lock().await.take();
                         if let Some(handle) = handle_opt {
-                            tracing::info!(
-                                "window closing — disconnecting native WebRTC engine"
-                            );
+                            tracing::info!("window closing — disconnecting native WebRTC engine");
                             // disconnect() sends Disconnect cmd + joins the engine
                             // thread, ensuring the session is torn down before the
                             // process exits.
@@ -403,7 +399,9 @@ mod tauri_commands {
     /// this alongside `check_auth_status` while awaiting sign-in so a failed
     /// token exchange surfaces as a real error instead of polling forever.
     #[tauri::command]
-    pub async fn take_auth_flow_error(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    pub async fn take_auth_flow_error(
+        state: State<'_, AppState>,
+    ) -> Result<Option<String>, String> {
         let auth = state.auth.lock().await;
         Ok(auth.take_flow_error().await)
     }
@@ -729,9 +727,9 @@ mod tauri_commands {
     #[cfg(feature = "native-webrtc")]
     fn gamepad_dto_to_frame(g: &GamepadStateDto) -> crate::rtc::input::GamepadFrame {
         use crate::rtc::input::{
-            GamepadFrame, BTN_A, BTN_B, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT,
-            BTN_DPAD_UP, BTN_LEFT_SHOULDER, BTN_LEFT_THUMB, BTN_MENU, BTN_NEXUS,
-            BTN_RIGHT_SHOULDER, BTN_RIGHT_THUMB, BTN_VIEW, BTN_X, BTN_Y,
+            BTN_A, BTN_B, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT, BTN_DPAD_UP,
+            BTN_LEFT_SHOULDER, BTN_LEFT_THUMB, BTN_MENU, BTN_NEXUS, BTN_RIGHT_SHOULDER,
+            BTN_RIGHT_THUMB, BTN_VIEW, BTN_X, BTN_Y, GamepadFrame,
         };
 
         // Button index → bitmask table (indices 6 & 7 are triggers, handled below).
@@ -785,9 +783,9 @@ mod tauri_commands {
         GamepadFrame {
             buttons,
             left_thumb_x: lx,
-            left_thumb_y: ly,   // encode_gamepad negates on the wire (Y-flip protocol)
+            left_thumb_y: ly, // encode_gamepad negates on the wire (Y-flip protocol)
             right_thumb_x: rx,
-            right_thumb_y: ry,  // encode_gamepad negates on the wire (Y-flip protocol)
+            right_thumb_y: ry, // encode_gamepad negates on the wire (Y-flip protocol)
             left_trigger,
             right_trigger,
         }
@@ -851,16 +849,16 @@ mod tauri_commands {
             #[cfg(all(target_os = "linux", feature = "native-webrtc"))]
             let frame_sink = Some(state.frame_sink.clone());
             #[cfg(not(target_os = "linux"))]
-            let frame_sink: Option<std::sync::Arc<crate::rtc::media::frame_sink::SharedFrame>> =
-                None;
+            let frame_sink: Option<
+                std::sync::Arc<crate::rtc::media::frame_sink::SharedFrame>,
+            > = None;
 
             // `play_path` is intentionally not accepted from the webview: it is
             // opaque data that originates from the xHome API, not user input, so
             // the engine sources its own default rather than trusting a JS string
             // in the request URL. (Pass `None` → engine/signaling default.)
-            let mut handle =
-                crate::rtc::engine::spawn(auth, server_id, None, frame_sink)
-                    .map_err(|e| format!("engine spawn: {e}"))?;
+            let mut handle = crate::rtc::engine::spawn(auth, server_id, None, frame_sink)
+                .map_err(|e| format!("engine spawn: {e}"))?;
 
             // Take the event receiver out of the handle before locking it away.
             let rx = handle
@@ -993,10 +991,9 @@ mod tauri_commands {
             let handle = rtc_guard
                 .as_ref()
                 .ok_or_else(|| "no active native session".to_string())?;
-            let clip = handle
-                .clip()
-                .await
-                .ok_or_else(|| "no clip data available (ring buffer empty or engine gone)".to_string())?;
+            let clip = handle.clip().await.ok_or_else(|| {
+                "no clip data available (ring buffer empty or engine gone)".to_string()
+            })?;
             let dir = clips_dir()?;
             let path = crate::clip::save_assembled_clip(&clip, &dir)?;
             Ok(path.to_string_lossy().into_owned())

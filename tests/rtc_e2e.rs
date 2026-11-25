@@ -3,10 +3,10 @@
 //!   XBOX_E2E=1 cargo test --features native-webrtc --test rtc_e2e -- --nocapture
 #![cfg(feature = "native-webrtc")]
 
-use std::time::{Duration, Instant};
 use kite::auth::XboxAuth;
 use kite::rtc::RtcEvent;
 use kite::rtc::engine;
+use std::time::{Duration, Instant};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_connect_handshake_receive() {
@@ -87,12 +87,21 @@ async fn e2e_connect_handshake_receive() {
         }
     }
 
-    assert!(saw_bitrate, "expected at least one stats sample with nonzero bitrate");
+    assert!(
+        saw_bitrate,
+        "expected at least one stats sample with nonzero bitrate"
+    );
 
-    let clip = handle.clip().await.expect("a clip should assemble from the buffered AUs");
+    let clip = handle
+        .clip()
+        .await
+        .expect("a clip should assemble from the buffered AUs");
     assert!(!clip.video.is_empty(), "clip has video frames");
     let mp4 = kite::clip::mux_opus_to_mp4(&clip).expect("mux the clip to MP4");
-    assert!(mp4.windows(4).any(|w| w == b"ftyp"), "muxed clip is a fast-start MP4");
+    assert!(
+        mp4.windows(4).any(|w| w == b"ftyp"),
+        "muxed clip is a fast-start MP4"
+    );
 
     handle.disconnect();
     assert!(connected, "never reached Connected");

@@ -254,10 +254,13 @@ mod tests {
             "content":"{\"reason\":\"WarningForBeingIdle\",\"secondsUntilKick\":60}"
         });
         let bytes = serde_json::to_vec(&msg).unwrap();
-        let w = seq.on_event(ChannelEvent::Inbound { label: ChannelLabel::Message, data: bytes });
+        let w = seq.on_event(ChannelEvent::Inbound {
+            label: ChannelLabel::Message,
+            data: bytes,
+        });
         assert!(w.is_empty());
         assert_eq!(seq.take_idle_warning(), Some(60)); // surfaced as a warning
-        assert!(seq.take_disconnect().is_none());      // NOT a disconnect
+        assert!(seq.take_disconnect().is_none()); // NOT a disconnect
     }
 
     #[test]
@@ -268,8 +271,14 @@ mod tests {
             "content":"{\"reason\":\"KickForBeingIdle\"}"
         });
         let bytes = serde_json::to_vec(&msg).unwrap();
-        let _ = seq.on_event(ChannelEvent::Inbound { label: ChannelLabel::Message, data: bytes });
+        let _ = seq.on_event(ChannelEvent::Inbound {
+            label: ChannelLabel::Message,
+            data: bytes,
+        });
         assert!(seq.take_idle_warning().is_none());
-        assert!(matches!(seq.take_disconnect(), Some(protocol::DisconnectReason::KickForBeingIdle)));
+        assert!(matches!(
+            seq.take_disconnect(),
+            Some(protocol::DisconnectReason::KickForBeingIdle)
+        ));
     }
 }

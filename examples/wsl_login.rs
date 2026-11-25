@@ -13,9 +13,9 @@
 //!   cargo run --example wsl_login
 //! Then open the printed URL in any browser, sign in, and return here.
 
-use std::time::{Duration, Instant};
 use kite::auth::XboxAuth;
 use kite::xhome::XHomeClient;
+use std::time::{Duration, Instant};
 
 #[tokio::main]
 async fn main() {
