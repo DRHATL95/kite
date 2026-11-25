@@ -91,7 +91,13 @@ impl SharedFrame {
 
     /// True when [`take_due`](Self::take_due) would return a frame at `now`.
     pub fn has_due(&self, now: Instant) -> bool {
-        self.has_pending() && self.playout.lock().unwrap().front_due(now).is_some_and(|due| due <= now)
+        self.has_pending()
+            && self
+                .playout
+                .lock()
+                .unwrap()
+                .front_due(now)
+                .is_some_and(|due| due <= now)
     }
 
     /// The freshest frame, discarding any older ones still queued.
@@ -197,10 +203,22 @@ mod tests {
         // Two frames 16 ms apart in stream time arrive together.
         sink.put(at(1000));
         sink.put(at(1016));
-        assert_eq!(sink.take_due(t).unwrap().pts_micros, 1_000_000, "first frame starts the timeline");
-        assert!(sink.take_due(t + Duration::from_millis(8)).is_none(), "second is not due yet");
+        assert_eq!(
+            sink.take_due(t).unwrap().pts_micros,
+            1_000_000,
+            "first frame starts the timeline"
+        );
+        assert!(
+            sink.take_due(t + Duration::from_millis(8)).is_none(),
+            "second is not due yet"
+        );
         assert!(sink.has_pending() && !sink.has_due(t + Duration::from_millis(8)));
-        assert_eq!(sink.take_due(t + Duration::from_millis(16)).unwrap().pts_micros, 1_016_000);
+        assert_eq!(
+            sink.take_due(t + Duration::from_millis(16))
+                .unwrap()
+                .pts_micros,
+            1_016_000
+        );
         assert!(!sink.has_pending());
     }
 
@@ -212,7 +230,10 @@ mod tests {
         assert!(sink.take_due(t).is_some());
         // Half a second of nothing, then a frame whose timestamp jumped 5 s.
         sink.put(at(6000));
-        assert!(sink.take_due(t + Duration::from_millis(500)).is_some(), "shown at once on a new timeline");
+        assert!(
+            sink.take_due(t + Duration::from_millis(500)).is_some(),
+            "shown at once on a new timeline"
+        );
     }
 
     #[test]
@@ -222,7 +243,10 @@ mod tests {
             sink.put(at(1000 + 16 * i));
         }
         let t = Instant::now();
-        assert_eq!(sink.take_due(t).unwrap().pts_micros, (1000 + 16 * QUEUE_CAP as u64) * 1000);
+        assert_eq!(
+            sink.take_due(t).unwrap().pts_micros,
+            (1000 + 16 * QUEUE_CAP as u64) * 1000
+        );
         assert!(sink.take_due(t).is_none());
     }
 

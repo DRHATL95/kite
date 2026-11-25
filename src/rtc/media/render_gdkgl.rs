@@ -37,7 +37,9 @@ pub struct GlUnderlay {
 impl GlUnderlay {
     /// A GL context sharing textures with the one GDK paints `window` with.
     pub fn new(window: &gdk::Window) -> Result<Self, String> {
-        let ctx = window.create_gl_context().map_err(|e| format!("create_gl_context: {e}"))?;
+        let ctx = window
+            .create_gl_context()
+            .map_err(|e| format!("create_gl_context: {e}"))?;
         ctx.realize().map_err(|e| format!("realize: {e}"))?;
         ctx.make_current();
         // SAFETY: `ctx` is current on this (the GTK main) thread for every GL call below.
@@ -57,7 +59,13 @@ impl GlUnderlay {
             }
             (st.gl.create_framebuffer()?, color)
         };
-        Ok(Self { ctx, st, fbo, color, size: (0, 0) })
+        Ok(Self {
+            ctx,
+            st,
+            fbo,
+            color,
+            size: (0, 0),
+        })
     }
 
     pub fn size(&self) -> (i32, i32) {
@@ -86,21 +94,37 @@ impl GlUnderlay {
                 gl.tex_image_2d(
                     // RGB8, not RGBA8: GDK asks the texture for its alpha size and only
                     // treats an alpha-free one as opaque (see native_render::mount).
-                    glow::TEXTURE_2D, 0, glow::RGB8 as i32, w, h, 0,
-                    glow::RGB, glow::UNSIGNED_BYTE, None,
+                    glow::TEXTURE_2D,
+                    0,
+                    glow::RGB8 as i32,
+                    w,
+                    h,
+                    0,
+                    glow::RGB,
+                    glow::UNSIGNED_BYTE,
+                    None,
                 );
                 self.size = (w, h);
             }
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
             gl.framebuffer_texture_2d(
-                glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(self.color), 0,
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(self.color),
+                0,
             );
             gl.viewport(0, 0, w, h);
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT);
             if let Some(src) = self.st.dims {
                 let (fw, fh) = fit(src, (w as u32, h as u32));
-                gl.viewport((w - fw as i32) / 2, (h - fh as i32) / 2, fw as i32, fh as i32);
+                gl.viewport(
+                    (w - fw as i32) / 2,
+                    (h - fh as i32) / 2,
+                    fw as i32,
+                    fh as i32,
+                );
                 self.st.draw_frame();
             }
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
@@ -115,7 +139,16 @@ impl GlUnderlay {
         }
         // SAFETY: `color` is a live texture of `size` in a context sharing with GDK's paint context.
         unsafe {
-            cr.draw_from_gl(window, self.color.0.get() as i32, GL_TEXTURE, scale, 0, 0, self.size.0, self.size.1);
+            cr.draw_from_gl(
+                window,
+                self.color.0.get() as i32,
+                GL_TEXTURE,
+                scale,
+                0,
+                0,
+                self.size.0,
+                self.size.1,
+            );
         }
     }
 }

@@ -55,9 +55,9 @@ pub fn tray_action(menu_id: &str) -> Option<TrayAction> {
 }
 
 use tauri::{
+    Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
 };
 
 /// Swap the tray icon to the tint for `theme`. Called by the frontend on theme
@@ -68,8 +68,7 @@ pub fn set_tray_theme(app: tauri::AppHandle, theme: String) {
     if let (Some(tray), Some(icon)) = (
         app.tray_by_id("kite-tray"),
         decode_icon(icon_bytes_for(&theme)),
-    )
-        && let Err(e) = tray.set_icon(Some(icon))
+    ) && let Err(e) = tray.set_icon(Some(icon))
     {
         tracing::warn!("set_tray_theme: set_icon failed: {e}");
     }

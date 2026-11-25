@@ -26,21 +26,21 @@ pub const IDLE_PULSE_LEFT_THUMB_X: i16 = 4096;
 // Button bitmask constants (from constants.ts BUTTON_BITS)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub const BTN_NEXUS: u16          = 2;       // index 16
-pub const BTN_MENU: u16           = 4;       // index 9
-pub const BTN_VIEW: u16           = 8;       // index 8
-pub const BTN_A: u16              = 16;      // index 0
-pub const BTN_B: u16              = 32;      // index 1
-pub const BTN_X: u16              = 64;      // index 2
-pub const BTN_Y: u16              = 128;     // index 3
-pub const BTN_DPAD_UP: u16        = 256;     // index 12
-pub const BTN_DPAD_DOWN: u16      = 512;     // index 13
-pub const BTN_DPAD_LEFT: u16      = 1024;    // index 14
-pub const BTN_DPAD_RIGHT: u16     = 2048;    // index 15
-pub const BTN_LEFT_SHOULDER: u16  = 4096;    // index 4
-pub const BTN_RIGHT_SHOULDER: u16 = 8192;    // index 5
-pub const BTN_LEFT_THUMB: u16     = 16384;   // index 10
-pub const BTN_RIGHT_THUMB: u16    = 32768;   // index 11
+pub const BTN_NEXUS: u16 = 2; // index 16
+pub const BTN_MENU: u16 = 4; // index 9
+pub const BTN_VIEW: u16 = 8; // index 8
+pub const BTN_A: u16 = 16; // index 0
+pub const BTN_B: u16 = 32; // index 1
+pub const BTN_X: u16 = 64; // index 2
+pub const BTN_Y: u16 = 128; // index 3
+pub const BTN_DPAD_UP: u16 = 256; // index 12
+pub const BTN_DPAD_DOWN: u16 = 512; // index 13
+pub const BTN_DPAD_LEFT: u16 = 1024; // index 14
+pub const BTN_DPAD_RIGHT: u16 = 2048; // index 15
+pub const BTN_LEFT_SHOULDER: u16 = 4096; // index 4
+pub const BTN_RIGHT_SHOULDER: u16 = 8192; // index 5
+pub const BTN_LEFT_THUMB: u16 = 16384; // index 10
+pub const BTN_RIGHT_THUMB: u16 = 32768; // index 11
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GamepadFrame
@@ -217,8 +217,14 @@ mod tests {
         let f = GamepadFrame::neutral();
         let bytes = encode_gamepad(&f, /*sequence*/ 7, /*timestamp_ms*/ 1234.5);
         assert_eq!(bytes.len(), 38);
-        assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), REPORT_TYPE_GAMEPAD); // 2
-        assert_eq!(u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]), 7); // sequence
+        assert_eq!(
+            u16::from_le_bytes([bytes[0], bytes[1]]),
+            REPORT_TYPE_GAMEPAD
+        ); // 2
+        assert_eq!(
+            u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
+            7
+        ); // sequence
         assert_eq!(bytes[14], 1); // frameCount
         assert_eq!(bytes[15], 0); // gamepadIndex
         // PhysicalPhysicality @30..34 little-endian == 1
@@ -257,8 +263,7 @@ mod tests {
         let ts = 1234.5_f64;
         let bytes = encode_gamepad(&f, 0, ts);
         let decoded = f64::from_le_bytes([
-            bytes[6], bytes[7], bytes[8], bytes[9],
-            bytes[10], bytes[11], bytes[12], bytes[13],
+            bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
         ]);
         assert_eq!(decoded, ts);
     }
@@ -312,13 +317,18 @@ mod tests {
         let bytes = encode_client_metadata(3, 999.0);
         assert_eq!(bytes.len(), 15);
         // [0..2] reportType = 8 LE
-        assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), REPORT_TYPE_CLIENT_METADATA);
+        assert_eq!(
+            u16::from_le_bytes([bytes[0], bytes[1]]),
+            REPORT_TYPE_CLIENT_METADATA
+        );
         // [2..6] sequence = 3 LE
-        assert_eq!(u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]), 3);
+        assert_eq!(
+            u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
+            3
+        );
         // [6..14] timestamp = 999.0 LE
         let ts = f64::from_le_bytes([
-            bytes[6], bytes[7], bytes[8], bytes[9],
-            bytes[10], bytes[11], bytes[12], bytes[13],
+            bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
         ]);
         assert_eq!(ts, 999.0);
         // [14] maxTouchpoints = 1

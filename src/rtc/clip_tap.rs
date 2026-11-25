@@ -308,7 +308,11 @@ fn evict_video(frames: &[VideoAu], now_sec: f64, retain_secs: f64) -> Vec<VideoA
 /// Matches `encodedTapLogic.ts evictAudio`.
 fn evict_audio(frames: &[AudioAu], now_sec: f64, retain_secs: f64) -> Vec<AudioAu> {
     let cutoff = now_sec - retain_secs;
-    frames.iter().filter(|f| f.pts_sec >= cutoff).cloned().collect()
+    frames
+        .iter()
+        .filter(|f| f.pts_sec >= cutoff)
+        .cloned()
+        .collect()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -420,7 +424,11 @@ impl ClipRing {
             }
         }
 
-        self.video.push(VideoAu { bytes, pts_sec, is_keyframe: keyframe });
+        self.video.push(VideoAu {
+            bytes,
+            pts_sec,
+            is_keyframe: keyframe,
+        });
         self.maybe_evict(pts_sec);
     }
 
@@ -428,7 +436,10 @@ impl ClipRing {
     pub fn push_audio(&mut self, opus: Vec<u8>, rtp_ts: u32) {
         let wall_offset = self.stream_offset_sec_audio();
         let pts_sec = wall_offset + self.audio_clock.to_seconds(rtp_ts);
-        self.audio.push(AudioAu { bytes: opus, pts_sec });
+        self.audio.push(AudioAu {
+            bytes: opus,
+            pts_sec,
+        });
     }
 
     /// Slice a keyframe-aligned clip covering the last `retain_secs` seconds.
@@ -444,7 +455,11 @@ impl ClipRing {
         for (i, au) in v_slice.iter().enumerate() {
             if i == 0 && au.is_keyframe {
                 let bytes = self.ensure_sps_pps(&au.bytes);
-                video_out.push(VideoAu { bytes, pts_sec: au.pts_sec, is_keyframe: true });
+                video_out.push(VideoAu {
+                    bytes,
+                    pts_sec: au.pts_sec,
+                    is_keyframe: true,
+                });
             } else {
                 video_out.push(au.clone());
             }
@@ -492,8 +507,7 @@ impl ClipRing {
         }
         if !self.video_started {
             self.video_started = true;
-            self.video_wall_offset_sec =
-                (now_ms - self.origin_ms.unwrap()) / 1000.0;
+            self.video_wall_offset_sec = (now_ms - self.origin_ms.unwrap()) / 1000.0;
         }
         self.video_wall_offset_sec
     }
@@ -507,8 +521,7 @@ impl ClipRing {
         }
         if !self.audio_started {
             self.audio_started = true;
-            self.audio_wall_offset_sec =
-                (now_ms - self.origin_ms.unwrap()) / 1000.0;
+            self.audio_wall_offset_sec = (now_ms - self.origin_ms.unwrap()) / 1000.0;
         }
         self.audio_wall_offset_sec
     }
@@ -576,8 +589,8 @@ mod tests {
     fn keyframe_bytes() -> Vec<u8> {
         vec![
             0, 0, 0, 1, 0x67, 0x42, 0x00, // SPS (type 7)
-            0, 0, 0, 1, 0x68, 0xce,        // PPS (type 8)
-            0, 0, 0, 1, 0x65, 0x88,        // IDR (type 5)
+            0, 0, 0, 1, 0x68, 0xce, // PPS (type 8)
+            0, 0, 0, 1, 0x65, 0x88, // IDR (type 5)
         ]
     }
 
@@ -683,7 +696,10 @@ mod tests {
         // RED test: no panic when no keyframe has been buffered yet.
         let mut ring = ClipRing::new(30.0);
         ring.push_video(delta_bytes(), 0, false);
-        assert!(ring.assemble().is_none(), "expected None before any keyframe");
+        assert!(
+            ring.assemble().is_none(),
+            "expected None before any keyframe"
+        );
     }
 
     #[test]
@@ -693,7 +709,10 @@ mod tests {
         let mut ring = ClipRing::new(30.0);
         ring.push_audio(opus_bytes(), 0);
         ring.push_audio(vec![0xfc, 0x02], 48_000);
-        assert!(ring.assemble().is_none(), "expected None with audio but no video");
+        assert!(
+            ring.assemble().is_none(),
+            "expected None with audio but no video"
+        );
     }
 
     #[test]
@@ -778,15 +797,30 @@ mod tests {
 
         let clip = ring.assemble().unwrap();
         // The clip starts at the keyframe (pts 2.0); only audio ≥ start_sec survives.
-        assert!((clip.start_sec - 2.0).abs() < 1e-6, "start={}", clip.start_sec);
         assert!(
-            clip.audio.iter().all(|a| a.pts_sec >= clip.start_sec - 1e-9),
+            (clip.start_sec - 2.0).abs() < 1e-6,
+            "start={}",
+            clip.start_sec
+        );
+        assert!(
+            clip.audio
+                .iter()
+                .all(|a| a.pts_sec >= clip.start_sec - 1e-9),
             "no audio frame may precede the clip start"
         );
         // The pre-keyframe audio (0xa0@0s, 0xa1@1s) is gone; post-keyframe (0xa2@3s) stays.
-        assert!(clip.audio.iter().any(|a| a.bytes == [0xa2]), "0xa2 must be kept");
-        assert!(!clip.audio.iter().any(|a| a.bytes == [0xa0]), "0xa0 must be dropped");
-        assert!(!clip.audio.iter().any(|a| a.bytes == [0xa1]), "0xa1 must be dropped");
+        assert!(
+            clip.audio.iter().any(|a| a.bytes == [0xa2]),
+            "0xa2 must be kept"
+        );
+        assert!(
+            !clip.audio.iter().any(|a| a.bytes == [0xa0]),
+            "0xa0 must be dropped"
+        );
+        assert!(
+            !clip.audio.iter().any(|a| a.bytes == [0xa1]),
+            "0xa1 must be dropped"
+        );
     }
 
     #[test]
@@ -801,11 +835,7 @@ mod tests {
         let clock_ms_clone = Arc::clone(&clock_ms);
         let ring_now = move || *clock_ms_clone.lock().unwrap();
 
-        let mut ring = ClipRing::with_clock(
-            30.0,
-            VideoTrackConfig::default(),
-            Box::new(ring_now),
-        );
+        let mut ring = ClipRing::with_clock(30.0, VideoTrackConfig::default(), Box::new(ring_now));
 
         // t=1000ms: first audio frame → sets shared origin
         // audio RTP starts at 48_000 (1s tick) → audio clock returns 0.0
@@ -843,14 +873,14 @@ mod tests {
     fn eviction_drops_frames_older_than_retain_plus_headroom() {
         // retain=2s + EVICT_HEADROOM_SEC(2) = 4s eviction window.
         let mut ring = ClipRing::new(2.0);
-        ring.push_video(keyframe_bytes(), 0, true);            // IDR@0
-        ring.push_video(delta_bytes(), 90_000, false);         // P@1s
-        ring.push_video(delta_bytes(), 2 * 90_000, false);     // P@2s
-        ring.push_video(keyframe_bytes(), 5 * 90_000, true);   // IDR@5s
-        ring.push_video(delta_bytes(), 6 * 90_000, false);     // P@6s
-        ring.push_video(delta_bytes(), 7 * 90_000, false);     // P@7s
-        ring.push_video(delta_bytes(), 8 * 90_000, false);     // P@8s
-        ring.push_video(delta_bytes(), 9 * 90_000, false);     // P@9s
+        ring.push_video(keyframe_bytes(), 0, true); // IDR@0
+        ring.push_video(delta_bytes(), 90_000, false); // P@1s
+        ring.push_video(delta_bytes(), 2 * 90_000, false); // P@2s
+        ring.push_video(keyframe_bytes(), 5 * 90_000, true); // IDR@5s
+        ring.push_video(delta_bytes(), 6 * 90_000, false); // P@6s
+        ring.push_video(delta_bytes(), 7 * 90_000, false); // P@7s
+        ring.push_video(delta_bytes(), 8 * 90_000, false); // P@8s
+        ring.push_video(delta_bytes(), 9 * 90_000, false); // P@9s
 
         // At t=9s the eviction cutoff is 9-4=5s. Both IDR@0 and IDR@5 are ≤ 5s,
         // so the anchor advances to the NEWEST qualifying IDR (IDR@5); evict_video
@@ -873,9 +903,18 @@ mod tests {
     #[test]
     fn evict_audio_drops_old_audio() {
         let frames: Vec<AudioAu> = vec![
-            AudioAu { bytes: vec![1], pts_sec: 0.0 },
-            AudioAu { bytes: vec![2], pts_sec: 3.0 },
-            AudioAu { bytes: vec![3], pts_sec: 6.0 },
+            AudioAu {
+                bytes: vec![1],
+                pts_sec: 0.0,
+            },
+            AudioAu {
+                bytes: vec![2],
+                pts_sec: 3.0,
+            },
+            AudioAu {
+                bytes: vec![3],
+                pts_sec: 6.0,
+            },
         ];
         // now=8, retain=4 → cutoff=4 → keep pts ≥ 4
         let kept = evict_audio(&frames, 8.0, 4.0);
@@ -887,9 +926,21 @@ mod tests {
     fn evict_video_preserves_leading_keyframe() {
         // Even if the IDR is older than the cutoff, it's preserved as the anchor.
         let frames: Vec<VideoAu> = vec![
-            VideoAu { bytes: vec![0, 0, 0, 1, 0x65], pts_sec: 0.0, is_keyframe: true },
-            VideoAu { bytes: vec![0, 0, 0, 1, 0x41], pts_sec: 5.0, is_keyframe: false },
-            VideoAu { bytes: vec![0, 0, 0, 1, 0x41], pts_sec: 10.0, is_keyframe: false },
+            VideoAu {
+                bytes: vec![0, 0, 0, 1, 0x65],
+                pts_sec: 0.0,
+                is_keyframe: true,
+            },
+            VideoAu {
+                bytes: vec![0, 0, 0, 1, 0x41],
+                pts_sec: 5.0,
+                is_keyframe: false,
+            },
+            VideoAu {
+                bytes: vec![0, 0, 0, 1, 0x41],
+                pts_sec: 10.0,
+                is_keyframe: false,
+            },
         ];
         // now=10, retain=3 → cutoff=7. IDR@0≤7 yes → anchor=IDR@0. Keep all.
         let kept = evict_video(&frames, 10.0, 3.0);

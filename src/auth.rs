@@ -325,7 +325,9 @@ impl XboxAuth {
             .form(&params)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("Token refresh failed: {}", error_chain(&e))))?;
+            .map_err(|e| {
+                XboxError::AuthError(format!("Token refresh failed: {}", error_chain(&e)))
+            })?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -463,14 +465,17 @@ impl XboxAuth {
         // login endpoint), telling the user "signed in" while the app silently
         // never advanced. A few seconds of HTTP wait is well within browser limits.
         let outcome = self
-            .complete_redirect(&request, &client_id, &redirect_uri, &verifier, &expected_state)
+            .complete_redirect(
+                &request,
+                &client_id,
+                &redirect_uri,
+                &verifier,
+                &expected_state,
+            )
             .await;
 
         let (status, message) = match &outcome {
-            Ok(()) => (
-                "200 OK",
-                "Signed in to Kite — you can close this tab.",
-            ),
+            Ok(()) => ("200 OK", "Signed in to Kite — you can close this tab."),
             Err(_) => (
                 "502 Bad Gateway",
                 "Sign-in failed — return to the app to see what went wrong.",
@@ -560,7 +565,9 @@ impl XboxAuth {
             .form(&params)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("Token exchange failed: {}", error_chain(&e))))?;
+            .map_err(|e| {
+                XboxError::AuthError(format!("Token exchange failed: {}", error_chain(&e)))
+            })?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -598,7 +605,9 @@ impl XboxAuth {
             .json(&body)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("Xbox Live auth failed: {}", error_chain(&e))))?;
+            .map_err(|e| {
+                XboxError::AuthError(format!("Xbox Live auth failed: {}", error_chain(&e)))
+            })?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -636,7 +645,9 @@ impl XboxAuth {
             .json(&body)
             .send()
             .await
-            .map_err(|e| XboxError::AuthError(format!("XSTS request failed: {}", error_chain(&e))))?;
+            .map_err(|e| {
+                XboxError::AuthError(format!("XSTS request failed: {}", error_chain(&e)))
+            })?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();

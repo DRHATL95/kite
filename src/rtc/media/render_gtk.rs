@@ -84,13 +84,27 @@ impl GlState {
                 let (pw, ph) = sizes[i];
                 if realloc {
                     self.gl.tex_image_2d(
-                        glow::TEXTURE_2D, 0, glow::R8 as i32, pw as i32, ph as i32, 0,
-                        glow::RED, glow::UNSIGNED_BYTE, Some(&planes[i]),
+                        glow::TEXTURE_2D,
+                        0,
+                        glow::R8 as i32,
+                        pw as i32,
+                        ph as i32,
+                        0,
+                        glow::RED,
+                        glow::UNSIGNED_BYTE,
+                        Some(&planes[i]),
                     );
                 } else {
                     self.gl.tex_sub_image_2d(
-                        glow::TEXTURE_2D, 0, 0, 0, pw as i32, ph as i32,
-                        glow::RED, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(&planes[i]),
+                        glow::TEXTURE_2D,
+                        0,
+                        0,
+                        0,
+                        pw as i32,
+                        ph as i32,
+                        glow::RED,
+                        glow::UNSIGNED_BYTE,
+                        glow::PixelUnpackData::Slice(&planes[i]),
                     );
                 }
             }
@@ -229,9 +243,12 @@ pub(crate) fn build_gl_state(gl: glow::Context) -> Result<GlState, String> {
         let program = compile_program(&gl, VS_SRC, FS_SRC)?;
 
         let tex = [
-            gl.create_texture().map_err(|e| format!("create Y tex: {e}"))?,
-            gl.create_texture().map_err(|e| format!("create U tex: {e}"))?,
-            gl.create_texture().map_err(|e| format!("create V tex: {e}"))?,
+            gl.create_texture()
+                .map_err(|e| format!("create Y tex: {e}"))?,
+            gl.create_texture()
+                .map_err(|e| format!("create U tex: {e}"))?,
+            gl.create_texture()
+                .map_err(|e| format!("create V tex: {e}"))?,
         ];
         for (i, t) in tex.iter().enumerate() {
             gl.active_texture(glow::TEXTURE0 + i as u32);
