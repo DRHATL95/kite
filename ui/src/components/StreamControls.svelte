@@ -31,6 +31,7 @@
   import { shouldAutoHideControls, CONTROLS_AUTO_HIDE_MS } from "./streamControlsVisibility.js";
   import { videoControlsActive } from "$lib/connection/audioOnly.js";
   import { pctToGain, VOLUME_MAX_PCT } from "$lib/connection/streamVolume.js";
+  import Icon from "$lib/design/Icon.svelte";
 
   const showClip = $derived(
     settings.clip.enabled &&
@@ -259,13 +260,7 @@
         aria-label={volumePct === 0 ? "Unmute" : "Mute"}
         title={volumePct === 0 ? "Unmute" : "Mute"}
       >
-        {#if volumePct === 0}
-          🔇
-        {:else if volumePct < 50}
-          🔉
-        {:else}
-          🔊
-        {/if}
+        <Icon name={volumePct === 0 ? "volume-off" : volumePct < 50 ? "volume-low" : "volume-high"} />
       </button>
 
       <!-- Slider — CSS custom property drives the accent fill via background gradient -->
@@ -297,6 +292,7 @@
         ? "Show video"
         : "Hide video — drop to the audio-only view (saves CPU/GPU); audio keeps playing"}
     >
+      <Icon name={connectionStore.videoHidden ? "eye" : "eye-off"} size={14} />
       {connectionStore.videoHidden ? "Show Video" : "Hide Video"}
     </button>
   {/if}
@@ -311,6 +307,7 @@
         ? "Exit immersive mode (Esc) — bring back the app controls"
         : "Immersive mode — hide the app controls for a distraction-free view (Esc to exit)"}
     >
+      <Icon name="immersive" size={14} />
       {focusMode ? "Exit Immersive" : "Immersive"}
     </button>
   {/if}
@@ -324,6 +321,7 @@
       ? "Exit fullscreen"
       : "Fullscreen — make the window fill your whole screen"}
   >
+    <Icon name={isFullscreen ? "fullscreen-exit" : "fullscreen"} size={14} />
     {isFullscreen ? "Exit FS" : "Fullscreen"}
   </button>
 
@@ -334,6 +332,7 @@
       onclick={requestKeyframe}
       title="Fix Video — refresh the picture if it looks blocky, smeared, or frozen"
     >
+      <Icon name="keyframe" size={14} />
       Fix Video
     </button>
   {/if}
@@ -345,6 +344,7 @@
       onclick={() => void connectionStore.saveClip()}
       title="Save the last few seconds as a clip"
     >
+      <Icon name="clip" size={14} />
       Clip
     </button>
   {/if}
@@ -358,6 +358,7 @@
     onclick={onDisconnect}
     title="Disconnect from Xbox"
   >
+    <Icon name="power" size={14} />
     Disconnect
   </button>
 </div>
@@ -428,6 +429,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     padding: var(--space-1) var(--space-3);
     background: transparent;
     border: 1px solid var(--border);

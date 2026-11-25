@@ -92,13 +92,15 @@ impl GlUnderlay {
                 gl.active_texture(glow::TEXTURE0);
                 gl.bind_texture(glow::TEXTURE_2D, Some(self.color));
                 gl.tex_image_2d(
+                    // RGB8, not RGBA8: GDK asks the texture for its alpha size and only
+                    // treats an alpha-free one as opaque (see native_render::mount).
                     glow::TEXTURE_2D,
                     0,
-                    glow::RGBA8 as i32,
+                    glow::RGB8 as i32,
                     w,
                     h,
                     0,
-                    glow::RGBA,
+                    glow::RGB,
                     glow::UNSIGNED_BYTE,
                     None,
                 );

@@ -29,6 +29,7 @@
   import SessionPanel from "./hud/SessionPanel.svelte";
   import ChannelPanel from "./hud/ChannelPanel.svelte";
   import LogViewer   from "./hud/LogViewer.svelte";
+  import Icon from "$lib/design/Icon.svelte";
 
   // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@
         <span class="hud__status hud__status--live">live</span>
       {/if}
       <span class="hud__hint">` close</span>
-      <button class="hud__close" onclick={toggle} aria-label="Close HUD">✕</button>
+      <button class="hud__close" onclick={toggle} aria-label="Close HUD"><Icon name="close" size={14} /></button>
     </header>
 
     <div class="hud__grid">

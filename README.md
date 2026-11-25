@@ -4,9 +4,14 @@ A lightweight desktop app for streaming your own Xbox console over the internet 
 
 ## Download
 
-**[⬇ Get the latest release](https://github.com/DRHATL95/kite/releases)** — download the Windows installer (`kite_<version>_x64-setup.exe`) and run it.
+**[⬇ Get the latest release](https://github.com/DRHATL95/kite/releases)**
 
-- **Windows** is the supported platform right now. Linux/macOS build from source (below); a native Linux build is planned.
+- **Windows**: download the installer (`kite_<version>_x64-setup.exe`) and run it.
+- **Linux** (since 1.3.0): download the AppImage (`kite_<version>_amd64.AppImage`), make it executable (`chmod +x`), and run it.
+  - Needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, or later). It does not run on Ubuntu 22.04 or Debian 12.
+  - Tested on a Wayland session with an NVIDIA GPU. X11 sessions and other GPUs are untested.
+  - Keep the AppImage somewhere writable (for example `~/Applications`): the updater replaces the file in place.
+- **macOS**: build from source (below).
 - The installer isn't code-signed yet, so Windows SmartScreen warns **"Unknown publisher"** — click **More info → Run anyway**. (Code-signing is on the roadmap.)
 - The app **auto-updates** after install — choose **Stable** or **Nightly** in Settings → Updates.
 
@@ -128,6 +133,8 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID,
 - Ensure your Xbox is signed in with the same Microsoft account
 - Enable "Remote features" in Xbox Settings > Devices & streaming
 - Ensure your Xbox has an internet connection
+- Set the console's power mode to **Sleep**. In "Shutdown (energy saving)" it cannot be woken remotely, and connecting fails with `WaitingForServerToRegister`.
+- If you run a DNS ad blocker (AdGuard Home, Pi-hole), allow `wns.windows.com`. The console registers for remote play through Windows Push Notification Service; with that domain blocked it never appears in the list.
 
 ### Authentication Issues
 

@@ -22,6 +22,8 @@
   import type { XHomeConsole } from "$lib/ipc/types.js";
   import Button from "$lib/design/Button.svelte";
   import Badge from "$lib/design/Badge.svelte";
+  import Icon from "$lib/design/Icon.svelte";
+  import LogoMark from "$lib/design/LogoMark.svelte";
   import SettingsView from "../components/settings/SettingsView.svelte";
   import ConsoleArt from "../components/ConsoleArt.svelte";
   import { consoleTypeLabel } from "$lib/console/consoleArt.js";
@@ -114,18 +116,19 @@
         class="failure-banner__dismiss"
         onclick={() => (connectionStore.failureReason = null)}
         aria-label="Dismiss"
-      >✕</button>
+      ><Icon name="close" size={14} /></button>
     </div>
   {/if}
 
   <!-- ── Header row ── -->
   <header class="screen-header">
     <div class="header-identity">
-      <span class="live-dot" aria-hidden="true"></span>
-      <span class="signed-in-label">signed in</span>
+      <LogoMark size={26} />
+      <span class="wordmark">Kite</span>
     </div>
     <div class="header-right">
-      <span class="wordmark">Kite</span>
+      <span class="live-dot" aria-hidden="true"></span>
+      <span class="signed-in-label">signed in</span>
       <button
         type="button"
         class="settings-gear"
@@ -133,7 +136,7 @@
         aria-label="Settings"
         title="Settings"
       >
-        ⚙
+        <Icon name="settings" />
       </button>
     </div>
   </header>
@@ -144,6 +147,7 @@
     <div class="section-row">
       <span class="section-label">YOUR CONSOLES</span>
       <Button variant="ghost" onclick={handleRefresh} disabled={loading}>
+        <Icon name="refresh" size={14} />
         Refresh
       </Button>
     </div>
@@ -203,7 +207,7 @@
               <Button
                 disabled={!isConnectable(console.powerState)}
                 onclick={() => onConnect(console)}
-              >Connect →</Button>
+              ><Icon name="play" size={14} />Play</Button>
             </li>
           {/each}
         </ul>
@@ -295,7 +299,7 @@
 
   .wordmark {
     font-family: var(--font-display);
-    font-size: var(--text-base);
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--text);
     letter-spacing: 0.12em;
