@@ -40,7 +40,7 @@ regex = "1"
 # pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 muxide = "0.2.5"
-str0m = { version = "0.22", optional = true }
+str0m = { version = "0.23", optional = true }
 opus = { version = "0.4", optional = true }
 ffmpeg-the-third = { version = "6", optional = true }
 bytes = { version = "1", optional = true }
@@ -67,10 +67,10 @@ cpal = "0.18"
 # Native Linux render stack (Phase 4/6). Optional + feature-gated so the default
 # Win/macOS build stays lean and `cargo test` doesn't pull gtk on Windows.
 gtk = { version = "0.18", optional = true }
-glow = { version = "0.13", optional = true }
+glow = { version = "0.18", optional = true }
 libloading = { version = "0.9", optional = true }
 tao = { version = "0.36", optional = true }
-wry = { version = "0.55", optional = true }
+wry = { version = "0.56", optional = true }
 
 # Phase-0 throwaway de-risk spike: str0m offerer → receive Xbox H.264 → decode
 # one frame → PNG. Only built when the native stack is available.

@@ -1033,24 +1033,11 @@ dependencies = [
 
 [[package]]
 name = "cssparser"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2"
-dependencies = [
- "cssparser-macros 0.6.1",
- "dtoa-short",
- "itoa",
- "phf 0.13.1",
- "smallvec",
-]
-
-[[package]]
-name = "cssparser"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98"
 dependencies = [
- "cssparser-macros 0.7.1",
+ "cssparser-macros",
  "dtoa-short",
  "itoa",
  "phf 0.13.1",
@@ -1063,21 +1050,11 @@ version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11119743ad110e8c1bdccd930d7f5c30c99e5fc76a7b63ec9807e84eef0c5f59"
 dependencies = [
- "cssparser-macros 0.7.1",
+ "cssparser-macros",
  "dtoa-short",
  "itoa",
  "phf 0.14.0",
  "smallvec",
-]
-
-[[package]]
-name = "cssparser-macros"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331"
-dependencies = [
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -1383,21 +1360,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "dom_query"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521e380c0c8afb8d9a1e83a1822ee03556fc3e3e7dbc1fd30be14e37f9cb3f89"
-dependencies = [
- "bit-set 0.8.0",
- "cssparser 0.36.0",
- "foldhash",
- "html5ever 0.38.0",
- "precomputed-hash",
- "selectors 0.36.1",
- "tendril",
 ]
 
 [[package]]
@@ -2049,9 +2011,9 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "glow"
-version = "0.13.1"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd348e04c43b32574f2de31c8bb397d96c9fcfa1371bd4ca6d8bdc464ab121b1"
+checksum = "263218b0ba2b0715c3370fb04674f5f8aa331594b521c94ff0a8e4a8472d1386"
 dependencies = [
  "js-sys",
  "slotmap",
@@ -2176,16 +2138,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "html5ever"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1054432bae2f14e0061e33d23402fbaa67a921d319d56adc6bcf887ddad1cbc2"
-dependencies = [
- "log",
- "markup5ever 0.38.0",
-]
 
 [[package]]
 name = "html5ever"
@@ -2865,7 +2817,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "wry 0.55.1",
+ "wry 0.56.1",
 ]
 
 [[package]]
@@ -2990,17 +2942,6 @@ name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
-
-[[package]]
-name = "markup5ever"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8983d30f2915feeaaab2d6babdd6bc7e9ed1a00b66b5e6d74df19aa9c0e91862"
-dependencies = [
- "log",
- "tendril",
- "web_atoms 0.2.6",
-]
 
 [[package]]
 name = "markup5ever"
@@ -4564,25 +4505,6 @@ dependencies = [
 
 [[package]]
 name = "selectors"
-version = "0.36.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c"
-dependencies = [
- "bitflags 2.13.1",
- "cssparser 0.36.0",
- "derive_more",
- "log",
- "new_debug_unreachable",
- "phf 0.13.1",
- "phf_codegen 0.13.1",
- "precomputed-hash",
- "rustc-hash",
- "servo_arc 0.4.3",
- "smallvec",
-]
-
-[[package]]
-name = "selectors"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d"
@@ -5024,9 +4946,9 @@ checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
 
 [[package]]
 name = "str0m"
-version = "0.22.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4656b60e74d1a0cf7c407b0d992c5bc141c3e75193f4b1399817d54a180505f3"
+checksum = "8522aa06c731cfdc1488e32de7fcebcfc8d9d86d49a6ecc95a64779fe7b545f2"
 dependencies = [
  "arrayvec",
  "base64ct",
@@ -7054,16 +6976,16 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "wry"
-version = "0.55.1"
+version = "0.56.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "186f9871daa55fd9c016578b810d149de58367113db7fb72b462d2323ce19514"
+checksum = "375becb4aded9913f736443cf88000c6311478db69814cc06070465e4cc44c98"
 dependencies = [
  "base64 0.22.1",
  "block2",
  "cookie",
  "crossbeam-channel",
  "dirs 6.0.0",
- "dom_query 0.27.0",
+ "dom_query 0.28.0",
  "dpi",
  "dunce",
  "gdkx11",
