@@ -102,7 +102,7 @@ impl GlUnderlay {
                     0,
                     glow::RGB,
                     glow::UNSIGNED_BYTE,
-                    None,
+                    glow::PixelUnpackData::Slice(None),
                 );
                 self.size = (w, h);
             }
