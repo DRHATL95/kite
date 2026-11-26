@@ -1077,7 +1077,9 @@ mod native_render {
             // - Wayland inside the AppImage: the cairo path too, see `use_gl_underlay`.
             let gl = use_gl_underlay(
                 gtk_window.display().type_().name().contains("Wayland"),
-                std::env::var_os("APPIMAGE").is_some(),
+                // APPDIR too: an extracted AppImage (`squashfs-root/AppRun`, no FUSE)
+                // runs the bundled libs without APPIMAGE set. Same test as open_url_linux.
+                std::env::var_os("APPDIR").is_some() || std::env::var_os("APPIMAGE").is_some(),
             );
             let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
             let dirty_tick = std::rc::Rc::clone(&dirty);
@@ -1183,7 +1185,7 @@ mod native_render {
     /// 2026-11-26, NVIDIA 620.73.04 + KDE Wayland). GL is fine on Fedora's system libs
     /// but blacks out the window and segfaults WebKitWebProcess on the AppImage's bundled
     /// Ubuntu 24.04 libs; cairo is the reverse (video see-through on Fedora's). So the
-    /// AppImage, detected by the `APPIMAGE` var its runtime sets, takes cairo. Delete with
+    /// AppImage, detected by `APPDIR` or `APPIMAGE`, takes cairo. Delete with
     /// both underlays once the native media core draws video outside WebKit.
     fn use_gl_underlay(wayland_display: bool, appimage: bool) -> bool {
         wayland_display && !appimage
