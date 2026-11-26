@@ -1074,12 +1074,18 @@ mod native_render {
             // - X11/XWayland, WebKit non-composited: the webview replaces whatever is under
             //   it, so paint with cairo from the WINDOW's draw signal AFTER it, beneath
             //   (DEST_OVER).
-            let wayland = gtk_window.display().type_().name().contains("Wayland");
+            // - Wayland inside the AppImage: the cairo path too, see `use_gl_underlay`.
+            let gl = use_gl_underlay(
+                gtk_window.display().type_().name().contains("Wayland"),
+                // APPDIR too: an extracted AppImage (`squashfs-root/AppRun`, no FUSE)
+                // runs the bundled libs without APPIMAGE set. Same test as open_url_linux.
+                std::env::var_os("APPDIR").is_some() || std::env::var_os("APPIMAGE").is_some(),
+            );
             let dirty = std::rc::Rc::new(std::cell::Cell::new(true));
             let dirty_tick = std::rc::Rc::clone(&dirty);
             let cleared = std::rc::Rc::new(std::cell::Cell::new(false));
             let cleared_tick = std::rc::Rc::clone(&cleared);
-            if wayland {
+            if gl {
                 let underlay: std::cell::RefCell<Option<GlUnderlay>> = std::cell::RefCell::new(None);
                 let gl_failed = std::cell::Cell::new(false);
                 webview_widget.connect_draw(move |widget, cr| {
@@ -1147,7 +1153,7 @@ mod native_render {
             // gameplay (see frame_sink). The tick only asks for a redraw when a frame is
             // due, so an idle HUD still costs nothing. GTK removes it with the widget.
             let sink_tick = Arc::clone(&frame_sink);
-            let redraw: gtk::Widget = if wayland { webview_widget.clone() } else { gtk_window.clone().upcast() };
+            let redraw: gtk::Widget = if gl { webview_widget.clone() } else { gtk_window.clone().upcast() };
             redraw.add_tick_callback(move |widget, _clock| {
                 if sink_tick.take_cleared() {
                     // The stream ended: never leave its last frame behind the UI.
@@ -1161,13 +1167,40 @@ mod native_render {
                 gtk::glib::ControlFlow::Continue
             });
 
+            let path = if gl { "gl" } else { "cairo" };
             tracing::info!(
-                "native_render: window paints video under the webview HUD (awaiting frames from rtc_connect)"
+                "native_render: video under the webview HUD via {path} underlay (awaiting frames from rtc_connect)"
             );
         });
 
         if let Err(e) = result {
             tracing::error!("native_render: with_webview failed: {e}");
+        }
+    }
+
+    /// Whether the video goes under the webview as a GL texture (`GlUnderlay`) rather
+    /// than painted with cairo from the window's draw signal (`CairoVideo`).
+    ///
+    /// shortcut: each underlay works with only one GTK/WebKit build (measured
+    /// 2026-11-26, NVIDIA 620.73.04 + KDE Wayland). GL is fine on Fedora's system libs
+    /// but blacks out the window and segfaults WebKitWebProcess on the AppImage's bundled
+    /// Ubuntu 24.04 libs; cairo is the reverse (video see-through on Fedora's). So the
+    /// AppImage, detected by `APPDIR` or `APPIMAGE`, takes cairo. Delete with
+    /// both underlays once the native media core draws video outside WebKit.
+    fn use_gl_underlay(wayland_display: bool, appimage: bool) -> bool {
+        wayland_display && !appimage
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::use_gl_underlay;
+
+        #[test]
+        fn gl_only_on_wayland_outside_appimage() {
+            assert!(use_gl_underlay(true, false));
+            assert!(!use_gl_underlay(true, true)); // AppImage: bundled libs need cairo
+            assert!(!use_gl_underlay(false, false)); // X11/XWayland: cairo, as 1.4.0
+            assert!(!use_gl_underlay(false, true));
         }
     }
 }
