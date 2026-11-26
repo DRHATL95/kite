@@ -92,7 +92,7 @@ impl GlState {
                         0,
                         glow::RED,
                         glow::UNSIGNED_BYTE,
-                        Some(&planes[i]),
+                        glow::PixelUnpackData::Slice(Some(&planes[i])),
                     );
                 } else {
                     self.gl.tex_sub_image_2d(
@@ -104,7 +104,7 @@ impl GlState {
                         ph as i32,
                         glow::RED,
                         glow::UNSIGNED_BYTE,
-                        glow::PixelUnpackData::Slice(&planes[i]),
+                        glow::PixelUnpackData::Slice(Some(&planes[i])),
                     );
                 }
             }
