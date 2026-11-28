@@ -48,9 +48,43 @@ impl Transport for UdpTransport {
     }
 
     async fn recv(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
-        self.socket
-            .recv_from(buf)
+        // Windows reports a UDP send to a closed port (an ICE candidate nobody
+        // answers) as WSAECONNRESET on the next receive. The socket is fine: skip it.
+        loop {
+            match self.socket.recv_from(buf).await {
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                r => return r.map_err(|e| RtcError::Transport(e.to_string())),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Windows reports a UDP send to a closed port (every unanswered ICE candidate)
+    /// as WSAECONNRESET on the *next receive*. That says nothing about our socket.
+    #[tokio::test]
+    async fn recv_survives_a_send_to_a_closed_port() {
+        let t = UdpTransport::bind("127.0.0.1:0".parse().unwrap())
             .await
-            .map_err(|e| RtcError::Transport(e.to_string()))
+            .unwrap();
+        let closed = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        t.send_to(b"x", closed).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.send_to(b"hi", t.local_addr().unwrap()).unwrap();
+        let mut buf = [0u8; 16];
+        let (n, _) = tokio::time::timeout(Duration::from_secs(2), t.recv(&mut buf))
+            .await
+            .expect("a datagram arrives")
+            .expect("the reset is skipped, not returned");
+        assert_eq!(&buf[..n], b"hi");
     }
 }
