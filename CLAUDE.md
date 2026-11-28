@@ -210,32 +210,38 @@ variable directly. (NVIDIA users who want to keep native Wayland can instead try
 
 ### How It Works
 
-1. **OAuth device-code auth** (`src/auth.rs`): User clicks "Sign in". App requests a device code from Microsoft, displays it with a verification URL. Polls until the user completes sign-in in their browser. Chains tokens: Microsoft Access Token → Xbox Live Token → XSTS token (audience: `gssv`).
+1. **OAuth device-code auth** (`crates/kite-core/src/auth.rs`): User clicks "Sign in". App requests a device code from Microsoft, displays it with a verification URL. Polls until the user completes sign-in in their browser. Chains tokens: Microsoft Access Token → Xbox Live Token → XSTS token (audience: `gssv`).
 
-2. **Token storage** (`src/token_store.rs`): XSTS and refresh tokens are persisted in the OS keychain (Windows Credential Manager / macOS Keychain / Linux Secret Service) so users stay logged in across sessions.
+2. **Token storage** (`crates/kite-core/src/token_store.rs`): XSTS and refresh tokens are persisted in the OS keychain (Windows Credential Manager / macOS Keychain / Linux Secret Service) so users stay logged in across sessions.
 
-3. **Console discovery** (`src/xhome.rs`): Calls `GET /v2/login/user` on the xHome REST API with the XSTS token. Returns the list of consoles associated with the account. There is no local network discovery; everything is cloud-only.
+3. **Console discovery** (`crates/kite-core/src/xhome.rs`): Calls `GET /v2/login/user` on the xHome REST API with the XSTS token. Returns the list of consoles associated with the account. There is no local network discovery; everything is cloud-only.
 
-4. **Session creation** (`src/xhome.rs`): `POST /v5/sessions/home/{serverId}/play` creates a streaming session. The response includes an SDP offer from Xbox and `keepAlivePulseInSeconds`.
+4. **Session creation** (`crates/kite-core/src/xhome.rs`): `POST /v5/sessions/home/{serverId}/play` creates a streaming session. The response includes an SDP offer from Xbox and `keepAlivePulseInSeconds`.
 
 5. **WebRTC in the browser** (`ui/src/lib/connection/`): The frontend creates an `RTCPeerConnection`, sets the remote SDP offer, generates an SDP answer, and sends it back via `POST /{sessionPath}/sdp`. ICE candidates are exchanged via `POST /{sessionPath}/ice`. Four data channels are opened: `chat`, `control`, `message`, `input`. Video and audio flow as WebRTC media tracks. The `ConnectionManager` class orchestrates the full session lifecycle.
 
 6. **Keepalive** (`ui/src/lib/connection/ConnectionManager.ts`): The session stays alive by sending a keepalive both on the WebRTC data channel and to the xHome API at the interval specified by `keepAlivePulseInSeconds` (with a 2-second safety margin, minimum 5 seconds).
 
-7. **Clipping (opt-in)** (`ui/src/lib/clip/`): When enabled, an `EncodedTap` taps the console's already-encoded H.264 + Opus off the WebRTC receivers via **Insertable Streams** (`encodedInsertableStreams`) — no re-encode, so it never disturbs the live stream (the receiver transform always re-enqueues; a tap error can never break playback). On Clip it slices from the last keyframe, transcodes audio Opus→AAC with WebCodecs, and ships the encoded frames to Rust (`save_clip` → `src/clip.rs`), which remuxes them into a native fast-start **MP4** (H.264 + AAC) with `muxide`. Falls back to a HW-H.264 `MediaRecorder` (`ClipBuffer`) when Insertable Streams are unavailable. A/V is aligned on a shared wall-clock origin (a small residual, audio slightly behind video, is expected — likely AAC encoder priming).
+7. **Clipping (opt-in)** (`ui/src/lib/clip/`): When enabled, an `EncodedTap` taps the console's already-encoded H.264 + Opus off the WebRTC receivers via **Insertable Streams** (`encodedInsertableStreams`) — no re-encode, so it never disturbs the live stream (the receiver transform always re-enqueues; a tap error can never break playback). On Clip it slices from the last keyframe, transcodes audio Opus→AAC with WebCodecs, and ships the encoded frames to Rust (`save_clip` → `crates/kite-core/src/clip.rs`), which remuxes them into a native fast-start **MP4** (H.264 + AAC) with `muxide`. Falls back to a HW-H.264 `MediaRecorder` (`ClipBuffer`) when Insertable Streams are unavailable. A/V is aligned on a shared wall-clock origin (a small residual, audio slightly behind video, is expected — likely AAC encoder priming).
 
 ### Module Structure
 
-### Rust Backend (`src/`)
+### Rust Backend (`src/` and `crates/kite-core/`)
+
+The repo root is a Cargo workspace. The root package `kite` is the Tauri app; the engine
+(auth, token store, xHome, `rtc/`, clip) lives in `crates/kite-core` and is re-exported
+from `src/lib.rs`, so `kite::rtc`, `kite::auth` etc. still resolve. Both packages have a
+`native-webrtc` feature; the app's turns on the engine's. Pass `--workspace` to
+`cargo test` and `cargo clippy`, or `kite-core` is skipped.
 
 | File | Purpose |
 |------|---------|
 | `src/main.rs` | Tauri entry point; registers all Tauri commands |
-| `src/auth.rs` | OAuth device-code flow, token chain, `check_auth_status` |
-| `src/xhome.rs` | xHome REST API client: login, list consoles, create session, SDP/ICE exchange, keepalive |
-| `src/token_store.rs` | OS keychain read/write for XSTS and refresh tokens |
-| `src/clip.rs` | Clip payload parser + H.264/AAC remux to a native MP4 via `muxide` |
-| `src/error.rs` | `XboxError` enum with `thiserror` |
+| `crates/kite-core/src/auth.rs` | OAuth device-code flow, token chain, `check_auth_status` |
+| `crates/kite-core/src/xhome.rs` | xHome REST API client: login, list consoles, create session, SDP/ICE exchange, keepalive |
+| `crates/kite-core/src/token_store.rs` | OS keychain read/write for XSTS and refresh tokens |
+| `crates/kite-core/src/clip.rs` | Clip payload parser + H.264/AAC remux to a native MP4 via `muxide` |
+| `crates/kite-core/src/error.rs` | `XboxError` enum with `thiserror` |
 
 ### Frontend (`ui/src/`) — Svelte 5 + TypeScript + Vite
 
@@ -301,7 +307,7 @@ The frontend is a Svelte 5 app built with Vite. Production output goes to `ui/di
 
 ## Error Handling
 
-All errors use `XboxError` from `src/error.rs`:
+All errors use `XboxError` from `crates/kite-core/src/error.rs`:
 - `AuthError` — OAuth / token exchange failures
 - `ApiError` — xHome REST API errors (includes HTTP status + body)
 - `SerializationError` — JSON parsing (`serde_json::Error`)

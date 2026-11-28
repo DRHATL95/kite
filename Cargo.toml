@@ -1,3 +1,23 @@
+[workspace]
+members = [".", "crates/kite-core"]
+
+# Versions shared by the app and kite-core live here so they cannot drift.
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+# pinned at 0.12: reqwest 0.13 removed RequestBuilder::form() used in auth.rs
+reqwest = { version = "0.12", features = ["json"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+getrandom = "0.4"
+str0m = "0.23"
+ffmpeg-the-third = "6"
+cpal = "0.18"
+gtk = "0.18"
+glow = "0.18"
+libloading = "0.9"
+
 [package]
 name = "kite"
 version = "1.5.0"
@@ -11,64 +31,53 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+
+# Engine: auth, token store, xHome, rtc, clip (crates/kite-core)
+kite-core = { path = "crates/kite-core" }
+serde.workspace = true
+serde_json.workspace = true
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio.workspace = true
 
-# HTTP client for Xbox API
-# pinned at 0.12: reqwest 0.13 removed RequestBuilder::form() used in auth.rs
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP client (release list)
+reqwest.workspace = true
 
 # Time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # Directory paths
 dirs = "6.0"
 
-# Error handling
-thiserror = "2.0"
-
 # Logging
-tracing = "0.1"
+tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry", "fmt"] }
 tracing-appender = "0.2"
 regex = "1"
 
-# OS keychain for token storage
-# pinned at 3: keyring 4 restructured its public API (Entry type moved, features removed)
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-muxide = "0.2.5"
-str0m = { version = "0.23", optional = true }
-opus = { version = "0.4", optional = true }
-ffmpeg-the-third = { version = "6", optional = true }
-bytes = { version = "1", optional = true }
-cpal = { version = "0.18", optional = true }
-sha2 = "0.10"
-base64 = "0.22"
-getrandom = "0.4"
+# Used directly only by the gated examples (rtc_spike, render_spike).
+str0m = { workspace = true, optional = true }
+ffmpeg-the-third = { workspace = true, optional = true }
+getrandom.workspace = true
 # Decodes the embedded tray-icon PNGs (src/tray.rs); also used by the Phase-0
 # rtc_spike example (error context + PNG encode) via anyhow below.
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
-tempfile = "3"
-insta = { version = "1", features = ["json"] }
 # Phase-0 spike only (examples/rtc_spike.rs): error context.
 anyhow = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Plays the stream's audio from kite.exe itself (src/audio_out.rs) so Discord's
 # window share, which captures only the shared window's process, hears it.
-cpal = "0.18"
+cpal.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Native Linux render stack (Phase 4/6). Optional + feature-gated so the default
 # Win/macOS build stays lean and `cargo test` doesn't pull gtk on Windows.
-gtk = { version = "0.18", optional = true }
-glow = { version = "0.18", optional = true }
-libloading = { version = "0.9", optional = true }
+gtk = { workspace = true, optional = true }
+glow = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
 tao = { version = "0.36", optional = true }
 wry = { version = "0.56", optional = true }
 
@@ -100,4 +109,4 @@ lto = false
 # Native Rust WebRTC media stack (Linux-first; opt-in so the default build stays
 # lean and doesn't require ffmpeg/str0m toolchains). See
 # docs/superpowers/plans/2026-06-19-native-rust-webrtc.md.
-native-webrtc = ["dep:str0m", "dep:opus", "dep:ffmpeg-the-third", "dep:bytes", "dep:cpal", "dep:gtk", "dep:glow", "dep:libloading", "dep:tao", "dep:wry"]
+native-webrtc = ["kite-core/native-webrtc", "dep:str0m", "dep:ffmpeg-the-third", "dep:gtk", "dep:glow", "dep:libloading", "dep:tao", "dep:wry"]
