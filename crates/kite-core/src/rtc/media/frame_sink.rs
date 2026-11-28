@@ -37,6 +37,21 @@ struct Playout {
 }
 
 impl Playout {
+    /// Keep the timeline on the earliest arrival seen. Without this, a timeline
+    /// started by a frame that came late holds every later frame back by that
+    /// lateness (measured 2026-11-27: a steady 54 ms from arrival to draw, not 16).
+    // ponytail: only ever moves earlier; a sender clock running slow is left to RESYNC.
+    fn note_arrival(&mut self, pts: u64, now: Instant) {
+        if let Some((pts0, t0)) = self.base
+            && let Some(d) = pts.checked_sub(pts0).map(Duration::from_micros)
+            && t0 + d > now
+        {
+            // Shift the line, keep its origin: frames still queued are older than
+            // this one and must stay on the same timeline.
+            self.base = now.checked_sub(d).map(|t0| (pts0, t0));
+        }
+    }
+
     /// Local time the front frame is due, anchoring the timeline to it when there is
     /// none or when it has drifted more than [`RESYNC`] from `now`.
     fn front_due(&mut self, now: Instant) -> Option<Instant> {
@@ -47,8 +62,10 @@ impl Playout {
             (off <= RESYNC).then_some(due)
         });
         Some(due.unwrap_or_else(|| {
-            // New timeline: this frame is due now.
-            self.base = now.checked_sub(PLAYOUT_DELAY).map(|t0| (pts, t0));
+            // New timeline: this frame is due now, and the ones after it wait the
+            // full playout delay. (Anchoring at `now - PLAYOUT_DELAY` left them no
+            // margin at all when this frame happened to be a fast one.)
+            self.base = Some((pts, now));
             now
         }))
     }
@@ -67,7 +84,13 @@ impl SharedFrame {
     }
 
     pub fn put(&self, frame: DecodedFrame) {
+        self.put_at(frame, Instant::now());
+    }
+
+    /// [`put`](Self::put) with the arrival time passed in, so tests need no sleeps.
+    fn put_at(&self, frame: DecodedFrame, now: Instant) {
         let mut p = self.playout.lock().unwrap();
+        p.note_arrival(frame.pts_micros, now);
         p.queue.push_back(frame);
         if p.queue.len() > QUEUE_CAP {
             // Behind: keep the newest frame only and start a new timeline from it.
@@ -214,12 +237,68 @@ mod tests {
         );
         assert!(sink.has_pending() && !sink.has_due(t + Duration::from_millis(8)));
         assert_eq!(
-            sink.take_due(t + Duration::from_millis(16))
+            sink.take_due(t + Duration::from_millis(16) + PLAYOUT_DELAY)
                 .unwrap()
                 .pts_micros,
             1_016_000
         );
         assert!(!sink.has_pending());
+    }
+
+    #[test]
+    fn a_late_first_frame_does_not_delay_the_rest() {
+        let sink = SharedFrame::new();
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        // Frame 0 is shown 40 ms late; frame 1 (16 ms later in stream time) arrives then.
+        sink.put_at(at(1000), t);
+        assert!(sink.take_due(t + ms(40)).is_some());
+        sink.put_at(at(1016), t + ms(40));
+        assert!(
+            sink.take_due(t + ms(40) + PLAYOUT_DELAY).is_some(),
+            "due one playout delay after it arrived, not 16 ms after the late frame"
+        );
+    }
+
+    #[test]
+    fn frames_after_the_first_wait_the_full_playout_delay() {
+        let sink = SharedFrame::new();
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        sink.put_at(at(1000), t);
+        assert!(
+            sink.take_due(t).is_some(),
+            "first frame starts the timeline"
+        );
+        // The next frame arrives exactly on time, 16 ms later.
+        sink.put_at(at(1016), t + ms(16));
+        assert!(
+            sink.take_due(t + ms(16) + PLAYOUT_DELAY / 2).is_none(),
+            "held for the playout delay so a slower frame behind it is still on time"
+        );
+        assert!(sink.take_due(t + ms(16) + PLAYOUT_DELAY).is_some());
+    }
+
+    #[test]
+    fn an_early_arrival_keeps_queued_frames_on_the_timeline() {
+        let sink = SharedFrame::new();
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        sink.put_at(at(1000), t);
+        assert!(sink.take_due(t + ms(40)).is_some());
+        // Two frames arrive together. The second sets the pace, so the first was
+        // already late and shows at once; the second keeps its place on the same
+        // timeline, one playout delay after it arrived.
+        let t = t + ms(40);
+        sink.put_at(at(1016), t);
+        sink.put_at(at(1033), t);
+        assert_eq!(sink.take_due(t).unwrap().pts_micros, 1_016_000);
+        assert!(sink.take_due(t).is_none(), "1033 waits its playout delay");
+        assert_eq!(
+            sink.take_due(t + PLAYOUT_DELAY).unwrap().pts_micros,
+            1_033_000,
+            "and no longer than that"
+        );
     }
 
     #[test]

@@ -11,6 +11,38 @@ pub const STALL_TIMEOUT_MS: f64 = 8000.0;
 /// Cadence the engine calls `tick()` at (ms). Matches the browser's 1 s.
 pub const MONITOR_TICK_MS: f64 = 1000.0;
 
+/// Least time between keyframe requests while recovering from a lost frame (ms).
+pub const KEYFRAME_RETRY_MS: f64 = 250.0;
+
+/// Keyframe recovery after a lost video frame. A frame the jitter buffer gave up on
+/// leaves the decoder with a missing reference, and every frame after it is damaged
+/// until the next keyframe. The console sends one only every 30 s unless asked, and
+/// a single request can itself be lost, so keep asking until one arrives.
+#[derive(Debug, Default)]
+pub struct KeyframeRecovery {
+    awaiting: bool,
+    last_request_at: Option<f64>,
+}
+
+impl KeyframeRecovery {
+    /// Feed every video frame the engine receives. `contiguous` is false when frames
+    /// before this one were lost. Returns true when a keyframe request should be sent.
+    pub fn on_frame(&mut self, contiguous: bool, keyframe: bool, now_ms: f64) -> bool {
+        if keyframe {
+            *self = Self::default();
+            return false;
+        }
+        self.awaiting |= !contiguous;
+        let due = self
+            .last_request_at
+            .is_none_or(|at| now_ms - at >= KEYFRAME_RETRY_MS);
+        if self.awaiting && due {
+            self.last_request_at = Some(now_ms);
+        }
+        self.awaiting && due
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatchdogReason {
     MediaNeverStarted,
@@ -167,5 +199,32 @@ mod tests {
         assert_eq!(w.tick(Some(10), 5000.0), Some(WatchdogAction::Nudge));
         let _ = w.tick(Some(11), 5500.0); // progress → reset
         assert_eq!(w.tick(Some(11), 9000.0), None);
+    }
+
+    #[test]
+    fn keyframe_recovery_asks_at_once_then_retries_until_a_keyframe() {
+        let mut r = KeyframeRecovery::default();
+        assert!(
+            !r.on_frame(true, false, 0.0),
+            "healthy stream: nothing to ask"
+        );
+        assert!(r.on_frame(false, false, 100.0), "lost frame: ask at once");
+        assert!(!r.on_frame(true, false, 116.0), "too soon to ask again");
+        assert!(
+            r.on_frame(true, false, 100.0 + KEYFRAME_RETRY_MS),
+            "no keyframe yet: ask again"
+        );
+        assert!(
+            !r.on_frame(true, true, 400.0),
+            "keyframe arrived: recovered"
+        );
+        assert!(!r.on_frame(true, false, 1000.0), "and it stays quiet");
+    }
+
+    #[test]
+    fn keyframe_recovery_ignores_a_gap_that_ends_on_a_keyframe() {
+        let mut r = KeyframeRecovery::default();
+        assert!(!r.on_frame(false, true, 0.0));
+        assert!(!r.on_frame(true, false, 300.0));
     }
 }
