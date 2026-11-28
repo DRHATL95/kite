@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/kite-core"]
+members = [".", "crates/kite-core", "crates/libkite"]
 
 # Versions shared by the app and kite-core live here so they cannot drift.
 [workspace.dependencies]
