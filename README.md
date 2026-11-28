@@ -152,7 +152,7 @@ See [AZURE_SETUP.md](./AZURE_SETUP.md) to register your own Azure app client ID,
 ### Running Tests
 ```powershell
 # Rust backend tests
-cargo test
+cargo test --workspace
 
 # Frontend unit tests (Vitest) and type-check
 pnpm --dir ui run test

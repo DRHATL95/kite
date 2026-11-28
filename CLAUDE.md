@@ -33,7 +33,7 @@ pnpm --dir ui run build
 cargo tauri build
 
 # Run Rust tests
-cargo test
+cargo test --workspace
 
 # Override the default Azure app client ID
 $env:XBOX_CLIENT_ID = "your-client-id-here"
@@ -79,8 +79,8 @@ the whole set builds**. On Windows/macOS the feature pulls just `str0m`, `opus`,
 | `rust-native-webrtc` | ubuntu-latest | `native-webrtc` | all ten, plus the three gated examples |
 
 The Linux job installs the FFmpeg/GTK/ALSA/Opus dev packages it needs, then runs
-`cargo clippy --all-targets --features native-webrtc -- -D warnings` and
-`cargo test --features native-webrtc`. `--all-targets` is load-bearing: the
+`cargo clippy --workspace --all-targets --features native-webrtc -- -D warnings` and
+`cargo test --workspace --features native-webrtc`. `--all-targets` is load-bearing: the
 `rtc_spike` / `render_spike` / `render_live` examples are `required-features` gated and
 would otherwise never compile. `tests/rtc_e2e.rs` self-skips without `XBOX_E2E=1`.
 
