@@ -25,13 +25,19 @@ use super::signaling::{SessionInfo, Signaling};
 use super::state::{ConnectionState, Transition};
 use super::stats::{STATS_SAMPLE_MS, StatsAccumulator};
 use super::transport::Transport;
-use super::watchdog::{MONITOR_TICK_MS, MediaWatchdog, WatchdogAction};
+use super::watchdog::{KeyframeRecovery, MONITOR_TICK_MS, MediaWatchdog, WatchdogAction};
 use super::{Result, RtcError, RtcEvent};
 use crate::rtc::input::{GamepadFrame, encode_client_metadata, encode_gamepad};
 use crate::rtc::media::audio_sink::AudioSink;
 use crate::rtc::media::frame_sink::SharedFrame;
 use crate::rtc::media::{AccessUnit, AudioDecoder, FfmpegDecoder, OpusDecoder, VideoDecoder};
 use crate::rtc::protocol::keyframe_request;
+
+/// How many complete video frames str0m holds back waiting for a lost one (about
+/// 66 ms at 60 fps). str0m's default of 30 froze the picture for half a second on
+/// every unrecovered packet (measured 2026-11-27 on Wi-Fi); past this point it is
+/// better to drop the frame and ask for a keyframe (see `KeyframeRecovery`).
+const VIDEO_REORDER_FRAMES: usize = 4;
 
 const CHANNELS: [(&str, &str); 4] = [
     ("chat", "chatV1"),
@@ -251,7 +257,9 @@ async fn connect<S: Signaling, T: Transport>(
     let session = signaling.create_session(server_id, play_path).await?;
     let local_addr = transport.local_addr()?;
 
-    let mut rtc = Rtc::new(Instant::now());
+    let mut rtc = Rtc::builder()
+        .set_reordering_size_video(VIDEO_REORDER_FRAMES)
+        .build(Instant::now());
     rtc.add_local_candidate(
         Candidate::host(local_addr, "udp").map_err(|e| RtcError::Transport(e.to_string()))?,
     );
@@ -615,6 +623,7 @@ struct MediaPipeline {
     audio_dec: Option<OpusDecoder>,
     audio_sink: Option<AudioSink>,
     clip_ring: ClipRing,
+    keyframe_recovery: KeyframeRecovery,
 }
 
 impl MediaPipeline {
@@ -642,6 +651,7 @@ impl MediaPipeline {
                         * 1000.0
                 }),
             ),
+            keyframe_recovery: KeyframeRecovery::default(),
         }
     }
 
@@ -721,6 +731,20 @@ fn handle_event(
                 // counter, FirstFrame, and GL publishing all happen on the worker.
                 if let Some(v) = &media.video {
                     v.feed(data.data.to_vec(), pts, data.is_keyframe());
+                }
+                if media
+                    .keyframe_recovery
+                    .on_frame(data.contiguous, data.is_keyframe(), now_ms)
+                    && let Ok(bytes) = serde_json::to_vec(&keyframe_request())
+                {
+                    apply_write(
+                        rtc,
+                        ids,
+                        &ChannelWrite {
+                            label: ChannelLabel::Control,
+                            bytes,
+                        },
+                    );
                 }
             } else if data.mid == media.audio_mid {
                 let a_pts = media_time_micros(&data);
