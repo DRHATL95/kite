@@ -49,7 +49,7 @@ Application (client) ID: 12345678-abcd-1234-5678-123456789abc
 
 ### 6. Update the Code
 
-Edit `src/auth.rs` and replace both instances of:
+Edit `crates/kite-core/src/auth.rs` and replace both instances of:
 
 ```rust
 let client_id = "YOUR_CLIENT_ID_HERE";

@@ -24,7 +24,7 @@ I researched how [Greenlight](https://github.com/unknownskl/greenlight) and [xbo
 
 ## Changes Made
 
-### 1. Fixed xHome Session Creation ([src/xhome.rs:145-147](src/xhome.rs#L145-L147))
+### 1. Fixed xHome Session Creation ([crates/kite-core/src/xhome.rs:145-147](crates/kite-core/src/xhome.rs#L145-L147))
 **Problem**: The `create_session` function wasn't including the serverId in the API endpoint
 
 **Before**:
@@ -39,7 +39,7 @@ let url = format!("{}/v5/sessions/home/{}/play", self.api_base, console_id);
 
 This was a **critical bug** - without the serverId in the URL, the Xbox API couldn't identify which console to stream from.
 
-### 2. OAuth Implementation ([src/auth.rs](src/auth.rs))
+### 2. OAuth Implementation ([crates/kite-core/src/auth.rs](crates/kite-core/src/auth.rs))
 Implemented complete OAuth 2.0 authorization code flow:
 - Local HTTP server on port 8080 for callbacks
 - Exchange code for Microsoft access token
@@ -47,7 +47,7 @@ Implemented complete OAuth 2.0 authorization code flow:
 - XSTS token used for all xHome API calls
 - Proper token management and expiration handling
 
-### 3. xHome Client ([src/xhome.rs](src/xhome.rs))
+### 3. xHome Client ([crates/kite-core/src/xhome.rs](crates/kite-core/src/xhome.rs))
 Complete xHome API integration:
 - `get_consoles()`: Fetches user's Xbox consoles
 - `create_session()`: Initiates streaming session with specific console

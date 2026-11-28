@@ -7,20 +7,12 @@
 //! [`run`]. (Idiomatic Tauri 2 lib+bin layout.)
 
 pub mod audio_out;
-pub mod auth;
-pub mod clip;
-pub mod error;
 pub mod logging;
 pub mod releases;
-// `rtc` compiles in the default build: its pure protocol modules (input/protocol/
-// clip_tap) and trait seams carry no codec/transport deps and are unit-tested
-// without the feature. Only the str0m/ffmpeg-backed engine + adapters inside it
-// are gated behind `native-webrtc` (see src/rtc/mod.rs).
-pub mod rtc;
-pub mod token_store;
 pub mod tray;
 pub mod updater;
-pub mod xhome;
+// The engine lives in `crates/kite-core`; re-exported so `kite::rtc` etc. still resolve.
+pub use kite_core::{auth, clip, error, rtc, token_store, xhome};
 
 /// Launch the Tauri application (window, plugins, commands). Called from
 /// `main.rs`. Returns when the app exits.
@@ -722,7 +714,7 @@ mod tauri_commands {
     ///
     /// Axes are dead-zoned (|v| < 0.1 → 0), then scaled to i16 via
     /// `round(v * 32767)` clamped to [−32767, +32767]. Y axes are stored
-    /// without negation; `encode_gamepad` (src/rtc/input.rs) negates them on
+    /// without negation; `encode_gamepad` (crates/kite-core/src/rtc/input.rs) negates them on
     /// the wire, matching `normalizeAxis(-ly)` / `normalizeAxis(-ry)` in input.ts.
     #[cfg(feature = "native-webrtc")]
     fn gamepad_dto_to_frame(g: &GamepadStateDto) -> crate::rtc::input::GamepadFrame {

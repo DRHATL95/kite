@@ -1,7 +1,7 @@
 /**
  * clipPayload.ts — pack a captured clip into the binary wire format that
- * `src/clip.rs::ClipPayload::parse` reads. Little-endian throughout (via
- * DataView). The byte layout is defined once in `src/clip.rs` and mirrored here;
+ * `crates/kite-core/src/clip.rs::ClipPayload::parse` reads. Little-endian throughout (via
+ * DataView). The byte layout is defined once in `crates/kite-core/src/clip.rs` and mirrored here;
  * a shared byte fixture in both test suites guards against drift.
  *
  * ```text

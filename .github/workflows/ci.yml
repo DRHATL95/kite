@@ -60,9 +60,9 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test
-        run: cargo test
+        run: cargo test --workspace
 
   # The `native-webrtc` feature is opt-in, so the `rust` job above (default
   # features) never compiles str0m, opus, ffmpeg-the-third, bytes, cpal, gtk,
@@ -125,8 +125,8 @@ jobs:
       # render_spike, render_live) compile too -- they are the only consumers of
       # parts of the native stack.
       - name: clippy (native-webrtc)
-        run: cargo clippy --all-targets --features native-webrtc -- -D warnings
+        run: cargo clippy --workspace --all-targets --features native-webrtc -- -D warnings
       # rtc_e2e self-skips without XBOX_E2E=1 (it needs a live console), so this
       # runs the unit tests only.
       - name: cargo test (native-webrtc)
-        run: cargo test --features native-webrtc
+        run: cargo test --workspace --features native-webrtc

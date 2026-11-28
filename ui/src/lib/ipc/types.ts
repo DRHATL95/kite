@@ -3,8 +3,8 @@
  *
  * Field names match the serde JSON exactly (i.e. the serde `rename` values,
  * not the Rust snake_case field names).  Keep these in sync with:
- *   - src/xhome.rs  (XHomeConsole, IceCandidate, IceServer, StreamConfig)
- *   - src/auth.rs   (DeviceCodeInfo)
+ *   - crates/kite-core/src/xhome.rs  (XHomeConsole, IceCandidate, IceServer, StreamConfig)
+ *   - crates/kite-core/src/auth.rs   (DeviceCodeInfo)
  */
 
 /** Xbox console returned by discover_xhome_consoles (xhome.rs XHomeConsole). */

@@ -7,7 +7,7 @@ import {
 
 /**
  * Shared byte fixture. The IDENTICAL array is asserted against the Rust parser
- * in `src/clip.rs::tests::parses_bytes_produced_by_the_js_packer`, proving the
+ * in `crates/kite-core/src/clip.rs::tests::parses_bytes_produced_by_the_js_packer`, proving the
  * TS packer and the Rust parser agree byte-for-byte (field order + endianness).
  * If you change the layout, update both.
  */
