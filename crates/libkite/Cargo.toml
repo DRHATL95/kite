@@ -1,0 +1,29 @@
+[package]
+name = "libkite"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Kite engine behind a C ABI, for the Avalonia frontend (Kite 2.0)."
+
+[lib]
+# Named `libkite`, not `kite`: the Tauri app's library is already `kite` and the two
+# share a target directory. Rename when the Tauri app is deleted.
+name = "libkite"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kite-core = { path = "../kite-core" }
+tokio.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+cbindgen = { version = "0.29", default-features = false }
+
+[features]
+# Streaming needs the native media stack (str0m, FFmpeg). Without it the library
+# still builds and signs in, and kite_connect returns KITE_STATUS_UNSUPPORTED.
+native-webrtc = ["kite-core/native-webrtc"]
+
+[[example]]
+name = "headless"
+required-features = ["native-webrtc"]
